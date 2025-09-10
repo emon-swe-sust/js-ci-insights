@@ -1,0 +1,21 @@
+name: test-2-slack-notification
+
+on: [push]
+
+jobs:
+  slack-action:
+    #if: ${{ false }}
+    runs-on: windows-latest
+    name: Test 2 [windows-latest]
+
+    steps:
+      - name: Send Slack Message
+        uses: archive/github-actions-slack@master
+        id: send-message
+        with:
+          slack-bot-user-oauth-access-token: ${{ secrets.SLACK_BOT_USER_OAUTH_ACCESS_TOKEN }}
+          slack-channel: C036UR2U8HG
+          slack-text: Test 2 - 🤓 Event name "${{ github.event_name }}" Repo "${{ github.repository }}"
+
+      - name: Result from "Send Slack Message"
+        run: echo '${{ steps.send-message.outputs.slack-result }}'

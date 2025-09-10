@@ -1,0 +1,34 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  DOCKER_IMAGE_NAME: mergeability/mergeable
+
+jobs:
+  build:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Semantic Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        if: ${{ steps.semantic.outputs.new_release_version }}
+      - uses: buildpacks/github-actions/setup-pack@v5.7.2
+        if: ${{ steps.semantic.outputs.new_release_version }}
+      - name: Build and publish docker image
+        if: ${{ steps.semantic.outputs.new_release_version }}
+        run: pack build ${{ env.DOCKER_IMAGE_NAME }} -t ${{ env.DOCKER_IMAGE_NAME }}:${{ steps.semantic.outputs.new_release_version }} -t ${{ env.DOCKER_IMAGE_NAME }}:latest -B paketobuildpacks/builder-jammy-tiny -b docker.io/paketobuildpacks/nodejs --publish

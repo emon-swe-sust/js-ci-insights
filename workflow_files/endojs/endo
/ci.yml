@@ -1,0 +1,383 @@
+name: CI
+
+# run CI on pushes to master, and on all PRs (even the ones that target other
+# branches)
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# This file has necessary redundancies since of github actions aren't supporting:
+# - the definition of macros, which could be called from each job.
+# - reporting the status of steps in the PR (only jobs and workflows are reported).
+# Steps between "begin" and "end" should be the same in every job.
+
+jobs:
+  lint:
+    name: lint
+
+    # begin macro
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # without this, setup-node errors on mismatched yarn versions
+      - run: corepack enable
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # end macro
+
+      - name: Run yarn build
+        run: yarn build
+
+      - name: Run yarn lint
+        run: yarn lint
+
+      # build the API docs to verify it works
+      - name: build API docs
+        run: yarn docs
+
+      # build the API docs in markdown for agoric/documentation repo to verify it works
+      - name: build API docs in markdown
+        run: yarn docs:markdown-for-agoric-documentation-repo
+
+  test:
+    name: test
+
+    # begin macro
+
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+        platform: [ubuntu-latest, macos-15]
+        # windows-latest exhibited flakey tests that are not yet worth the
+        # trouble to investigate, and blocked us from upgrading yarn from 1 to
+        # 4.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # without this, setup-node errors on mismatched yarn versions
+      - run: corepack enable
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Install Engines
+        run: yarn workspace @endo/benchmark run install-engines
+
+      # end macro
+
+      - name: Run yarn build
+        run: yarn build
+
+      - name: Run yarn test
+        run: yarn test
+
+  test-async-hooks:
+    name: test-async-hooks
+
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version:
+          # '16.1' last version before some significant promise hooks changes
+          # '16.5' last version before unconditional promise fast-path
+          # '16.6' first version after unconditional promise fast-path
+          - '18'
+          # '20.6' not viable due to https://github.com/nodejs/node/issues/49497
+          # '20.3' to '20.6' not viable due to https://github.com/nodejs/node/pull/49211
+          # '20.7' first SES-viable version
+          # '20.9' first LTS of 20
+          - '20'
+        platform:
+          - ubuntu-latest
+
+    # begin macro
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # without this, setup-node errors on mismatched yarn versions
+      - run: corepack enable
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+
+      # end macro
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run yarn build
+        run: yarn build
+
+      - name: Run yarn test (@endo/init)
+        working-directory: packages/init
+        run: yarn test
+
+  cover:
+    name: cover
+
+    # begin macro
+
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x]
+        platform: [ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # without this, setup-node errors on mismatched yarn versions
+      - run: corepack enable
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # end macro
+
+      - name: Run yarn build
+        run: yarn build
+
+      - name: Run yarn cover
+        run: yarn cover
+
+  test262:
+    name: test262
+
+    # begin macro
+
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x]
+        platform: [ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # without this, setup-node errors on mismatched yarn versions
+      - run: corepack enable
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # end macro
+
+      - name: Run yarn build
+        run: yarn build
+
+      - name: Run yarn test262
+        run: exit 0 # TODO remove test262 from required tests for CI
+
+  test-hermes:
+    name: test-hermes
+
+    # begin macro
+
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # without this, setup-node errors on mismatched yarn versions
+      - run: corepack enable
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # end macro
+
+      - name: Run yarn build
+        run: yarn build
+
+      - name: Run SES/Hermes smoke test
+        run: yarn test:hermes
+
+  viable-release:
+    name: viable-release
+
+    # begin macro
+
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x]
+        platform: [ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # without this, setup-node errors on mismatched yarn versions
+      - run: corepack enable
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # end macro
+
+      - name: build
+        run: yarn run build
+
+      - name: pack
+        run: yarn workspaces foreach --all --topological exec yarn pack
+
+      # Prepack (without cleanup per package) to ensure that type resolution in
+      # dependent packages continues to work when the typedefs are generated by
+      # their upstream packages. This helps avoid a situation in which the types
+      # only resolve because of the state of the local filesystem, and fails
+      # when imported in an NPM node_modules tree.
+      - name: Prepack packages
+        run: yarn lerna run --reject-cycles --concurrency 1 prepack
+
+  test-xs:
+    name: test-xs
+
+    # begin macro
+
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20.x]
+        # may include release tags and hashes:
+        moddable-version: [5.0.0]
+        platform: [ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: endo
+
+      # without this, setup-node errors on mismatched yarn versions
+      - run: corepack enable
+        working-directory: endo
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+          cache-dependency-path: endo/yarn.lock
+
+      - name: Install dependencies
+        working-directory: endo
+        run: yarn install --immutable
+
+      # end macro
+
+      - name: Run yarn build
+        working-directory: endo
+        run: yarn build
+
+      - name: Restore XS binary cache
+        id: restore-xs
+        uses: actions/cache@v4
+        with:
+          path: bin/xst
+          key: xst-lin64-${{ matrix.moddable-version }}
+
+      - name: Choose download or build
+        if: steps.restore-xs.outputs.cache-hit != 'true'
+        id: check-release
+        run: |
+          if curl -f -s -o /dev/null -I -L https://api.github.com/repos/Moddable-OpenSource/moddable/releases/tags/${{ matrix.moddable-version }}
+          then
+            echo release=download
+          else
+            echo release=build
+          fi >> $GITHUB_OUTPUT
+
+      - name: Download XS
+        if: steps.check-release.outputs.release == 'download'
+        run: |
+          wget "https://github.com/Moddable-OpenSource/moddable/releases/download/${{ matrix.moddable-version }}/xst-lin64.zip"
+          unzip xst-lin64.zip -d bin
+          mkdir -p bin
+          chmod 755 bin/xst
+
+      - name: Checkout XS
+        if: steps.check-release.outputs.release == 'build'
+        uses: actions/checkout@v4
+        with:
+          repository: moddable-OpenSource/moddable
+          ref: ${{ matrix.moddable-version }}
+          path: moddable
+
+      - name: Build XS
+        if: steps.check-release.outputs.release == 'build'
+        working-directory: moddable/xs/makefiles/lin
+        run: |
+          make debug MODDABLE=$GITHUB_WORKSPACE/moddable CC='cc "-D__has_builtin(x)=1"' # give the syntax highlighter a hand: '
+          mkdir -p $GITHUB_WORKSPACE/bin
+          cp $GITHUB_WORKSPACE/moddable/build/bin/lin/debug/xst $GITHUB_WORKSPACE/bin/xst
+
+      - name: Run XS tests
+        working-directory: endo
+        run: |
+          PATH=$PATH:$GITHUB_WORKSPACE/bin
+          yarn test:xs

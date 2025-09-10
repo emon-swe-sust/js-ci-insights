@@ -1,0 +1,72 @@
+name: deployed
+on:
+  status:
+    branches:
+      - master
+jobs:
+  print-event:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print GitHub event 🖨
+        env:
+          GITHUB_EVENT: ${{ toJson(github.event) }}
+        run: echo "$GITHUB_EVENT"
+      - name: Print the context 📋
+        run: echo "context ${{ github.event.context }} state ${{ github.event.state }}"
+
+  test-publish:
+    if: github.event.context == 'github/pages' && github.event.state == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "gh-pages 📑 deployed successfully ✅"
+
+      # we need our scraping config, thus check out code
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies 📦
+        uses: cypress-io/github-action@v6
+        with:
+          # just perform install
+          runTests: false
+
+      - name: Set Cypress version 🎁
+        id: cypress
+        run: echo "version=$(node ./src/print-cypress-version)" >> $GITHUB_OUTPUT
+
+      - name: Print Cypress version 🖨
+        run: echo "Cypress version is ${{ steps.cypress.outputs.version }}"
+
+      - name: Export Markdown specs 🖨
+        run: node ./md-to-js https://glebbahmutov.com/cypress-examples
+
+      - name: Catch stray .only tests 🚦
+        run: npm run stop-only
+
+      - name: Format extracted specs 💅
+        run: npm run format:extracted
+
+      # we "simulate" Run All Specs button in Test Runner GUI
+      # by concatenating all extracted specs into a single one
+      # to be included in the test run.
+      # Note: delete this file before publishing to NPM
+      - name: Create Run All Spec 🏗
+        run: cat docs/**/*.js > docs/run-all-specs.js
+
+      - name: Test deployed site 🧪💨
+        uses: cypress-io/github-action@v6
+        with:
+          # we have already installed all dependencies above
+          install: false
+          config-file: cypress-dist.config.js
+          record: true
+          tag: deployed
+        env:
+          CYPRESS_RECORD_KEY: ${{ secrets.recordKey }}
+          # pass GitHub token to allow accurately detecting a build vs a re-run build
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete run all specs file 🗑
+        run: rm docs/run-all-specs.js

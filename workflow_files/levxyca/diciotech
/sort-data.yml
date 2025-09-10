@@ -1,0 +1,57 @@
+name: Sort data files
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "_data/**"
+
+  pull_request:
+    paths:
+      - "_data/**"
+
+  workflow_dispatch:
+
+jobs:
+  sort-data:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check if changed data files
+        id: changed-data
+        uses: tj-actions/changed-files@v45.0.4
+        with:
+          files: _data/**.yml
+          files_ignore: _data/**/strings.yml
+
+      - name: Setup Python
+        if: steps.changed-data.outputs.any_changed == 'true'
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Sort data files
+        if: steps.changed-data.outputs.any_changed == 'true'
+        env:
+          ALL_CHANGED_FILES: ${{ steps.changed-data.outputs.all_changed_files }}
+        run: |
+          for file in $ALL_CHANGED_FILES; do
+            if [[ $(basename $file) == "strings.yml" ]]; then
+              continue
+            fi
+            echo "Formatting $file"
+            python3 format_data.py -f $file
+          done
+
+      # commit all changed files back to the repository
+      - uses: stefanzweifel/git-auto-commit-action@v5.0.1
+        if: steps.changed-data.outputs.any_changed == 'true'
+        with:
+          commit_message: Sort data files

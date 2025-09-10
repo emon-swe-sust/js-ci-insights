@@ -1,0 +1,96 @@
+name: deploy_test
+on: 
+  push:
+    branches:
+      - 'dev-app-java'
+jobs:
+  ci:
+    environment: datadog
+    runs-on: ubuntu-latest
+    steps:
+      - name: setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+      - name: install libraries
+        run: |
+          pip install datadog-api-client
+          pip install pyyaml
+          pip install kubernetes
+          pip install gitpython
+          pip install python_terraform
+      - name: checkout main branch
+        uses: actions/checkout@v3
+        with:
+          ref: main  
+      - name: checkout feature branch
+        uses: actions/checkout@v3
+        with:
+          ref: dev-app-java  
+      - name: configure ci
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          curl -LO "https://dl.k8s.io/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+          sed -i 's/<APPLICATION_ID>/\"${{ secrets.APPLICATION_ID }}\"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<CLIENT_TOKEN>/\"${{ secrets.CLIENT_TOKEN }}\"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<MANIFEST_1>/\"..\/..\/..\/app-java\/kubernetes\/app-java.yaml\"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<NAMESPACE>/\"default\"/g' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<LABEL_SELECTOR_1>/\"run=app-java\"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<MANIFEST_2>/\"..\/..\/..\/app-java\/kubernetes\/mysql_ja.yaml\"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<LABEL_SELECTOR_2>/\"run=mysql\"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<MANIFEST_3>/\"..\/..\/..\/app-java\/kubernetes\/app_java_service.yaml\"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<BROWSER_TEST_PUBLIC_ID>/\"476-sd6-bh6\"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<BROWSER_TEST_TUNNEL_PORT>/33333/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<BROWSER_TEST_APP_PORT>/8080/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<PORT_FORWARD_TYPE_NAME>/\"deploy\/app-java\"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/<SERVICE_NAME>/"app-java"/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/kubernetes\/kind/..\/..\/kind/' kubernetes/cicd/dev/config.yaml
+          sed -i 's/kubernetes\/kind/..\/..\/kind/' kubernetes/cicd/dev/config.yaml
+          pushd kubernetes/cicd/dev/
+          npm install --save-dev @datadog/datadog-ci
+          echo '{"scripts": {"datadog-ci-synthetics": "datadog-ci synthetics run-tests"},"devDependencies": {"@datadog/datadog-ci": "^2.4.1"}}' > package.json
+      - name: run ci
+        env:
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DATADOG_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
+        run: |
+          pushd kubernetes/cicd/dev/
+          python3 dev.py
+      - name: merge
+        env:
+          DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}    
+        run: |
+          import os
+          import sys
+          import subprocess
+          os.chdir("kubernetes/cicd/")
+          mod_path = os.getcwd()
+          sys.path.append(mod_path)
+          from cicd_functions import send_log
+          sys.path.append(f"{mod_path}/dev")
+          from setup import get_config
+          
+          # get configuration data
+          os.chdir("dev/")
+          config_data = get_config()
+          
+          # get service being tested
+          service = config_data["service"]["name"] 
+          
+          # merge to main
+          os.system('git config --global user.email "jenks.gibbons@datadoghq.com"')
+          os.system('git config --global user.name "Jenks"')
+          os.system("git fetch --unshallow")
+          try:
+            cmd_output = subprocess.check_output("git checkout main && git merge \
+                                          --no-ff --allow-unrelated-histories \
+                                          origin/dev-app-java && git push", \
+                                          shell=True, text=True)
+            send_log(f"INFO {cmd_output}", "app-java")
+          except subprocess.CalledProcessError as error:
+            cmd_output = str(error)
+            send_log(f"ERROR {cmd_output}", service)
+        shell: python
+

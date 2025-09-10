@@ -1,0 +1,53 @@
+name: "Tests"
+on: [push]
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: npm test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+      - run: npm ci
+      - run: npm test
+  integ:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest # M1
+          - macos-13 # Intel
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    steps:
+        # Step 1
+      - name: Git Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        # Step 2
+      - name: Setup Cloud Formation Linter with Latest Version
+        uses: ./
+        # Step 3
+      - name: Print the Cloud Formation Linter Version & run Linter.
+        run: |
+          cfn-lint --version
+          cfn-lint -t ./examples/template.yml
+        # Step 4
+      - name: Setup Cloud Formation Linter with Specific Version
+        uses: ./
+        with:
+          version: "[sarif]>=1.0"
+        # Step 5
+      - name: Print the Cloud Formation Linter Version & run Linter.
+        run: |
+          cfn-lint --version
+          cfn-lint -t ./examples/template.yml
+        # Step 6
+      ### Testing specifying a version and command
+      - name: Testing with CFN Lint Version & Command
+        uses: ./
+        with:
+          command: cfn-lint -t ./examples/template.yml

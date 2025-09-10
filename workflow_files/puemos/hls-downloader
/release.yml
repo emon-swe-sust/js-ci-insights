@@ -1,0 +1,33 @@
+name: "Release"
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install
+      - name: Test
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            extension-chrome.zip
+            extension-firefox.xpi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

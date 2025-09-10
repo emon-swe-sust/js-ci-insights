@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22.14.0"
+    - name: Cache node modules
+      uses: actions/cache@v4
+      with:
+        path: node_modules
+        key: ${{ runner.OS }}-build-${{ hashFiles('**/yarn.lock') }}
+    - name: Install
+      run: yarn install
+    - name: Lint
+      run: |
+        yarn run lint --no-fix
+        # --validate-https, fails with Yarn 4 due to protocol=npm
+        DEBUG="lockfile-lint,validate-host-manager" npx lockfile-lint --path yarn.lock --allowed-hosts npm --allowed-hosts registry.yarnpkg.com
+    - name: Test
+      run: |
+        NODE_ENV=test yarn run coverage:unit
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/lcov.info
+        flags: unittests
+        fail_ci_if_error: false
+    - name: Build
+      run: yarn run build
+    - name: Build Library
+      run: yarn run build
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.OS }}-build-${{ hashFiles('**/yarn.lock') }}
+      - name: Install
+        run: yarn install
+      - name: e2e
+        run: |
+          VITE_COVERAGE=1 yarn run test:e2e --headless
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: e2e
+          fail_ci_if_error: false
+

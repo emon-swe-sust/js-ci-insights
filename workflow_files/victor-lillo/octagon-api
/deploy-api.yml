@@ -1,0 +1,37 @@
+# https://developers.cloudflare.com/workers/wrangler/ci-cd/
+name: Deploy API
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+    paths: ['db/**']
+  workflow_run:
+    workflows: ['Octagon Scraper']
+    types: [completed]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Build
+        run: |
+          pnpm install
+
+      - name: Build & Deploy Worker
+        uses: cloudflare/wrangler-action@v3.6.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: ./api
+          packageManager: pnpm
+
+      - run: echo "🎉 API successfully finished!"

@@ -1,0 +1,228 @@
+name: release
+on:
+  push:
+    tags:
+    - "v*"
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  create-release:
+    name: create-release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.release.outputs.upload_url }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Get the release version from the tag
+        shell: bash
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Create GitHub release
+        id: release
+        uses: actions/create-release@v1.1.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          release_name: Automated build of ${{ env.TAG_NAME }}
+          prerelease: true
+          body_path: .github/workflows/release.md
+
+  release-assets:
+    name: Release assets
+    needs: create-release
+    runs-on: ${{ matrix.build.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        build:
+          - os: ubuntu-latest
+            target: arm-unknown-linux-musleabihf
+            friendly: Linux-ARM-32-bit
+            exe_postfix:
+            cargo: cross
+            gui: false
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            friendly: Linux-ARM-64-bit
+            exe_postfix:
+            cargo: cross
+            gui: false
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            friendly: Linux-X86-64-bit
+            exe_postfix:
+            cargo: cargo
+            gui: false
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            friendly: macOS-ARM-64-bit
+            exe_postfix:
+            cargo: cargo
+            gui: true
+
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            friendly: macOS-X86-64-bit
+            exe_postfix:
+            cargo: cargo
+            gui: true
+
+          - os: windows-latest
+            target: i686-pc-windows-msvc
+            friendly: Windows-X86-32-bit
+            exe_postfix: .exe
+            cargo: cargo
+            gui: true
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            friendly: Windows-X86-64-bit
+            exe_postfix: .exe
+            cargo: cargo
+            gui: true
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          target: ${{ matrix.build.target }}
+
+      - name: Install cross
+        if: matrix.build.cargo == 'cross'
+        run: cargo install cross
+
+      - name: Install and use musl
+        if: matrix.build.os == 'ubuntu-latest' && matrix.build.cargo != 'cross'
+        run: |
+          sudo apt-get install -y --no-install-recommends musl-tools
+          echo "CC=musl-gcc" >> $GITHUB_ENV
+          echo "AR=ar" >> $GITHUB_ENV
+
+      - name: Build command line binary
+        if: ${{ !matrix.build.gui }}
+        run: ${{ matrix.build.cargo }} build -p crusader --target ${{ matrix.build.target }} --release
+        working-directory: src
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+
+      - name: Build
+        if: matrix.build.gui
+        run: ${{ matrix.build.cargo }} build --target ${{ matrix.build.target }} --release
+        working-directory: src
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+
+      - name: Build output
+        shell: bash
+        run: |
+          staging="Crusader-${{ matrix.build.friendly }}"
+          mkdir -p "$staging"
+          cp src/target/${{ matrix.build.target }}/release/crusader${{ matrix.build.exe_postfix }} "$staging/"
+
+      - name: Copy GUI binary
+        if: matrix.build.gui
+        shell: bash
+        run: |
+          cp src/target/${{ matrix.build.target }}/release/crusader-gui${{ matrix.build.exe_postfix }} "crusader-${{ matrix.build.friendly }}/"
+
+      - name: Archive output
+        if: matrix.build.os == 'windows-latest'
+        shell: bash
+        run: |
+          staging="Crusader-${{ matrix.build.friendly }}"
+          7z a "$staging.zip" "$staging"
+          echo "ASSET=$staging.zip" >> $GITHUB_ENV
+
+      - name: Archive output
+        if: matrix.build.os != 'windows-latest'
+        shell: bash
+        run: |
+          staging="Crusader-${{ matrix.build.friendly }}"
+          tar czf "$staging.tar.gz" "$staging"
+          echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
+
+      - name: Upload archive
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_name: ${{ env.ASSET }}
+          asset_path: ${{ env.ASSET }}
+          asset_content_type: application/octet-stream
+
+  release-android-assets:
+    name: Android APK
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Rust targets
+        run: >
+          rustup target add
+          aarch64-linux-android
+          armv7-linux-androideabi
+          x86_64-linux-android
+          i686-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+
+      - name: Build Android Rust crates
+        working-directory: android
+        run: >
+          cargo ndk
+          -t arm64-v8a
+          -t armeabi-v7a
+          -t x86_64
+          -t x86
+          -o app/src/main/jniLibs/ -- build --release
+
+      - name: Decode Keystore
+        env:
+            ENCODED_STRING: ${{ secrets.KEYSTORE }}
+        run: echo "$ENCODED_STRING" | base64 -di > ../android.keystore
+
+      - name: Build Android APK
+        working-directory: android
+        run: ./gradlew build
+        env:
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+
+      - name: Upload APK
+        uses: actions/upload-release-asset@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_name: Crusader-Android.apk
+          asset_path: android/app/build/outputs/apk/release/app-release.apk
+          asset_content_type: application/octet-stream

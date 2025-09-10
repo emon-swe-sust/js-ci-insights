@@ -1,0 +1,35 @@
+name: Fetch Appstore Info
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0/15 * * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2.4.1
+        with:
+          node-version: "16.x"
+        env:
+          ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "2.7"
+      - run: gem install bundler:2.1.4
+      - run: bundle install
+      - run: npm install
+      - run: gem install fastlane -v '2.219.0'
+      - run: node Sources/check_status.js
+        env:
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          KEY_ID: ${{ secrets.KEY_ID }}
+          ISSUER_ID: ${{ secrets.ISSUER_ID }}
+          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          LANGUAGE: "ko"

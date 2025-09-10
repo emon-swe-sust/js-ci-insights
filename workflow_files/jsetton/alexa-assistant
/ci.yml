@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    tags: [ v*.*.* ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: public.ecr.aws/sam/build-nodejs20.x
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Install dependencies
+      run: npm ci
+      working-directory: lambda
+      env:
+        NODE_ENV: production
+
+    - name: Package lambda source code
+      run: zip -r ../lambda.zip .
+      working-directory: lambda
+
+    - name: Create new release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: lambda.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

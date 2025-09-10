@@ -1,0 +1,24 @@
+name: Windows image build
+
+on:
+  push:
+    paths:
+      - "docker/windows/**"
+  schedule:
+    - cron: "0 2 * * 6"
+  workflow_dispatch:
+
+jobs:
+  build-base:
+    runs-on: windows-2019
+    steps:
+      - uses: actions/checkout@master
+      - name: Build and push Windows base images
+        working-directory: docker
+        run: |
+          docker login -u $env:USER -p $env:TOKEN
+          docker-compose -f docker-compose-windows.yml build 
+          docker-compose -f docker-compose-windows.yml push
+        env:
+          USER: ${{ secrets.DOCKER_HUB_USERNAME }}
+          TOKEN: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}

@@ -1,0 +1,42 @@
+name: SonarCloud
+
+on:
+  push:
+    branches:
+      - master
+jobs:
+  sonarcloud:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: install
+      run: npm config set //registry.npmjs.org/:_authToken "${{ secrets. NPM_TOKEN }}" && npm install
+    - name: test
+      run: npm test
+    - name: SonarCloud Scan
+      uses: sonarsource/sonarcloud-github-action@master
+      with:
+        projectBaseDir: .
+        args: >
+          -Dsonar.organization=tyktechnologies
+          -Dsonar.projectKey=TykTechnologies_tyk-ui
+          -Dsonar.sources=./src
+          -Dsonar.exclusions=src/common/sass/fontawesome.scss,src/common/sass/tykon.scss
+          -Dsonar.coverage.exclusions=cypress/**/*.js,**/*.test.js,src/form/components/Combobox/**/*.js,src/form/components/Input/**/*.js,src/form/components/EditableList/**/*.js,src/form/redux-form/**/*.js,src/hooks/**/*,src/utils/**/*
+          -Dsonar.cpd.exclusions=**/*.test.js,src/form/redux-form/**/*,src/common/fonts/**/*,src/form/components/Combobox/*.js,src/form/components/Input/*.js,src/form/components/EditableList/**/*.js,src/form/redux-form/**/*.js,src/hooks/**/*,src/utils/**/*
+          -Dsonar.test.inclusions=**/*.test.js
+          -Dsonar.tests=./src
+          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+          -Dsonar.eslint.eslintconfigpath=.eslintrc
+          -Dsonar.issue.ignore.multicriteria=S6847,S6819,S3358
+          -Dsonar.issue.ignore.multicriteria.S6847.ruleKey=javascript:S6847
+          -Dsonar.issue.ignore.multicriteria.S6847.resourceKey=**/*
+          -Dsonar.issue.ignore.multicriteria.S6819.ruleKey=javascript:S6819
+          -Dsonar.issue.ignore.multicriteria.S6819.resourceKey=**/*
+          -Dsonar.issue.ignore.multicriteria.S3358.ruleKey=javascript:S3358
+          -Dsonar.issue.ignore.multicriteria.S3358.resourceKey=**/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

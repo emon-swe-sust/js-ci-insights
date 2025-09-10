@@ -1,0 +1,30 @@
+name: Linting
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main, develop, dependabot ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node: [ 20, 22, 23 ]
+
+    name: Node.js ${{ matrix.node }}
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v2
+      with:
+        node-version: ${{ matrix.node }}
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Run linter
+      run: npm run lint

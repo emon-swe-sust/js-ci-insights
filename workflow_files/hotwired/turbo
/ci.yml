@@ -1,0 +1,41 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: '22'
+        cache: 'yarn'
+    - run: yarn install --frozen-lockfile
+    - run: yarn run playwright install --with-deps
+    - run: yarn build
+
+    - name: Set Chrome Version
+      run: |
+        CHROMEVER="$(chromedriver --version | cut -d' ' -f2)"
+        echo "Actions ChromeDriver is $CHROMEVER"
+        echo "CHROMEVER=${CHROMEVER}" >> $GITHUB_ENV
+
+    - name: Lint
+      run: yarn lint
+
+    - name: Unit Test
+      run: yarn test:unit
+
+    - name: Chrome Test
+      run: yarn test:browser --project=chrome
+
+    - name: Firefox Test
+      run: yarn test:browser --project=firefox
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: turbo-dist
+        path: dist/*

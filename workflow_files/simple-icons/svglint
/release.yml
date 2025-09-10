@@ -1,0 +1,32 @@
+name: Release
+on:
+  workflow_dispatch
+
+permissions: read-all
+
+jobs:
+  release:
+    name: Semantic release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to create a GitHub Release
+      issues: write # to comment on issues included in a release
+      pull-requests: write # to comment on Pull Requests included in a release
+      id-token: write # to generate npm provenance statements
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Node.js setup
+        uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx semantic-release

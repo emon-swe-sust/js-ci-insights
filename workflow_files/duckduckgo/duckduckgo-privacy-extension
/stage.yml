@@ -1,0 +1,45 @@
+name: Stage Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                required: true
+                description: 'Release version'
+
+jobs:
+    release_pr:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: 'npm'
+
+            - name: Bump version and config
+              run: |
+                  npm run install-ci
+                  npm run bundle-config
+                  node scripts/bumpVersion.js ${{ github.event.inputs.version }}
+
+            - name: Create and checkout release branch
+              run: |
+                  git checkout -b "release/${{ github.event.inputs.version }}"
+
+            - name: Commit config and version updates
+              uses: stefanzweifel/git-auto-commit-action@778341af668090896ca464160c2def5d1d1a3eb0
+              with:
+                  commit_message: 'Release ${{ github.event.inputs.version }} [ci release]'
+                  branch: 'release/${{ github.event.inputs.version }}'
+
+            - name: Push release branch
+              run: git push origin "release/${{ github.event.inputs.version }}"
+
+            - name: Create Pull Request
+              run: |
+                  gh pr create -B main --title "Prepare release ${{ github.event.inputs.version }}" --body "Updated version and bundled config."
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

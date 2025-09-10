@@ -1,0 +1,25 @@
+name: Close inactive issues
+on:
+  schedule:
+    - cron: "0 0 1 * *"
+  workflow_dispatch:
+
+jobs:
+  close-issues:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@v5
+        with:
+          days-before-issue-stale: 1
+          days-before-issue-close: 2
+          operations-per-run: 900
+          stale-issue-label: "stale"
+          exempt-issue-labels: "no stale"
+          stale-issue-message: "This issue will be closed soon, please see https://github.com/FastForwardTeam/FastForward/issues/1504"
+          close-issue-message: "FastForward is no longer being actively maintained, see https://github.com/FastForwardTeam/FastForward/issues/1504 for more information."
+          days-before-pr-stale: 30
+          days-before-pr-close: 60
+          repo-token: ${{ secrets.GITHUB_TOKEN }}

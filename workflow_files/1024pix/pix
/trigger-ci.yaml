@@ -1,0 +1,29 @@
+name: Trigger CircleCI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, unlabeled]
+  push:
+    branches: dev
+
+jobs:
+  trigger-ci:
+    runs-on: ubuntu-latest
+
+    # Triggered when :
+    # The opened PR is not draft or is on "dev" branch
+    # And doesn't have the label 'Development in progress' or the label 'Development in progress' label is removed
+    if: ((!github.event.pull_request.draft && github.event.pull_request.state == 'open') || github.ref == 'refs/heads/dev') && ((github.event.action == 'unlabeled' && github.event.label.name == 'Development in progress') || (github.event.action != 'unlabeled' && !contains(github.event.pull_request.labels.*.name, 'Development in progress')))
+
+    steps:
+      - name: Extract branch name
+        shell: bash
+        run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
+        id: extract_branch
+
+      - name: Trigger CircleCI
+        uses: CircleCI-Public/trigger-circleci-pipeline-action@v1.2.0
+        with:
+          target-branch: ${{ steps.extract_branch.outputs.branch }}
+        env:
+          CCI_TOKEN: ${{ secrets.PIX_SERVICE_CIRCLE_CI_TOKEN }}

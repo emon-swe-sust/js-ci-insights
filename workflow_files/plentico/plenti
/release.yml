@@ -1,0 +1,45 @@
+name: goreleaser
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-24.04
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+      -
+        name: Unshallow
+        run: git fetch --prune --unshallow
+      -
+        name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      -
+        name: Set up Snapcraft
+        run: |
+          sudo snap install snapcraft --classic
+      -
+        name: Dockerhub Login
+        run: |
+          echo '${{ secrets.DOCKER_PASSWORD }}' | docker login --username '${{ secrets.DOCKER_USERNAME }}' --password-stdin
+      -
+        name: OSXCross for CGO Support
+        run: |
+          mkdir ../../osxcross
+          git clone https://github.com/plentico/osxcross-target.git ../../osxcross/target
+          echo "/home/runner/work/osxcross/target/bin" >> $GITHUB_PATH
+      -
+        name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: v2.10.2
+          args: release --clean --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.snapcraft_token }}

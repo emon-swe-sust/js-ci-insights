@@ -1,0 +1,42 @@
+name: Netlify
+
+on: push
+
+jobs:
+  Deploy:
+    runs-on: ubuntu-latest
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+
+      - run: npm ci
+      - run: npx changeset version
+
+      - uses: nelonoel/branch-name@v1.0.1
+
+      - name: Publish preview
+        id: netlify
+        uses: jsmrcaga/action-netlify-deploy@v2.4.0
+        if: env.NETLIFY_AUTH_TOKEN
+        with:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_DEPLOY_MESSAGE: Preview ${{ env.BRANCH_NAME }}
+          build_directory: packages/app/dist
+          deploy_alias: ${{ env.BRANCH_NAME }}
+          NETLIFY_DEPLOY_TO_PROD: false
+          build_command: yarn --cwd packages/app run build
+          monorepo_package: packages/app
+
+      - name: Status check
+        uses: Sibz/github-status-action@v1.1.6
+        if: env.NETLIFY_AUTH_TOKEN
+        with:
+          authToken: ${{ secrets.GITHUB_TOKEN }}
+          context: Netlify Site
+          state: success
+          target_url: ${{ env.NETLIFY_PREVIEW_URL }}

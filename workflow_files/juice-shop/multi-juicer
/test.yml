@@ -1,0 +1,108 @@
+on: [push, pull_request]
+name: "Tests"
+permissions:
+  contents: read
+env:
+  GO_STATIC_CHECK_VERSION: "2025.1.1"
+jobs:
+  cleaner:
+    name: Cleaner
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cleaner
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "cleaner/go.mod"
+          cache-dependency-path: "cleaner/go.sum"
+      - name: "Lint"
+        run: go vet ./...
+      - uses: dominikh/staticcheck-action@v1.4.0
+        with:
+          version: "${{ env.GO_STATIC_CHECK_VERSION }}"
+          working-directory: cleaner
+      - name: "Test"
+        run: go test -cover ./...
+
+  balancer:
+    name: Balancer
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: balancer
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "balancer/go.mod"
+          cache-dependency-path: "balancer/go.sum"
+      - name: "Place index.html file into ui build folder"
+        run: |
+          mkdir ui/build/
+          cp ui/index.html ui/build/index.html
+      - name: "Lint"
+        run: go vet ./...
+      - uses: dominikh/staticcheck-action@v1.4.0
+        with:
+          version: "${{ env.GO_STATIC_CHECK_VERSION }}"
+          working-directory: balancer
+      - name: "Test"
+        run: go test -cover ./...
+
+  balancer-ui:
+    name: Balancer UI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: balancer/ui
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+      - name: "Install dependencies"
+        run: npm ci
+      - name: "Lint"
+        run: npm run lint
+      - name: "Test"
+        run: npm run test -- --run
+
+  progress-watchdog:
+    name: ProgressWatchdog
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: progress-watchdog
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "progress-watchdog/go.mod"
+          cache-dependency-path: "progress-watchdog/go.sum"
+      - name: "Lint"
+        run: go vet ./...
+      - uses: dominikh/staticcheck-action@v1.4.0
+        with:
+          version: "${{ env.GO_STATIC_CHECK_VERSION }}"
+          working-directory: progress-watchdog
+      - name: "Test"
+        run: go test -cover ./...
+
+  helm:
+    name: Helm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: helm/multi-juicer/
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify tools
+        run: |
+          helm version
+      - name: Install Helm Unit Test Plugin
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 1.0.0
+      - name: Helm-Chart Unit Tests | Operator
+        run: helm unittest .

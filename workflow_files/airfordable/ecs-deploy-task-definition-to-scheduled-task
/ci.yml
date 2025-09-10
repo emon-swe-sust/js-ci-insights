@@ -1,0 +1,60 @@
+on:
+  pull_request:
+  push:
+    branches:
+      - f/**
+      - main
+
+name: CI
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: NPM Cache
+        uses: actions/cache@v2
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-cache-${{ hashFiles('**/package-lock.json') }}
+
+      - name: NPM Install
+        run: npm ci
+
+      - name: Commitlint
+        if: ${{ github.event_name == 'pull_request' }}
+        run: npx commitlint --from origin/${{ github.base_ref }} --to origin/${{ github.head_ref }}
+
+      - name: Lint
+        run: npm run lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: NPM Cache
+        uses: actions/cache@v2
+        with:
+          key: ${{ runner.os }}-npm-cache-${{ hashFiles('**/package-lock.json') }}
+          path: ~/.npm
+
+      - name: NPM Install
+        run: npm ci
+
+      - name: Test
+        run: npm run test -- --coverage --ci
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: ./coverage
+          fail_ci_if_error: true

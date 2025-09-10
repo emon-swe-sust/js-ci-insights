@@ -1,0 +1,164 @@
+on:
+  repository_dispatch:
+    types: [builds]
+
+name: Build Binaries
+
+jobs:
+  windows_build:
+    name: Windows Build
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.11"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm install
+          npm run build
+        env:
+          CI: false
+      - name: Build Backend
+        run: |
+          cd backend
+          python -m pip install --upgrade pip wheel virtualenv
+          virtualenv venv
+          venv/Scripts/activate.ps1
+          pip install -r requirements.txt
+          python compile.py build
+      - name: Package Project
+        run: |
+          cd backend
+          venv/Scripts/activate.ps1
+          python manage.py collectstatic
+          mv static ./build
+          mv resources ./build
+          mv stellaru poop
+          mv build Stellaru
+          Compress-Archive -Path Stellaru -DestinationPath Windows.zip
+          mv Windows.zip ../
+      - name: Upload Package
+        id: upload-release-asset 
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.client_payload.release_url }}
+          asset_path: ./Windows.zip
+          asset_name: Windows.zip
+          asset_content_type: application/zip
+
+  osx_build:
+    name: OS X Build
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.11"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm install
+          npm run build
+        env:
+          CI: false
+      - name: Build Backend
+        run: |
+          cd backend
+          python -m pip install --upgrade pip wheel virtualenv
+          virtualenv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+          python compile.py build
+      - name: Package Project
+        run: |
+          cd backend
+          source venv/bin/activate
+          python manage.py collectstatic
+          mv static build
+          mv resources build
+          mkdir Stellaru.app
+          mkdir Stellaru.app/Contents
+          mkdir Stellaru.app/Contents/Resources
+          mkdir Stellaru.app/Contents/MacOS
+          cp data/Info.plist Stellaru.app/Contents
+          cp data/stellaru.icns Stellaru.app/Contents/Resources
+          cp -R build/* Stellaru.app/Contents/MacOS
+          zip -vr MacOS.zip Stellaru.app
+          mv MacOS.zip ../
+      - name: Upload Package
+        id: upload-release-asset 
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.client_payload.release_url }}
+          asset_path: ./MacOS.zip
+          asset_name: MacOS.zip
+          asset_content_type: application/zip
+
+  linux_build:
+    name: Linux Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.11"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm install
+          npm run build
+        env:
+          CI: false
+      - name: Build Backend
+        run: |
+          cd backend
+          python -m pip install --upgrade pip wheel virtualenv
+          virtualenv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+          python compile.py build
+      - name: Package Project
+        run: |
+          cd backend
+          source venv/bin/activate
+          python manage.py collectstatic
+          mv static build
+          mv resources build
+          mv stellaru poop
+          mv build Stellaru
+          zip -r Linux.zip Stellaru
+          mv Linux.zip ../
+      - name: Upload Package
+        id: upload-release-asset 
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.client_payload.release_url }}
+          asset_path: ./Linux.zip
+          asset_name: Linux.zip
+          asset_content_type: application/zip

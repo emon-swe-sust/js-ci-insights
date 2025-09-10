@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Simon Schneegans <code@simonschneegans.de>
+# SPDX-License-Identifier: CC0-1.0
+
+name: Deploy
+
+on:
+  push:
+    tags:
+      - "**"
+
+jobs:
+  extension_bundle:
+    name: Extension Bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install libglib2.0-dev gettext
+      - name: Create Release
+        run: |
+          make zip
+      - name: Upload Release
+        uses: svenstaro/upload-release-action@2.9.0
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: desktop-cube@schneegans.github.com.zip
+          tag: ${{ github.ref }}
+          overwrite: true
+          draft: true

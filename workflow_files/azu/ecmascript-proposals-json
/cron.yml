@@ -1,0 +1,35 @@
+name: cron
+on:
+  schedule:
+    - cron:  '0 1 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  cron:
+    name: "daily cron"
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+      - name: Install
+        run: npm ci
+      - name: Fetch
+        run: node ./get-proposal.js
+      - name: Commit
+        uses: EndBug/add-and-commit@v9
+        with:
+          message: "Update Data"
+          add: 'static'
+          push: true
+      - name: Build
+        run: npm run build
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist

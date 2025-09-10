@@ -1,0 +1,93 @@
+name: Deploy
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: yarn lint
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    env:
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      NODE_OPTIONS: --experimental-vm-modules --no-warnings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: cp .env.dist .env
+      - run: yarn test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: cp .env.dist .env
+      - run: yarn build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          tag_prefix: ''
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.ethibox.fr
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push private Docker image
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_BASE_PATH=/app \
+            -t registry.ethibox.fr/ethibox:${{ steps.tag_version.outputs.new_tag }} \
+            -t registry.ethibox.fr/ethibox:latest .
+          docker push registry.ethibox.fr/ethibox --all-tags
+
+      - name: Build and push public Docker image
+        run: |
+          docker build -t ethibox/ethibox:${{ steps.tag_version.outputs.new_tag }} -t ethibox/ethibox:latest .
+          docker push ethibox/ethibox --all-tags

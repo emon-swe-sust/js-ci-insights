@@ -1,0 +1,36 @@
+name: build
+on:
+  push:
+    branches:
+      - master
+  schedule:
+    # Run this script every 1 hrs
+    #  */m hr day month day_of_week
+    - cron:  '0 */1 * * *'
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Description Tag'
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20.11.1
+      - name: run
+        env:
+          YT_RANDOM_USER: ${{ secrets.YT_RANDOM_USER }}
+          YT_RANDOM_PASSWORD: ${{ secrets.YT_RANDOM_PASSWORD }}
+          YT_RANDOM_URL: ${{ secrets.YT_RANDOM_URL }}
+        run: |
+          npm install --omit=dev
+          npm run build
+      - name: deploy
+        uses: JamesIves/github-pages-deploy-action@v4.6.4
+        with:
+          single-commit: true
+          git-config-email: <>
+          branch: gh-pages
+          folder: dist

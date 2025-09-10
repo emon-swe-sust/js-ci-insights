@@ -1,0 +1,21 @@
+name: Publish API to NPM
+on:
+  push:
+    paths:
+      - "api/**"
+    branches:
+      - main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Publish if version has been updated
+        uses: pascalgn/npm-publish-action@1.3.8
+        with:
+          create_tag: false
+          workspace: ./api/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

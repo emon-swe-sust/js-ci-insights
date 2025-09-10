@@ -1,0 +1,100 @@
+name: Deploy 2.4
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '2.4.*'
+
+jobs:
+  release_2_4:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: npm
+    - name: Install Dependencies
+      run: npm ci
+    - name: Fix site prefix
+      run: |
+        sed -i -e "s|'/2.4'|'/${{ github.ref_name }}'|" .vitepress/config.js
+    - name: Build with VitePress
+      run: |
+        mkdir mans
+        npm run docs:build
+        npm run man:build core mans/core
+        npm run man:build pigeonhole mans/pigeonhole
+    - name: Prepare tarballs
+      run: |
+        mkdir tars
+        tar --transform=s,.vitepress/dist,html/${{ github.ref_name }}, -cJf tars/docs.txz .vitepress/dist
+        for dir in mans/*; do
+          tag=$(basename $dir)
+          tar --transform=s,${dir},man, '--exclude=_*' '--exclude=.*' -cJf tars/$tag.txz $dir
+        done
+        mv tars/* .vitepress/dist/
+    - name: Deploy to doc.dovecot.org
+      uses: dovecot/rsync-deployments@v2.0.2
+      with:
+        FLAGS: -azr --delete
+        HOST: doc.dovecot.org
+        USER: docs
+        LOCALPATH: /.vitepress/dist/.
+        REMOTEPATH: public_html/${{ github.ref_name }}
+        DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+      if: env.DEPLOY_KEY
+      env:
+        DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+    - name: Fix symlinks
+      run: |
+        mkdir -p $HOME/.ssh
+        chmod 0700 $HOME/.ssh
+        echo "$DEPLOY_KEY" > $HOME/.ssh/deploy_key
+        chmod 0600 $HOME/.ssh/deploy_key
+        ssh -i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=no docs@doc.dovecot.org bash update-ce-links.sh
+        rm $HOME/.ssh/deploy_key
+      if: env.DEPLOY_KEY
+      env:
+        DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+    - name: Prepare gzip tarball for GitHub download
+      run: |
+        tar --transform=s,.vitepress/dist,html/${{ github.ref_name }}, -czf tars/docs.tgz .vitepress/dist
+    - name: Upload tarball artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: documentation-tar
+        path: tars/docs.tgz
+  publish_2_4:
+    runs-on: ubuntu-latest
+    needs: release_2_4
+    if: github.ref == 'refs/heads/main'
+    name: Publish documentation tarball
+    steps:
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: documentation-tar
+        path: ./
+    - name: Generate SHA256 checksum
+      run: |
+        sha256sum docs.tgz > SHA256SUMS.txt
+    - name: List files
+      run: ls -rl
+    - name: Update latest release
+      uses: andelf/nightly-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: latest
+        name: 'Latest Documentation Build'
+        draft: false
+        body: |
+          This is a gzipped tarball of the latest documentation build.
+        files: |
+          ./SHA256SUMS.txt
+          ./docs.tgz

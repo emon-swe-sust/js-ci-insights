@@ -1,0 +1,81 @@
+name: Windows
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13.5'
+        architecture: 'x64'
+
+    - name: Setup compiler cache
+      shell: powershell
+      run: |
+        iwr -useb https://github.com/mozilla/sccache/releases/download/v0.10.0/sccache-v0.10.0-x86_64-pc-windows-msvc.zip -OutFile sccache.zip
+        Expand-Archive sccache.zip -DestinationPath C:\sccache
+        New-Item -ItemType Directory -Path C:\vs-clang
+        Copy-Item -Path "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\*" C:\vs-clang
+        Copy-Item C:\sccache\sccache-v0.10.0-x86_64-pc-windows-msvc\sccache.exe "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\clang.exe"
+        Copy-Item C:\sccache\sccache-v0.10.0-x86_64-pc-windows-msvc\sccache.exe "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\clang++.exe"
+        Copy-Item C:\sccache\sccache-v0.10.0-x86_64-pc-windows-msvc\sccache.exe "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\clang-cl.exe"
+        Copy-Item C:\sccache\sccache-v0.10.0-x86_64-pc-windows-msvc\sccache.exe "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\clang-cpp.exe"
+        echo "C:\vs-clang"                                                >> $env:GITHUB_PATH
+        echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}"         >> $env:GITHUB_ENV
+        echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $env:GITHUB_ENV
+        echo "SCCACHE_BUCKET=sccache"                                     >> $env:GITHUB_ENV
+        echo "SCCACHE_ENDPOINT=http://robdangero.us:9000"                 >> $env:GITHUB_ENV
+        echo "SCCACHE_REGION=auto"                                        >> $env:GITHUB_ENV
+
+    - name: Compile
+      run: |
+        .\vcbuild.bat openssl-no-asm without-intl
+        C:\sccache\sccache-v0.10.0-x86_64-pc-windows-msvc\sccache.exe --show-stats
+    - name: Get KoreTools_windows_x64
+      run: git clone https://github.com/Kode/KoreTools_windows_x64.git
+    - name: Copy binary
+      run: copy Release\node.exe KoreTools_windows_x64\kmake.exe
+    - name: Set name
+      run: git config --global user.name "Robbot"
+    - name: Set email
+      run: git config --global user.email "robbot2019@robdangero.us"
+    - name: Add binary
+      run: git -C KoreTools_windows_x64 add .
+    - name: Commit binary
+      id: commit
+      continue-on-error: true
+      run: git -C KoreTools_windows_x64 commit -a -m "Update kmake binary to ${env:GITHUB_SHA}."
+    - name: Tag binary
+      if: steps.commit.outcome == 'success'
+      run: git -C KoreTools_windows_x64 tag kmake_${env:GITHUB_SHA}
+    - name: Push binary
+      id: push1
+      if: steps.commit.outcome == 'success'
+      continue-on-error: true
+      run: git -C KoreTools_windows_x64 push https://Kode-Robbot:${env:ROBBOT_PASS}@github.com/Kode/KoreTools_windows_x64.git main --tags
+      env:
+        ROBBOT_PASS: ${{ secrets.ROBBOT_PASS }}
+    - name: Pull
+      if: steps.commit.outcome == 'success' && steps.push1.outcome != 'success'
+      run: git -C KoreTools_windows_x64 pull --no-rebase
+    - name: Push binary again
+      if: steps.commit.outcome == 'success' && steps.push1.outcome != 'success'
+      continue-on-error: true
+      run: git -C KoreTools_windows_x64 push https://Kode-Robbot:${env:ROBBOT_PASS}@github.com/Kode/KoreTools_windows_x64.git main --tags
+      env:
+        ROBBOT_PASS: ${{ secrets.ROBBOT_PASS }}

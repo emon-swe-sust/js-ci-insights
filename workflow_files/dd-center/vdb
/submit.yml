@@ -1,0 +1,50 @@
+name: Submit Branch
+on:
+  issues:
+    types: [opened, reopened]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.bottoken }}
+        fetch-depth: 1
+
+    - name: Use Node.js 18
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: npm install
+      run: npm install
+
+    - name: Commit Branch
+      id: commit
+      run: node script/submitPr.js
+      env:
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+        ISSUE_BODY: ${{ github.event.issue.body }}
+
+    - name: Create Pull Request
+      id: open-pr
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.bottoken }}
+        branch: ${{ format('submit-{0}', github.event.issue.number) }}
+        labels: "bot"
+        title: ${{ steps.commit.outputs.title }}
+        body: ${{ steps.commit.outputs.body }}
+
+    - name: Enable Auto Merge
+      run: node script/autoMerge.js
+      env:
+        GITHUB_TOKEN: ${{ secrets.bottoken }}
+        NUMBER: ${{ steps.open-pr.outputs.pull-request-number }}
+
+    - name: Close Issue
+      run: node script/closeIssue.js
+      env:
+        GITHUB_TOKEN: ${{ secrets.bottoken }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}

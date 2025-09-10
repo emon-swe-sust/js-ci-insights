@@ -1,0 +1,28 @@
+name: 🔍 Code Quality Checks
+
+on:
+  push:
+  schedule:
+    - cron: '0 9 * * *' # every day at 9:00
+
+jobs:
+  test:
+    name: Tests and linting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node and Install Dependencies
+        uses: ./.github/actions/setup-install
+
+      - name: 📐 Code Linting
+        run: yarn lint
+
+      - name: 💅 Code Formatting
+        run: yarn format
+
+      - name: 🧪 Testing Packages
+        run: yarn packages:test

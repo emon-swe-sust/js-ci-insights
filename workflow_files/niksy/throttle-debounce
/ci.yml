@@ -1,0 +1,53 @@
+name: CI
+on:
+  - push
+  - pull_request
+jobs:
+  check-secrets:
+    name: Check secrets
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.check-secrets.outputs.ok }}
+    steps:
+      - name: Check for secrets needed to run BrowserStack tests
+        id: check-secrets
+        run: |
+          if [ ! -z "${{ secrets.BROWSER_STACK_ACCESS_KEY }}" ]; then
+            echo "::set-output name=ok::true"
+          fi
+  test:
+    name: Test
+    needs:
+      - check-secrets
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version:
+          - 12.22
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v2
+
+      - name: Use Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v2
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test with BrowserStack
+        if: ${{ needs.check-secrets.outputs.ok == 'true' }}
+        env:
+          BROWSER_STACK_USERNAME: ${{ secrets.BROWSER_STACK_USERNAME }}
+          BROWSER_STACK_ACCESS_KEY: ${{ secrets.BROWSER_STACK_ACCESS_KEY }}
+        run: npm test
+
+      - name: Test with headless browser
+        if: ${{ needs.check-secrets.outputs.ok != 'true' }}
+        uses: GabrielBB/xvfb-action@v1
+        with:
+          run: npm test

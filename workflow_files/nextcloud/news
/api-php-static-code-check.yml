@@ -1,0 +1,62 @@
+name: Static analysis
+on:
+  pull_request
+jobs:
+  static-phpstan-analysis:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      matrix:
+        php-versions: ['8.2', '8.3' ]
+        nextcloud: [ 'stable31' ]
+        database: [ 'sqlite' ]
+        include:
+          - php-versions: 8.3
+            nextcloud: pre-release
+            database: sqlite
+            experimental: true
+          - php-versions: 8.4
+            nextcloud: pre-release
+            database: sqlite
+            experimental: true
+    name: "phpstan: Nextcloud ${{ matrix.nextcloud }} with ${{ matrix.php-versions }}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up php
+        uses: shivammathur/setup-php@master
+        with:
+          php-version: ${{ matrix.php-versions }}
+          extensions: pdo_sqlite,pdo_mysql,pdo_pgsql,gd,zip
+          coverage: none
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up server non MySQL
+        uses: SMillerDev/nextcloud-actions/setup-nextcloud@main
+        with:
+          cron: true
+          version: ${{ matrix.nextcloud }}
+          database-type: ${{ matrix.database }}
+
+      - name: Build app
+        run: make composer
+
+      - name: Configure server with app
+        uses: SMillerDev/nextcloud-actions/setup-nextcloud-app@main
+        with:
+          app: 'news'
+          check-code: false
+          force: true
+
+      - name: Prep code scanning
+        working-directory: ../server/apps/news
+        run: make php-test-dependencies
+
+      - name: PHPCS
+        working-directory: ../server/apps/news
+        run: make phpcs
+
+      - name: PHPStan
+        working-directory: ../server/apps/news
+        run: make phpstan

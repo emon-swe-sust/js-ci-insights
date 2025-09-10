@@ -1,0 +1,54 @@
+name: test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+  schedule:
+    - cron: "0 10 * * 5" # JST 19:00 (Fri)
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '14'
+          cache: yarn
+
+      - run: yarn install
+
+      - name: Setup Code Climate Test Reporter
+        uses: aktions/codeclimate-test-reporter@v1
+        with:
+          codeclimate-test-reporter-id: ${{ secrets.CC_TEST_REPORTER_ID }}
+          command: before-build
+        continue-on-error: true
+
+      - run: npm run test:coverage
+
+      - name: Teardown Code Climate Test Reporter
+        uses: aktions/codeclimate-test-reporter@v1
+        with:
+          codeclimate-test-reporter-id: ${{ secrets.CC_TEST_REPORTER_ID }}
+          command: after-build
+        if: always()
+        continue-on-error: true
+
+      - run: npm run lint
+
+      - name: Slack Notification
+        uses: act10ns/slack@v2
+        if: always()
+        continue-on-error: true
+        with:
+          status: ${{ job.status }}
+          webhook-url: ${{ secrets.SLACK_WEBHOOK }}

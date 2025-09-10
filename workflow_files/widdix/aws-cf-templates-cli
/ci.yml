@@ -1,0 +1,22 @@
+name: CI
+on: [push, pull_request]
+defaults:
+  run:
+    shell: bash
+jobs:
+  build:
+    runs-on: ['hyperenv', 'medium-eu-west-1']
+    strategy:
+      matrix:
+        node: ['18', '20']
+    name: Node.js ${{ matrix.node }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node }}
+        cache: npm
+    - name: install dependencies
+      run: npm ci
+    - name: run tests
+      run: npm test

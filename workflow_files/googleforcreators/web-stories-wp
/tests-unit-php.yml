@@ -1,0 +1,194 @@
+name: PHP Unit Tests
+
+on:
+  push:
+    # Only run if PHP-related files changed.
+    paths:
+      - '**.php'
+      - 'phpunit.xml.dist'
+      - 'phpunit-multisite.xml.dist'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'tests/phpunit/**'
+      - 'includes/data/**'
+      - '.github/workflows/tests-unit-php.yml'
+    branches:
+      - main
+      - release/*
+  pull_request:
+    # Only run if PHP-related files changed.
+    paths:
+      - '**.php'
+      - 'phpunit.xml.dist'
+      - 'phpunit-multisite.xml.dist'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'tests/phpunit/**'
+      - 'includes/data/**'
+      - '.github/workflows/tests-unit-php.yml'
+
+permissions:
+  contents: read
+
+# Cancels all previous workflow runs for pull requests that have not completed.
+concurrency:
+  # The concurrency group contains the workflow name and the (target) branch name.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-php:
+    name: PHP ${{ matrix.php }} - WP ${{ matrix.wp }}${{ matrix.experimental && ' (experimental)' || '' }}${{ matrix.coverage && ' (with coverage)' || '' }}${{ matrix.random && ' (in random order)' || '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mariadb:lts
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: true
+          MARIADB_DATABASE: wordpress_test
+          MARIADB_MYSQL_LOCALHOST_USER: 1
+          MARIADB_MYSQL_LOCALHOST_GRANTS: USAGE
+        ports:
+          - 3306
+        options: --health-cmd="healthcheck.sh --su-mysql --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      matrix:
+        php: ['8.3', '8.2', '8.1', '8.0']
+        wp: ['latest']
+        coverage: [false]
+        experimental: [false]
+        include:
+          - php: '8.4'
+            wp: 'latest'
+            coverage: true
+            experimental: false
+
+          - php: '8.4'
+            wp: 'latest'
+            random: true
+            experimental: true
+
+          - php: '7.4'
+            wp: '6.6'
+            experimental: false
+
+          - php: '8.4'
+            wp: 'trunk'
+            experimental: true
+
+          - php: 'nightly'
+            wp: 'trunk'
+            experimental: true
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911
+        with:
+          disable-file-monitoring: true
+          egress-policy: audit
+          allowed-endpoints: >
+            api.github.com:443
+            api.wordpress.org:80
+            cdn.ampproject.org:443
+            develop.svn.wordpress.org:443
+            example.com:443
+            github.com:443
+            objects.githubusercontent.com:443
+            packagist.org:443
+            raw.github.com:443
+            repo.packagist.org:443
+            wordpress.org:443
+            getcomposer.org:443
+            dl.cloudsmith.io:443
+
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+      # PHP-Scoper only works on PHP 7.4+ and we need to prefix our dependencies to accurately test them.
+      # So we temporarily switch PHP versions, do a full install and then remove the package.
+      # Then switch back to the PHP version we want to test and delete the vendor directory.
+
+      - name: Setup PHP 8.0
+        uses: shivammathur/setup-php@ec406be512d7077f68eed36e63f4d91bc006edc4
+        with:
+          php-version: latest
+          tools: composer
+
+      - name: Install PHP dependencies
+        uses: ramsey/composer-install@3cf229dc2919194e9e36783941438d17239e8520
+        with:
+          composer-options: '--prefer-dist --no-progress --no-interaction'
+
+      - name: Remove prefixed dependencies
+        run: rm -rf vendor/*
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@ec406be512d7077f68eed36e63f4d91bc006edc4
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysql
+          coverage: ${{ matrix.coverage && 'xdebug' || 'none' }}
+          tools: composer, cs2pr
+
+      - name: Install PHP dependencies
+        uses: ramsey/composer-install@3cf229dc2919194e9e36783941438d17239e8520
+        with:
+          composer-options: '--prefer-dist --no-progress --no-interaction --no-scripts'
+
+      - name: Update PHPUnit
+        run: |
+          echo "Installing latest version of PHPUnit"
+          composer update --ignore-platform-reqs --no-interaction --no-scripts yoast/phpunit-polyfills --with-dependencies
+
+      - name: Composer dump autoload
+        run: composer dump-autoload --no-interaction
+
+      - name: Shutdown default MySQL service
+        run: sudo service mysql stop
+
+      - name: Verify MariaDB connection
+        run: |
+          while ! mysqladmin ping -h"127.0.0.1" -P"${{ job.services.mysql.ports[3306] }}" --silent; do
+            sleep 1
+          done
+
+      - name: Install svn
+        run: |
+          sudo apt update -y --allow-releaseinfo-change
+          sudo apt install -y subversion
+
+      - name: Set up tests
+        run: bash bin/install-wp-tests.sh wordpress_test root '' 127.0.0.1:${{ job.services.mysql.ports['3306'] }} ${{ matrix.wp }} true
+
+      - name: Set up problem matchers for PHPUnit
+        run: echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
+
+      - name: Run tests
+        run: |
+          npm run test:php:unit
+          npm run test:php:integration:single
+          npm run test:php:integration:multisite
+        if: ${{ ! matrix.coverage && ! matrix.random }}
+
+      - name: Run tests with coverage
+        run: |
+          npm run test:php:unit -- --coverage-clover build/logs/php-coverage.xml
+          npm run test:php:integration:single -- --coverage-clover build/logs/php-coverage-integration.xml
+          npm run test:php:integration:multisite -- --coverage-clover build/logs/php-coverage-multisite.xml
+        if: ${{ matrix.coverage && ! matrix.random }}
+
+      - name: Run tests in random order
+        run: |
+          npm run test:php:unit -- --order-by random
+          npm run test:php:integration:single -- --order-by random
+          npm run test:php:integration:multisite -- --order-by random
+        if: ${{ matrix.random }}
+
+      - name: Upload code coverage report
+        uses: codecov/codecov-action@fdcc8476540edceab3de004e990f80d881c6cc00
+        with:
+          files: build/logs/*.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+        if: ${{ matrix.coverage }}

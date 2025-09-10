@@ -1,0 +1,48 @@
+# This workflow will generate any code then check for any git diff
+
+name: Modular-docs tests
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+            - product: RHOSAK
+            - product: RHOSR
+            - product: RHOAS
+            - product: RHOC
+            - product: RHOAD
+
+    steps:
+    - uses: actions/checkout@v2
+      name: Checkout Source
+    - name: Use Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: 16.6.2
+    - name: Set up JDK 9.0.4 for x64
+      uses: actions/setup-java@v2
+      with:
+        java-version: 15
+        distribution: 'adopt' # See 'Supported distributions' for available options
+    - name: Use Ruby 2.6
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '2.6'
+
+    - run: npm --prefix .build install
+      name: Install Node Dependencies
+
+    - run: gem install asciidoctor tilt haml
+      name: Install Asciidoctor
+    - run: npm --prefix .build run generate:modular-docs
+      name: Generate modular-docs
+      env:
+          DOCS_PRODUCT_NAME: ${{matrix.product}}

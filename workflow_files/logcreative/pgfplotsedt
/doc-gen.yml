@@ -1,0 +1,40 @@
+name: Generate PDF Documentation
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps: 
+      - uses: actions/checkout@v4
+        name: checkout code
+        with:
+          fetch-depth: 0
+      - uses: xu-cheng/texlive-action@v2
+        name: generate doc
+        with:
+          scheme: full
+          run: |
+            apk add ghostscript imagemagick gnupg ncurses
+            sed -i "s|<policy domain=\"coder\" rights=\"none\" pattern=\"PDF\" />|<policy domain=\"coder\" rights=\"read\|write\" pattern=\"PDF\" />|g" /etc/ImageMagick-*/policy.xml
+            cd res
+            git config --global --add safe.directory /home/runner/work/PGFPlotsEdt/PGFPlotsEdt
+            python3 version_updater.py
+            cd ..
+            cd docs
+            mkdir pdf
+            PPEDT_LANG=chs l3build doc
+            mv pgfplotsedt.pdf pdf/pgfplotsedt_chs.pdf
+            l3build doc
+            mv pgfplotsedt.pdf pdf/pgfplotsedt.pdf
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+          publish_dir: ./docs/pdf
+          external_repository: LogCreative/PGFPlotsEdt-doc
+          publish_branch: main
+          keep_files: true

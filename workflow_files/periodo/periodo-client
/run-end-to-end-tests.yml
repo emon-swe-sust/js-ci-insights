@@ -1,0 +1,38 @@
+name: end-to-end tests
+on: [push, workflow_dispatch]
+jobs:
+  dispatch-and-wait:
+    runs-on: ubuntu-latest
+    steps:
+    - run: echo "Dispatching end-to-end tests against $GITHUB_REF_NAME"
+    - name: "Dispatch workflow"
+      id: dispatch
+      uses: mathze/workflow-dispatch-action@v1.3.0
+      with:
+        owner: periodo
+        repo: periodo-tests
+        ref: master
+        token: ${{ secrets.WORKFLOW_DISPATCH_TOKEN }}
+        use-marker-step: true
+        workflow-name: run-tests-on-branch.yml
+        payload: |
+          { "client_branch": "${{  github.ref_name }}" }
+    - run: echo 'Workflow log at https://github.com/periodo/periodo-tests/actions/runs/${{ steps.dispatch.outputs.run-id }}'
+    - name: "Wait for workflow completion"
+      id: wait
+      uses: mathze/workflow-dispatch-action@v1.3.0
+      with:
+        owner: periodo
+        repo: periodo-tests
+        ref: master
+        token: ${{ secrets.WORKFLOW_DISPATCH_TOKEN }}
+        run-id: ${{ steps.dispatch.outputs.run-id }}
+        wait-interval: 30s
+    - name: "Check workflow conclusion"
+      run: |
+        if [[ "success" != "${{ steps.wait.outputs.run-conclusion }}" ]]; then
+           echo "End-to-end tests failed (conclusion was <${{ steps.wait.outputs.run-conclusion }}>)"
+           exit 1
+        else
+          echo "End-to-end tests succeeded"
+        fi

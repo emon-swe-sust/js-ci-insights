@@ -1,0 +1,28 @@
+name: Websocket Staging Workflow
+on:
+  push:
+    branches:
+      - master
+jobs:
+  build_test_and_publish:
+    name: Build, Test and Publish to Staging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 2.7
+      - name: Bundle Install
+        uses: ./.github/actions/bundle_install
+      - name: Build Jekyll site
+        uses: ./.github/actions/build_jekyll_site
+      - name: Versioning
+        uses: ./.github/actions/versioning
+        with:
+          release_type: staging
+      - name: Publish to Cloudflare Pages Staging
+        uses: "./.github/actions/publish_to_pages_staging"
+        with:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

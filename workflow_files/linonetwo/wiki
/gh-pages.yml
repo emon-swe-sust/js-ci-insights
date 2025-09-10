@@ -1,0 +1,68 @@
+name: Deploy Tiddlywiki To Github Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+#     paths:
+#       - "plugins/**"
+#       - "tiddlers/**"
+#       - "package.json"
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608 # v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            **/node_modules
+          key: ${{ runner.os }}-${{ hashFiles('**/package.json') }}
+          
+      - name: Install Dependency
+        run: npm install
+      - name: Building online versions of web pages
+        run: npm run build
+      - name: Workbox offline cache
+        run: npx workbox injectManifest workbox-config.js
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3.0.1
+        with:
+          # Upload entire repository
+          path: ./public-dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4.0.4
+
+      - uses: jsmrcaga/action-netlify-deploy@v1.1.0
+        with:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_PERSONAL_ACCESS_TOKEN }}
+          NETLIFY_DEPLOY_TO_PROD: true
+          NETLIFY_SITE_ID: 43d889ce-da82-493f-9d13-f8c600e11d3b
+          build_directory: ./public-dist
+          NETLIFY_DEPLOY_MESSAGE: "Deployed from GitHub action"
+          install_command: "echo Skipping installing the dependencies"
+          build_command: "echo Skipping building the web files"
+      - uses: jsmrcaga/action-netlify-deploy@v1.1.0
+        with:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_PERSONAL_ACCESS_TOKEN }}
+          NETLIFY_DEPLOY_TO_PROD: true
+          NETLIFY_SITE_ID: deec2b78-e851-4198-ac29-d6774472be47
+          build_directory: ./public-dist
+          NETLIFY_DEPLOY_MESSAGE: "Deployed from GitHub action"
+          install_command: "echo Skipping installing the dependencies"
+          build_command: "echo Skipping building the web files"

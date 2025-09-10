@@ -1,0 +1,76 @@
+name: GPT Translate Sync
+
+on:
+  workflow_dispatch: 
+  pull_request:
+    types: [closed]  
+    branches:
+      - main 
+
+permissions:
+  id-token: write
+  pull-requests: write
+  checks: write
+  statuses: write
+  contents: write
+
+jobs:
+  gpt_translate:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'translation-')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete unsync files
+        id: delete_unsync
+        run: |
+          chmod +x ./scripts/delete_unsync.sh
+          source ./scripts/delete_unsync.sh
+
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          author_name: ${{ github.actor }}
+          author_email: ${{ github.actor }}@users.noreply.github.com
+          message: "chore: delete unsync files"
+          push: false
+
+      - name: Check missing files
+        id: check_missing
+        run: |
+          chmod +x ./scripts/check_missing.sh
+          source ./scripts/check_missing.sh
+          echo "missing_md_files=$(echo $missing_md_files | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          echo "missing_json_files=$(echo $missing_json_files | tr '\n' ' ')" >> $GITHUB_OUTPUT
+
+      - name: Log Missing Files
+        run: |
+          echo "Markdown Files Missing: ${{ steps.check_missing.outputs.missing_md_files }}"
+          echo "JSON Files Missing: ${{ steps.check_missing.outputs.missing_json_files }}"
+
+      - name: Set up branch for PR
+        run: |
+          BRANCH_NAME="translate-${{ github.run_id }}"
+          git checkout -b $BRANCH_NAME
+          git push -u origin $BRANCH_NAME
+
+      - name: Run GPT Translate
+        uses: BohuTANG/gpt-translate-refine@v1.4.4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          api_key: ${{ secrets.API_KEY }}
+          base_url: ${{ secrets.BASE_URL }}
+          ai_model: ${{ secrets.LLM_MODEL }}
+          refine_ai_model: ${{ secrets.REFINE_LLM_MODEL }}
+          target_lang: "Simplified-Chinese"
+          system_prompt: ".github/workflows/prompt.txt"
+          refine_system_prompt: ".github/workflows/refine_prompt.txt"
+          temperature:  ${{ secrets.TEMPERATURE }}
+          refine_temperature:  ${{ secrets.REFINE_TEMPERATURE }}
+          input_files: "${{ steps.check_missing.outputs.missing_md_files }}${{ steps.check_missing.outputs.missing_json_files }}"
+          output_files: "docs/cn/**/*.{md,json}"
+          pr_title: "Add LLM Translations V2"

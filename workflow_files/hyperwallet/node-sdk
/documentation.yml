@@ -1,0 +1,39 @@
+name: Update Documentation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+jobs:
+  documentation:
+    # Generate documentation and push to gh-pages branch using the predefined JDK versions in the strategy section
+    name: Documentation
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [ 8.x ]
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install tools
+        run: npm install
+
+      - name: Generate Documentation
+        run: npm run docs
+
+      - name: Push
+        uses: s0/git-publish-subdir-action@develop
+        env:
+          REPO: self
+          BRANCH: gh-pages
+          FOLDER: docs
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MESSAGE: "Documentation updated"

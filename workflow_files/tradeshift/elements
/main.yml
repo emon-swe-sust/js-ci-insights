@@ -1,0 +1,37 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: ⬇️ Checkout repo
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 100
+
+      - name: ⎔ Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 16
+
+      - name: 📥 Download dependencies
+        run: npm ci
+
+      - name: Bootstrap monorepo
+        run: npm run lerna:bootstrap:ci
+
+      - name: ▶️ Lint and build
+        run: |
+          npm run clean
+          npm run lint
+          npm run copy:static
+          npm run build:prod
+

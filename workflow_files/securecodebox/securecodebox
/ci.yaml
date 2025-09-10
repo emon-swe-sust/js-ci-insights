@@ -1,0 +1,740 @@
+# SPDX-FileCopyrightText: the secureCodeBox authors
+#
+# SPDX-License-Identifier: Apache-2.0
+
+name: "CI"
+on:
+  push:
+    branches:
+      - main
+      - v[0-9]+.x
+  pull_request:
+
+permissions:
+  contents: read
+
+# The CI runs on ubuntu-24.04; More info about the installed software is found here:
+# https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
+
+env:
+  # ---- Language Versions ----
+
+  # renovate: datasource=github-releases depName=python/cpython
+  PYTHON_VERSION: "3.13.5"
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
+  KUBECTL_VERSION: "v1.34.1"
+  # renovate: datasource=github-releases depName=kubernetes-sigs/kind
+  KIND_BINARY_VERSION: "v0.30.0"
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: "v3.18.6"
+  # renovate: datasource=github-releases depName=helm-unittest/helm-unittest
+  HELM_PLUGIN_UNITTEST_VERSION: "1.0.0"
+  # renovate: datasource=github-releases depName=go-task/task
+  TASK_VERSION: "v3.44.1"
+
+jobs:
+  test-nodejs-scanner-test-helpers:
+    name: "Unit Test | Node.js Scanner Test Helpers"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+
+      - name: Install dependencies
+        working-directory: tests/integration
+        run: bun install
+
+      - name: Test Node.js Scanner Test Helpers
+        working-directory: tests/integration
+        run: bun test helpers.test.js
+  k8s-setup:
+    name: "Setup Kind & Kubectl & Helm & Task"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/${{ env.KIND_BINARY_VERSION }}/kind-linux-amd64
+          chmod +x ./kind
+
+      - name: Install Kubectl
+        run: |
+          curl -Lo ./kubectl curl -LO https://dl.k8s.io/release/${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl
+          chmod +x ./kubectl
+
+      - name: Install Helm
+        run: |
+          curl -Lo ./helm.tar.gz https://get.helm.sh/helm-${{ env.HELM_VERSION }}-linux-amd64.tar.gz
+          tar -xzf ./helm.tar.gz
+          chmod +x ./linux-amd64/helm
+
+      - name: Install Task
+        run: |
+          curl -Lo ./task.tar.gz https://github.com/go-task/task/releases/download/${{ env.TASK_VERSION }}/task_linux_amd64.tar.gz
+          tar -xzf ./task.tar.gz
+          chmod +x ./task
+
+      - name: Archive Kind
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kind
+          path: ./kind
+
+      - name: Archive Kubectl
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kubectl
+          path: ./kubectl
+
+      - name: Archive Helm
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: helm
+          path: ./linux-amd64/helm
+
+      - name: Archive Task
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: task
+          path: ./task
+
+  # ---- Unit-Test ----
+
+  # ---- Unit-Test | Java ----
+
+  helm-unit-test:
+    name: "Unit-Test | Helm"
+    runs-on: ubuntu-24.04
+    needs:
+      - k8s-setup
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Download Helm
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: helm
+          path: ./helm
+
+      - name: Make binaries globally available
+        run: |
+          chmod +x ./helm/helm && sudo mv ./helm/helm /usr/local/bin/helm
+
+      - name: Verify tools
+        run: |
+          helm version
+
+      - name: Install Helm Unit Test Plugin
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest.git --version ${{ env.HELM_PLUGIN_UNITTEST_VERSION }}
+
+      - name: Download Task
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: task
+          path: ./task
+
+      - name: Make Task globally available
+        run: |
+          chmod +x ./task/task && sudo mv ./task/task /usr/local/bin/task
+
+      - name: Helm-Chart Unit Tests
+        run: task test:helm:all
+
+  unit-java:
+    name: "Unit-Test | Java"
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        unit: ["persistence-defectdojo"]
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
+      - name: Set up JDK 17
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: "temurin" # required Java distribution
+          java-version: "17" # The JDK version to make available on the path.
+          java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
+          architecture: x64 # (x64 or x86) - defaults to x64
+      - name: Cache SonarCloud packages
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+      - name: Cache Gradle packages
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
+          restore-keys: ${{ runner.os }}-gradle
+      - name: Build and analyze
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Needed to get PR information, if any
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        working-directory: hooks/${{ matrix.unit }}/hook
+        run: ./gradlew build --info --warning-mode all
+
+  # ---- Build Stage ----
+
+  # ---- Build Stage | Operator & Lurker ----
+
+  operator:
+    name: "Build | Operator"
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        component: ["operator", "lurker"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Go Setup
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: "operator/go.mod"
+
+      - name: Lint Go Code
+        working-directory: ./${{ matrix.component }}
+        run: |
+          go fmt ./...
+          go vet ./...
+
+      - name: Test
+        working-directory: ./operator
+        run: make test
+
+      - name: Build Container Image
+        working-directory: ./operator
+        run: make docker-build
+
+      - name: Export Container Image
+        working-directory: ./operator
+        run: make docker-export-${{ matrix.component }}
+
+      - name: Upload Image As Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.component }}-image
+          path: ./operator/${{ matrix.component }}.tar
+          retention-days: 1
+
+  # ---- Build Stage | AutoDiscovery | Kubernetes ----
+
+  auto-discovery-kubernetes:
+    name: "AutoDiscovery | Kubernetes"
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Go Setup
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: "auto-discovery/kubernetes/go.mod"
+
+      - name: Lint Go Code
+        working-directory: ./auto-discovery/kubernetes
+        run: |
+          go fmt ./...
+          go vet ./...
+
+      - name: Test
+        working-directory: ./auto-discovery/kubernetes/
+        run: make test
+
+      - name: Build Container Image
+        working-directory: ./auto-discovery/kubernetes/
+        run: make docker-build
+
+      - name: Export Container Image
+        working-directory: ./auto-discovery/kubernetes/
+        run: make docker-export
+
+      - name: Upload Image As Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: auto-discovery-image
+          path: ./auto-discovery/kubernetes/auto-discovery-kubernetes.tar
+          retention-days: 1
+
+  # ---- Build Stage | AutoDiscovery | Kubernetes | PullSecretExtractor ----
+  auto-discovery-kubernetes-secret-extraction-container:
+    name: "Autodiscovery | Kubernetes | SecretExtractionInitContainer"
+    runs-on: ubuntu-24.04
+    needs:
+      - k8s-setup
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Python Version
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+
+      - name: Download Kind
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: kind
+          path: ./kind
+
+      - name: Download Kubectl
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: kubectl
+          path: ./kubectl
+
+      - name: Download Helm
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: helm
+          path: ./helm
+
+      - name: Make binaries globally available
+        run: |
+          chmod +x ./kind/kind && sudo mv ./kind/kind /usr/local/bin/kind
+          chmod +x ./kubectl/kubectl && sudo mv ./kubectl/kubectl /usr/local/bin/kubectl
+          chmod +x ./helm/helm && sudo mv ./helm/helm /usr/local/bin/helm
+
+      - name: Verify tools
+        run: |
+          kind version
+          kubectl version || true
+          helm version
+
+      - name: Unit Tests
+        working-directory: ./auto-discovery/kubernetes/pull-secret-extractor
+        run: make unit-test
+
+      - name: Build Container Image
+        working-directory: ./auto-discovery/kubernetes/pull-secret-extractor
+        run: make docker-build
+
+      - name: Export Container Image
+        working-directory: ./auto-discovery/kubernetes/pull-secret-extractor
+        run: make docker-export
+
+      - name: Upload Image As Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: auto-discovery-pull-secret-extractor
+          path: ./auto-discovery/kubernetes/pull-secret-extractor/auto-discovery-secret-extractor.tar
+          retention-days: 1
+
+      - name: "Start kind cluster"
+        run: |
+          kind version
+          kind create cluster --wait 3m
+
+      - name: "Inspect kind cluster"
+        run: |
+          kubectl config current-context
+          kubectl get node
+
+      - name: "Run integration tests"
+        working-directory: ./auto-discovery/kubernetes/pull-secret-extractor
+        run: |
+          make integration-test
+
+  # ---- Build Stage | AutoDiscovery | Cloud | AWS ----
+  auto-discovery-cloud-aws:
+    name: "AutoDiscovery | Cloud | AWS"
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Go Setup
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: "auto-discovery/cloud-aws/go.mod"
+
+      - name: Lint Go Code
+        working-directory: ./auto-discovery/cloud-aws
+        run: |
+          go fmt ./...
+          go vet ./...
+
+      - name: Test
+        working-directory: ./auto-discovery/cloud-aws/
+        run: make test
+
+      - name: Build Container Image
+        working-directory: ./auto-discovery/cloud-aws/
+        run: make docker-build
+
+      - name: Export Container Image
+        working-directory: ./auto-discovery/cloud-aws/
+        run: make docker-export
+
+      - name: Upload Image As Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: auto-discovery-cloud-aws-image
+          path: ./auto-discovery/cloud-aws/auto-discovery-cloud-aws.tar
+          retention-days: 1
+
+  # ---- Build Stage | SDK Matrix ----
+
+  sdk:
+    name: "Build | SDKs"
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        sdk:
+          - parser-sdk
+          - hook-sdk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Build Image
+        working-directory: ./${{ matrix.sdk }}/nodejs
+        run: make docker-build-sdk
+
+      - name: Export Image
+        working-directory: ./${{ matrix.sdk }}/nodejs
+        run: make docker-export-sdk
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.sdk }}-image
+          path: ./${{ matrix.sdk }}/nodejs/${{ matrix.sdk }}.tar
+          retention-days: 1
+
+  # ---- Test | Scanners ----
+
+  test-scanners:
+    name: "Test | Scanner ${{ matrix.unit }}"
+    needs:
+      - sdk
+      - operator
+      - k8s-setup
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        unit:
+          - ffuf
+          - git-repo-scanner
+          - gitleaks
+          - kube-hunter
+          - ncrack
+          - nikto
+          - nmap
+          - nuclei
+          - screenshooter
+          - semgrep
+          - ssh-audit
+          - sslyze
+          - subfinder
+          - trivy
+          - trivy-sbom
+          - whatweb
+          - wpscan
+          - zap-automation-framework
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+
+      - name: Download Task
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: task
+          path: ./task
+
+      - name: Make Task globally available
+        run: |
+          chmod +x ./task/task && sudo mv ./task/task /usr/local/bin/task
+
+      - name: Download Kind
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: kind
+          path: ./kind
+
+      - name: Download Kubectl
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: kubectl
+          path: ./kubectl
+
+      - name: Download Helm
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: helm
+          path: ./helm
+
+      - name: Make binaries globally available
+        run: |
+          chmod +x ./kind/kind && sudo mv ./kind/kind /usr/local/bin/kind
+          chmod +x ./kubectl/kubectl && sudo mv ./kubectl/kubectl /usr/local/bin/kubectl
+          chmod +x ./helm/helm && sudo mv ./helm/helm /usr/local/bin/helm
+
+      - name: Verify tools
+        run: |
+          kind version
+          kubectl version || true
+          helm version
+
+      - name: Unit Tests
+        working-directory: ./scanners/${{ matrix.unit }}/
+        run: task test:unit
+
+      - name: Download Parser SDK Image
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: parser-sdk-image
+          path: /tmp
+
+      - name: Load Parser SDK Image
+        run: |
+          docker load --input /tmp/parser-sdk.tar
+          docker images | grep sdk
+
+      - name: Download Operator Image
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: operator-image
+          path: ./operator
+
+      - name: Load Operator Image
+        run: |
+          docker load --input ./operator/operator.tar
+          docker images | grep operator
+
+      - name: Download Lurker Image
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: lurker-image
+          path: ./operator
+
+      - name: Load Lurker Image
+        run: |
+          docker load --input ./operator/lurker.tar
+          docker images | grep lurker
+
+      - name: "Start kind cluster"
+        run: |
+          task prepare-testing-env
+
+      - name: ${{ matrix.unit }} Build Scanner / Parser Images
+        working-directory: ./scanners/${{ matrix.unit }}/
+        run: task build
+
+      - name: ${{ matrix.unit }} Load and Deploy Scanner / Parser Images to kind Cluster
+        working-directory: ./scanners/${{ matrix.unit }}/
+        run: task deploy
+
+      - name: Start Integration Tests
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3.0.2
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: cd ./scanners/${{ matrix.unit }}/ && task test:integration
+
+      # ---- Debuging Cluster on Failure ----
+
+      - name: Inspect Post Failure
+        if: failure()
+        run: |
+          echo "List all 'HelmCharts' in all namespaces"
+          helm list --all-namespaces
+          echo "List all 'Scans' in all namespaces"
+          kubectl get scans -o wide --all-namespaces
+          echo "List all 'Jobs' in all namespaces"
+          kubectl get jobs -o wide --all-namespaces
+          echo "List all 'Pods' in all namespaces"
+          kubectl get pods -o wide --all-namespaces
+          echo "List all 'Services' in all namespaces"
+          kubectl get services -o wide --all-namespaces
+          echo "Describe Pods in 'integration-tests' namespace"
+          kubectl describe pod -n integration-tests
+
+      - name: "Inspect Operator"
+        if: failure()
+        run: |
+          echo "Deployment in namespace 'securecodebox-system'"
+          kubectl -n securecodebox-system get deployments
+          echo "Deployment in namespace 'securecodebox-system'"
+          kubectl -n securecodebox-system get pods
+          echo "Operator Startup Logs"
+          kubectl -n securecodebox-system logs deployment/securecodebox-controller-manager
+
+  # ---- Test | Hooks ----
+
+  test-hooks:
+    name: Test |  Hook ${{ matrix.hook }}
+    needs:
+      - sdk
+      - operator
+      - k8s-setup
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        hook:
+          - cascading-scans
+          - generic-webhook
+          - persistence-azure-monitor
+          - persistence-elastic
+          - persistence-dependencytrack
+          - update-field-hook
+          - finding-post-processing
+          - notification
+          # - persistence-static-report (WIP)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+
+      - name: Download Task
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: task
+          path: ./task
+
+      - name: Make Task globally available
+        run: |
+          chmod +x ./task/task && sudo mv ./task/task /usr/local/bin/task
+
+      - name: Download Kind
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: kind
+          path: ./kind
+
+      - name: Download Kubectl
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: kubectl
+          path: ./kubectl
+
+      - name: Download Helm
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: helm
+          path: ./helm
+
+      - name: Make binaries globally available
+        run: |
+          chmod +x ./kind/kind && sudo mv ./kind/kind /usr/local/bin/kind
+          chmod +x ./kubectl/kubectl && sudo mv ./kubectl/kubectl /usr/local/bin/kubectl
+          chmod +x ./helm/helm && sudo mv ./helm/helm /usr/local/bin/helm
+
+      - name: Verify tools
+        run: |
+          kind version
+          kubectl version || true
+          helm version
+
+      - name: Unit Tests
+        working-directory: ./hooks/${{ matrix.hook }}/
+        run: task test:unit
+
+      - name: Download Parser SDK Image
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: hook-sdk-image
+          path: /tmp
+
+      - name: Load Hook SDK Image
+        run: |
+          docker load --input /tmp/hook-sdk.tar
+          docker images | grep sdk
+
+      - name: Download Operator Image
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: operator-image
+          path: ./operator
+
+      - name: Load Operator Image
+        run: |
+          docker load --input ./operator/operator.tar
+          docker images | grep operator
+
+      - name: Download Lurker Image
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: lurker-image
+          path: ./operator
+
+      - name: Load Lurker Image
+        run: |
+          docker load --input ./operator/lurker.tar
+          docker images | grep lurker
+
+      - name: "Start kind cluster"
+        run: |
+          task prepare-testing-env
+
+      - name: ${{ matrix.hook }} Build Scanner / Parser Images
+        working-directory: ./hooks/${{ matrix.hook }}/
+        run: task build
+
+      - name: ${{ matrix.hook }} Load and Deploy Scanner / Parser Images to kind Cluster
+        working-directory: ./hooks/${{ matrix.hook }}/
+        run: task deploy
+
+      - name: Start Integration Tests
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3.0.2
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: cd ./hooks/${{ matrix.hook }}/ && task test:integration
+
+      # ---- Debuging Cluster on Failure ----
+
+      - name: Inspect Post Failure
+        if: failure()
+        run: |
+          echo "List all 'HelmCharts' in all namespaces"
+          helm list --all-namespaces
+          echo "List all 'Scans' in all namespaces"
+          kubectl get scans -o wide --all-namespaces
+          echo "List all 'Jobs' in all namespaces"
+          kubectl get jobs -o wide --all-namespaces
+          echo "List all 'Pods' in all namespaces"
+          kubectl get pods -o wide --all-namespaces
+          echo "List all 'Services' in all namespaces"
+          kubectl get services -o wide --all-namespaces
+          echo "Describe Pods in 'integration-tests' namespace"
+          kubectl describe pod -n integration-tests
+
+      - name: "Inspect Operator"
+        if: failure()
+        run: |
+          echo "Deployment in namespace 'securecodebox-system'"
+          kubectl -n securecodebox-system get deployments
+          echo "Deployment in namespace 'securecodebox-system'"
+          kubectl -n securecodebox-system get pods
+          echo "Operator Startup Logs"
+          kubectl -n securecodebox-system logs deployment/securecodebox-controller-manager
+
+  sbctcl-tests:
+    name: "Run sbctcl Tests"
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: "scbctl/go.mod"
+
+      - name: Run tests
+        working-directory: scbctl
+        run: go test -v ./...

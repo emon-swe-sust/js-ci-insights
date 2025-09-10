@@ -1,0 +1,45 @@
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 5 * * *"
+
+jobs:
+  test-install:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      USE_LOCAL_VERSIONS_JSON: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # We set LF endings so that the Windows environment is consistent with the rest
+      # See here for context: https://github.com/actions/checkout/issues/135
+      - name: Set git to use LF
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          git config --global core.longpaths true
+
+      - uses: ./ # equivalent to purescript-contrib/setup-purescript@<branch>
+        with:
+          purs-tidy: "latest"
+          zephyr: "latest"
+          spago: "unstable"
+
+      - name: Check spago and purs are installed correctly
+        run: |
+          purs --version
+          spago --version
+
+      - name: Check purescript code is formatted
+        # because errors with 'Some files are not formatted', dont know why
+        if: runner.os != 'Windows'
+        run: |
+          npm run check

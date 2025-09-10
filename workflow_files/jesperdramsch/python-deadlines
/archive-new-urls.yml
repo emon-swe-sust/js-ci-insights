@@ -1,0 +1,68 @@
+name: Archive New Conference URLs
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+    - '_data/**'
+  schedule:
+  # Runs at 00:00 UTC on Friday
+  # https://crontab.guru/#0_0_*_*_6
+  - cron: '0 0 * * 6'
+  workflow_dispatch:
+    # Allows manual triggering
+
+jobs:
+  check-new-urls:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0 # Full history for finding last run
+
+    - name: Find last successful run commit
+      id: last-run
+      run: |
+        last_sha=$(gh run list --workflow="Archive New Conference URLs" --json conclusion,headSha --jq '.[] | select(.conclusion=="success") | .headSha' | head -n1)
+        if [ -n "$last_sha" ]; then
+          echo "sha=$last_sha" >> $GITHUB_OUTPUT
+        else
+          # If no previous run, use the first commit
+          echo "sha=$(git rev-list --max-parents=0 HEAD)" >> $GITHUB_OUTPUT
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract and archive URLs
+      id: url-check
+      run: |
+        # Extract URLs
+        URLS=$(git diff ${{ steps.last-run.outputs.sha }} -- _data/conferences.yml | \
+              grep -E '^\+.*https?://[^ ]+' | \
+              sed -E 's/^\+[[:space:]]*[^:]*:[[:space:]]*(https?:\/\/[^ ]+).*/\1/')
+
+        if [ -n "$URLS" ]; then
+          echo "Found new URLs, archiving to Wayback Machine..."
+
+          # Process each URL
+          echo "$URLS" | while read -r url; do
+            echo "Archiving: $url"
+            # Call Wayback Machine Save API
+            response=$(curl -s -L -X POST \
+              -A "Python-Deadlines-Bot/1.0 (https://pythondeadlin.es; admin@python-deadlin.es)" \
+              "https://web.archive.org/save/$url")
+            status=$?
+
+            if [ $status -eq 0 ]; then
+              echo "✓ Successfully archived"
+            else
+              echo "⚠ Failed to archive (error $status)"
+            fi
+
+            # Wait between requests
+            sleep 5
+          done
+        else
+          echo "No new URLs found"
+        fi

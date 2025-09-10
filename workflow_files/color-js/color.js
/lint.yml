@@ -1,0 +1,32 @@
+name: Lint & Test Types
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    lint:
+        name: Lint & Test Types
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "lts/*"
+
+            - run: npm install
+            - run: npm run lint:ci
+            - name: Detect changes
+              id: changes
+              run: echo "count=$(git status --porcelain=v1 2>/dev/null | wc -l)" >> $GITHUB_OUTPUT
+            - name: Fail if there are uncommitted changes
+              if: steps.changes.outputs.count > 0
+              run: |
+                echo "::error title=Uncommitted changes::run \"npm run lint\" to fix"
+                exit 1

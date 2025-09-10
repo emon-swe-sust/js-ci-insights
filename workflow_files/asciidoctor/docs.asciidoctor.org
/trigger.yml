@@ -1,0 +1,13 @@
+name: Site Build Trigger
+on:
+  schedule:
+  - cron: '0 4 * * *'
+  workflow_dispatch:
+jobs:
+  build:
+    if: github.repository_owner == 'asciidoctor'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Ping Netlify Webhook
+      run: |
+        curl -X POST -d '' -s ${{ secrets.NETLIFY_BUILD_HOOK }}

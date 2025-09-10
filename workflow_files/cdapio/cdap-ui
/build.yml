@@ -1,0 +1,119 @@
+# Copyright © 2022 Cask Data, Inc.
+#  Licensed under the Apache License, Version 2.0 (the "License"); you may not
+#  use this file except in compliance with the License. You may obtain a copy of
+#  the License at
+#  http://www.apache.org/licenses/LICENSE-2.0
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#  License for the specific language governing permissions and limitations under
+#  the License.
+
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Build with Unit and Integration Tests
+
+on:
+  push:
+    branches: [ develop, release/** ]
+  pull_request:
+    branches: [ develop, release/** ]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch name on which workflow will be triggered"
+        required: true
+        default: "develop"
+
+jobs:
+  build:
+
+    runs-on: k8s-runner-e2e
+
+    # We allow builds:
+    # 1) When it's a merge into a branch
+    # 2) For PRs that are labeled as build and
+    #  - It's a code change
+    #  - A build label was just added
+    # A bit complex, but prevents builds when other labels are manipulated
+    if: >
+      github.event_name == 'push'
+      || (contains(github.event.pull_request.labels.*.name, 'build')
+         && (github.event.action != 'labeled' || github.event.label.name == 'build')
+         )
+
+    steps:
+    # Pinned 1.0.0 version
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    # installing node 22.12
+    - name: Use Node.js 22.12
+      uses: actions/setup-node@v3.6.0
+      with:
+        node-version: 22.12
+
+    - uses: actions/cache@v4
+      with:
+        path: '**/node_modules'
+        key: ${{ runner.os }}-modules-${{ hashFiles('**/yarn.lock') }}
+
+    - name: Checkout cdap repo
+      uses: actions/checkout@v3
+      with:
+        repository: cdapio/cdap
+        path: cdap
+
+    - name: Get Secrets from GCP Secret Manager
+      id: secrets
+      uses: 'google-github-actions/get-secretmanager-secrets@v2'
+      with:
+        secrets: |-
+          GCP_PROJECTID:cdapio-github-builds/CDAP_UI_E2E_GCP_PROJECTID
+          GCP_SERVICE_ACCOUNT_CONTENTS:cdapio-github-builds/CDAP_UI_E2E_GCP_SERVICE_ACCOUNT_CONTENTS
+          SCM_TEST_REPO_URL:cdapio-github-builds/CDAP_UI_E2E_SCM_TEST_REPO_URL
+          SCM_TEST_REPO_PAT:cdapio-github-builds/CDAP_UI_E2E_SCM_TEST_REPO_PAT
+
+    - name: Make CDAP pom available to CDAP-UI
+      run: |
+        mv cdap ..
+        cd ../cdap
+        mv pom.xml ..
+
+    - name: Download CDAP Sandbox and Start it   
+      run: |
+        cd sandboxjs
+        python3 sandbox_starter.py
+        
+    - name: Install UI Dependencies
+      run: |       
+        npm install -g yarn # Install Yarn globally
+        yarn --frozen-lockfile
+        yarn run bower-root # Install Bower dependencies (deprecated in develop branch, will be removed in a future version)
+
+    - name: Start CDAP-UI and run the tests
+      env:
+        GCP_PROJECTID: ${{ steps.secrets.outputs.GCP_PROJECTID }}
+        GCP_SERVICE_ACCOUNT_CONTENTS: ${{ steps.secrets.outputs.GCP_SERVICE_ACCOUNT_CONTENTS }}
+        GCP_SERVICE_ACCOUNT_PATH: '${{ github.workspace }}/key_file.json'
+        SCM_TEST_REPO_URL: ${{ steps.secrets.outputs.SCM_TEST_REPO_URL }}
+        SCM_TEST_REPO_PAT: ${{ steps.secrets.outputs.SCM_TEST_REPO_PAT }}
+      run: |
+        echo $GCP_SERVICE_ACCOUNT_CONTENTS > ./key_file.json
+        yarn run cdap-full-build-more-memory # Build UI
+        yarn start &
+        yarn run test:unit
+        mvn clean verify -P e2e-tests -B -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn
+
+    - name: Archive build artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: Build debug files
+        path: |
+          **/target/rat.txt
+          **/target/cucumber-html-report/
+          **/target/cucumber-reports/

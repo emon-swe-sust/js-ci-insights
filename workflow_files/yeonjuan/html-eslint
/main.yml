@@ -1,0 +1,55 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Corepack
+        run: npm install -g corepack
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install
+        run: yarn install --immutable
+      - name: Build
+        run: yarn build
+      - name: Lint
+        run: yarn lint
+      - name: Unit Tests
+        run: yarn test
+      - name: Unit Tests (Legacy)
+        run: yarn test:legacy
+      - name: Check Spells
+        run: yarn check:spell
+      - name: Check Format
+        run: yarn check:format
+      - name: Check Types
+        run: yarn check:ts
+      - name: Code coverage report
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: unittest
+          name: codecov
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Corepack
+        run: npm install -g corepack
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install
+        run: yarn install --immutable
+      - name: Build
+        run: yarn build
+      - name: Test
+        run: yarn test:integration

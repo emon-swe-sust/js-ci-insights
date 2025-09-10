@@ -1,0 +1,36 @@
+name: Node CI
+
+on:
+  push:
+    branches:
+      - main
+      - next
+  pull_request:
+    branches:
+      - main
+      - next
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - uses: actions/checkout@v1
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 9.13.2
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: ${{ matrix.node-version }}
+      - name: build and test
+        run: |
+          pnpm i --frozen-lockfile
+          pnpm test
+        env:
+          CI: true

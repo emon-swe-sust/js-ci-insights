@@ -1,0 +1,97 @@
+name: GitHub CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  general-checks-test-coverage:
+    name: General checks, tests and coverage reporting
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v4.2.2
+
+    - name: Use Node.js v20.11.0
+      uses: actions/setup-node@v4.1.0
+      with:
+        node-version: 20.11.0
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Perform checks and tests
+      run: npm test
+
+    - name: Send report to Coveralls
+      uses: coverallsapp/github-action@v2.3.4
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  test-matrix:
+    name: Unit / Integration tests on Node.js ${{ matrix.node-version }} and ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22]
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+
+    # Use older Chrome version on macOS as workaround for https://github.com/karma-runner/karma/issues/3887
+    - if: matrix.os == 'macOS-latest'
+      run: echo "PUPPETEER_CHROME_VERSION=127.0.6533.119" >> "$GITHUB_ENV"
+
+    - uses: actions/checkout@v4.2.2
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4.1.0
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    # Using 'install' instead of 'ci' as npm v7 doesn't run the 'prepare' script
+    # (see https://github.com/npm/cli/issues/1905)
+    - run: npm install
+      name: Install dependencies
+
+    - run: npm ls --prod
+      name: Check for missing / extraneous dependencies
+
+    - run: npm run unit
+      name: Run unit tests
+
+    - run: npm run integration
+      name: Run integration tests
+
+  # Test matrix for older karma versions to ensure compatibility
+  test-karma-matrix:
+    name: Integration tests with karma v${{matrix.karma-version}}
+    strategy:
+      fail-fast: false
+      matrix:
+        karma-version: [
+          "4.3.0", # minimum v4.x version as defined in package.json#peerDependencies
+          "4",     # latest v4.x
+          "5"      # latest v5.x
+        ]
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v4.2.2
+
+    - name: Use Node.js LTS 20.x
+      uses: actions/setup-node@v4.1.0
+      with:
+        node-version: 20.x
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install karma v${{matrix.karma-version}}
+      run: npm i -D karma@${{matrix.karma-version}}
+
+    - name: Run integration tests
+      run: npm run integration

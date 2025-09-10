@@ -1,0 +1,40 @@
+name: Code coverage
+on:
+  - push
+
+jobs:
+  run:
+    name: Code coverage
+    if: ${{ github.repository == 'qunitjs/qunit' }} # skip on forks, needs secret
+    runs-on: ubuntu-latest
+    env:
+      PUPPETEER_CACHE_DIR: "${{ github.workspace }}/.puppeteer_download"
+      FORCE_COLOR: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ${{ github.workspace }}/.puppeteer_download
+          key: ${{ runner.os }}-${{ hashFiles('**/package.json') }}
+
+      - name: Use Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+
+      - run: npm install
+
+      - name: Tests
+        run: npm run coverage
+
+      - name: Upload to coveralls.io
+        if: ${{ github.ref_name == 'main' }} # skip upload on non-main branches
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          wget https://github.com/php-coveralls/php-coveralls/releases/download/v2.5.2/php-coveralls.phar
+          chmod +x php-coveralls.phar
+          ./php-coveralls.phar -v --coverage_clover coverage/clover.xml --json_path coverage/coveralls.json

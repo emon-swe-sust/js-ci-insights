@@ -1,0 +1,70 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+# This workflow will download a prebuilt Ruby version, install dependencies and run tests with Rake
+# For more information see: https://github.com/marketplace/actions/setup-ruby-jruby-and-truffleruby
+
+name: build
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        rails: [8.0.0, 7.2.0, 7.1.1, 7.0.8, 6.1.7]
+        ruby: [3.3, 3.2, 3.1, 3.0.6, jruby-9.4]
+        sprockets: [3, 4]
+        include:
+          - rails: 8.0.0
+            ruby: 3.3
+            sprockets: 4
+          - rails: 7.2.0
+            ruby: 3.3
+            sprockets: 4
+          - rails: 7.1.1
+            ruby: 3.2
+            sprockets: 4
+          - rails: 6.0.4
+            ruby: 2.7
+            sprockets: 3
+          - rails: 6.0.4
+            ruby: 2.7
+            sprockets: 4
+          - rails: 5.2.6
+            ruby: 2.6
+            sprockets: 3
+          - rails: 5.2.6
+            ruby: 2.6
+            sprockets: 4
+          - rails: 6.0.4
+            ruby: jruby-9.2
+            sprockets: 3
+          - rails: 6.1.4
+            ruby: jruby-9.3
+            sprockets: 4
+        exclude:
+          - rails: 8.0.0
+            ruby: 3.1
+          - rails: 8.0.0
+            ruby: 3.0.6
+          - rails: 8.0.0
+            ruby: jruby-9.4
+          - rails: 7.2.0
+            ruby: 3.0.6
+
+    env:
+      RAILS_VER: ${{ matrix.rails }}
+      RUBY_VER: ${{ matrix.ruby }}
+      SPROCKETS_VER: ${{ matrix.sprockets }}
+    steps:
+    - uses: actions/checkout@v2
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: ${{ matrix.ruby }}
+        cache-version: rails-${{ matrix.rails }}-sprockets-${{ matrix.sprockets }}
+        bundler-cache: true
+    - run: bundle exec rake

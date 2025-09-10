@@ -1,0 +1,20 @@
+name: Now reading
+on:
+  repository_dispatch:
+    types: [now-reading]
+jobs:
+  nowReading:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dump GitHub context
+        env:
+          JSON_DOC: ${{ github.event.client_payload.github }}
+        run: |
+          echo $JSON_DOC
+          echo $JSON_DOC > _data/now-reading.json
+      - run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A && git commit -m "📚 Now Reading"
+          git push

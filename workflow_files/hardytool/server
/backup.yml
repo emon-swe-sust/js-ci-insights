@@ -1,0 +1,42 @@
+name: Backup
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    name: Run pg_dump
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install postgres
+        run: |
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update
+          sudo apt-get install -y "postgresql-16"
+          echo "/usr/lib/postgresql/15/bin" >> "$GITHUB_PATH"
+      - name: Run pg_dump
+        id: dump
+        run: |
+          export FILENAME="backup_$(date +%Y-%m-%d).dump"
+          echo "FILENAME=$FILENAME" >> $GITHUB_OUTPUT
+          pg_dump --format=custom --compress=9 --dbname="postgres://${{ secrets.DATABASE_USERNAME }}:${{ secrets.DATABASE_PASSWORD }}@${{ secrets.DATABASE_HOST }}:${{ secrets.DATABASE_PORT }}/${{ secrets.DATABASE_NAME }}" --file="$FILENAME"
+      - name: Upload to Discord
+        run: |
+          curl --fail-with-body --silent -X POST \
+            -F "payload_json={}" \
+            -F "file0=@${{ steps.dump.outputs.FILENAME }}" \
+            ${{ secrets.DISCORD_WEBHOOK_URL }} > /dev/null
+      - name: Remove backup directory
+        run: |
+          rm -f ${{ steps.dump.outputs.FILENAME }}

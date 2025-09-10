@@ -1,0 +1,176 @@
+---
+name: Node.js CI
+permissions:
+  contents: write
+  pull-requests: write
+  checks: write
+  actions: read
+  statuses: write
+  deployments: write
+  issues: write
+  discussions: write
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Set up Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      # Install dependencies
+      - name: Install dependencies
+        run: npm install
+
+      # Create required directories
+      - name: Create directories
+        run: mkdir -p reports dist docs test-results
+
+      # Run Vitest tests with coverage
+      - name: Run unit tests with Vitest
+        run: npm run test:coverage
+
+      - name: Upload coverage reports to Codecov
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Running tests for codecov
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: npm run test:codecov
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      # Upload unit test results to GitHub
+      - name: 'Report Coverage'
+        if: always()
+        uses: davelosert/vitest-coverage-report-action@v2
+
+      # Install Playwright browsers
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      # Run integration tests
+      - name: Run integration tests
+        run: npm run test:integration:ci
+
+      # Upload Playwright report
+      - name: Upload Playwright report
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+      # Run performance regression tests
+      - name: Run performance regression tests
+        id: performance_test
+        run: npm run test:performance
+        continue-on-error: true
+
+      # Upload performance benchmark results
+      - name: Upload performance benchmark results
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-benchmark
+          path: reports/performance-benchmark.json
+          retention-days: 30
+
+      # Create GitHub issue for performance regressions
+      - name: Create issue for performance regression
+        if: steps.performance_test.outcome == 'failure' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            try {
+              const regressionFile = 'reports/performance-regressions.json';
+              if (fs.existsSync(regressionFile)) {
+                const regressionData = JSON.parse(fs.readFileSync(regressionFile, 'utf8'));
+
+                const issue = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `🚨 Performance Regression Detected: ${regressionData.summary}`,
+                  body: `## Performance Regression Alert\n\nThe following performance regressions were detected in commit ${context.sha}:\n\n\`\`\`\n${regressionData.details}\n\`\`\`\n\nPlease investigate these regressions and fix them as soon as possible.\n\n[View workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+                  labels: ['bug', 'performance']
+                });
+
+                console.log(`Created issue #${issue.data.number}: ${issue.data.title}`);
+              } else {
+                console.log('No regression file found, skipping issue creation');
+              }
+            } catch (error) {
+              console.error('Error creating issue:', error);
+            }
+
+      # Run ESLint
+      - name: Run ESLint
+        run: |
+          ./node_modules/.bin/eslint ./src --format junit --output-file ./reports/eslint/eslint.xml
+
+      # Run code complexity analysis
+      - name: Code complexity analysis
+        run: |
+          mkdir -p reports/complexity
+          ./node_modules/.bin/eslint ./src --config eslint.config.js --rule 'complexity/complexity: ["error", { max: 15 }]' --format json > reports/complexity/complexity-report.json || true
+          echo "Complexity report generated at reports/complexity/complexity-report.json"
+
+      # Run TypeScript type checking
+      - name: TypeScript type checking
+        run: npx tsc --noEmit
+
+      # Run dependency vulnerability scanning
+      - name: Dependency vulnerability scanning
+        run: npm audit --level=moderate
+
+      # Analyze bundle size
+      - name: Analyze bundle size
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          npm run build:all:prod
+          ls -la dist/*.js | awk '{print $5, $9}' > bundle-size.txt
+          cat bundle-size.txt
+
+      - name: Bundle analysis
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: npx @codecov/bundle-analyzer ./dist --bundle-name=scorm-again --upload-token=${{ secrets.CODECOV_TOKEN }}
+        working-directory: ./
+
+      # Format code with Prettier
+      - name: Format code with Prettier
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: npm run prettier
+
+      - name: Commit and Push Changes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: "[skip ci] Add changes during build"
+          file_pattern: "dist/**/*.* src/**/*.* test/**/*.* src/*.* test/*.*"
+          skip_dirty_check: false

@@ -1,0 +1,53 @@
+name: Publish Knowledge Base Article
+on:
+  repository_dispatch:
+    types: [publish-kb]
+
+run-name: Publish Knowledge Base Article ${{ github.event.client_payload.name }} ${{ github.event.client_payload.id }}
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: "${{ github.workflow }} ${{ github.event.client_payload.id }}"
+  cancel-in-progress: true
+
+jobs:
+  publish_kb:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: configure git
+        run: |
+          git config --global user.email "kb-bot@telerik.com"
+          git config --global user.name "KB Bot"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Import Secrets
+        id: import-secrets
+        uses: LanceMcCarthy/akeyless-action@v3
+        with:
+          access-id: ${{ secrets.GH_AKEYLESS_ACCESS_ID }}
+          static-secrets: '{ "/WebComponents/prod/tokens/GH_TOKEN": "GH_TOKEN" }'
+
+      - name: Create branch
+        run: |
+          git checkout -b "new-kb-$name-$id"
+          cd $folder
+          echo "$content" > "$name.md"
+          git add "$name.md"
+          git commit -m "Added new kb article $name"
+          git push -u origin "new-kb-$name-$id"
+        env:
+          name: ${{ github.event.client_payload.name }}
+          content: ${{ github.event.client_payload.content }}
+          folder: ${{ github.event.client_payload.folder }}
+          id: ${{ github.event.client_payload.id }}
+
+      - name: Create pull request
+        run: gh pr create --fill
+        env:
+          GITHUB_TOKEN: ${{ steps.import-secrets.outputs.GH_TOKEN }}

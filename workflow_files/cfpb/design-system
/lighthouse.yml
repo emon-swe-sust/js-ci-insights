@@ -1,0 +1,30 @@
+name: Run Lighthouse against the docs
+
+on:
+  # Run every night at midnight UTC.
+  schedule:
+    - cron: '0 0 * * *'
+  # Allow manual triggering of the action.
+  workflow_dispatch:
+
+jobs:
+  lighthouseci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Shared setup
+        uses:  ./.github/actions/shared-action-setup
+
+      # Build the documentation site.
+      # This is needed so we can determine the list of URLs to test.
+      - name: Build documentation site
+        run: yarn build-decap
+
+      # Run Lighthouse CI
+      - name: Run Lighthouse CI
+        run: yarn lhci autorun
+        env:
+          LHCI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

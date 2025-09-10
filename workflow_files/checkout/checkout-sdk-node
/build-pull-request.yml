@@ -1,0 +1,37 @@
+name: build-pull-request
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - id: setup-node
+        uses: actions/setup-node@v2.5.1
+        with:
+          node-version: 12
+          registry-url: https://registry.npmjs.org/
+      - id: build-and-analyse
+        env:
+          CHECKOUT_PROCESSING_CHANNEL_ID: ${{ secrets.IT_CHECKOUT_PROCESSING_CHANNEL_ID }}
+          CHECKOUT_PREVIOUS_SECRET_KEY: ${{ secrets.IT_CHECKOUT_PREVIOUS_SECRET_KEY }}
+          CHECKOUT_PREVIOUS_PUBLIC_KEY: ${{ secrets.IT_CHECKOUT_PREVIOUS_PUBLIC_KEY }}
+          CHECKOUT_DEFAULT_SECRET_KEY: ${{ secrets.IT_CHECKOUT_DEFAULT_SECRET_KEY }}
+          CHECKOUT_DEFAULT_PUBLIC_KEY: ${{ secrets.IT_CHECKOUT_DEFAULT_PUBLIC_KEY }}
+          CHECKOUT_DEFAULT_OAUTH_CLIENT_ID: ${{ secrets.IT_CHECKOUT_DEFAULT_OAUTH_CLIENT_ID }}
+          CHECKOUT_DEFAULT_OAUTH_CLIENT_SECRET: ${{ secrets.IT_CHECKOUT_DEFAULT_OAUTH_CLIENT_SECRET }}
+          CHECKOUT_DEFAULT_OAUTH_PAYOUT_SCHEDULE_CLIENT_ID: ${{ secrets.IT_CHECKOUT_DEFAULT_OAUTH_PAYOUT_SCHEDULE_CLIENT_ID }}
+          CHECKOUT_DEFAULT_OAUTH_PAYOUT_SCHEDULE_CLIENT_SECRET: ${{ secrets.IT_CHECKOUT_DEFAULT_OAUTH_PAYOUT_SCHEDULE_CLIENT_SECRET }}
+          CHECKOUT_DEFAULT_OAUTH_ACCOUNTS_CLIENT_ID: ${{ secrets.IT_CHECKOUT_DEFAULT_OAUTH_ACCOUNTS_CLIENT_ID }}
+          CHECKOUT_DEFAULT_OAUTH_ACCOUNTS_CLIENT_SECRET: ${{ secrets.IT_CHECKOUT_DEFAULT_OAUTH_ACCOUNTS_CLIENT_SECRET }}
+          CHECKOUT_DEFAULT_OAUTH_ISSUING_CLIENT_ID: ${{ secrets.IT_CHECKOUT_DEFAULT_OAUTH_ISSUING_CLIENT_ID }}
+          CHECKOUT_DEFAULT_OAUTH_ISSUING_CLIENT_SECRET: ${{ secrets.IT_CHECKOUT_DEFAULT_OAUTH_ISSUING_CLIENT_SECRET }}
+        run: |
+          npm ci
+          npm test
+          npm run build
+

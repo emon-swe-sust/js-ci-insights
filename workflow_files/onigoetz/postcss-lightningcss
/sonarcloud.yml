@@ -1,0 +1,26 @@
+on:
+  push: {}
+  pull_request:
+      types: [opened, synchronize, reopened]
+
+name: SonarCloud
+jobs:
+  sonarcloud:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      with:
+        # Disabling shallow clone is recommended for improving relevancy of reporting
+        fetch-depth: 0
+    - name: Use Node.js
+      uses: actions/setup-node@v5.0.0
+      with:
+        node-version: 22.x
+    - name: Yarn install
+      run: yarn install
+    - name: Test
+      run: yarn test:coverage
+    - name: SonarCloud Scan
+      uses: SonarSource/sonarqube-scan-action@v5
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

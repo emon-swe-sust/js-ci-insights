@@ -1,0 +1,44 @@
+name: Test, Build and Deploy Preview Application
+
+on:
+  pull_request:
+    types: ['opened', 'edited', 'synchronize']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@master
+
+      # Sets up the Node environment to build the application on
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16.x
+
+      # Installs local dependencies needed to build, test, etc.
+      - name: 🏗 Install Dependencies
+        run: |
+          npm install
+
+      # Runs all tests and builds the application
+      - name: 🧱 Run Tests and Build Application
+        run: |
+          npm run test:full
+        env:
+          CI: true
+
+      # Upload CodeCov report to the remote server
+      - name: ⬆️ Upload Code Coverage
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: 🚙 Deploy to Netlify
+        uses: nwtgck/actions-netlify@v2.0
+        with:
+          publish-dir: './docs/.vitepress/dist'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}

@@ -1,0 +1,170 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - release/*
+
+env:
+  FORCE_COLOR: true
+
+jobs:
+  mocha:
+    runs-on: ${{ matrix.os }}
+    name: Node.js ${{ matrix.node }} on ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+        node:
+          - '18'
+          - '20'
+          - '22'
+
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: 'Install Node.js'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '${{ matrix.node }}'
+
+      - name: 'Install dependencies'
+        run: npm ci
+
+      - name: 'Run tests'
+        run: 'npm run test'
+
+  coverage:
+    name: 'Upload coverage'
+    runs-on: ubuntu-latest
+    needs:
+      - 'mocha'
+
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: 'Install Node.js'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 18
+
+      - name: 'Install dependencies'
+        run: npm ci
+
+      - name: 'Run tests'
+        run: 'npm run test-coverage'
+
+      - name: 'Upload to Coveralls'
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  serverless-v1:
+    runs-on: ${{ matrix.os }}
+    name: Node.js ${{ matrix.node }} on ${{ matrix.os }} with Serverless v1
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+        node:
+          - 18
+
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: 'Install Node.js'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '${{ matrix.node }}'
+
+      - name: 'Install Serverless v1'
+        run: npm install serverless@1
+
+      - name: 'Install dependencies'
+        run: npm ci
+
+      - name: 'Run tests'
+        run: 'npm run test'
+
+  serverless-v2:
+    runs-on: ${{ matrix.os }}
+    name: Node.js ${{ matrix.node }} on ${{ matrix.os }} with Serverless v2
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+        node:
+          - 18
+
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: 'Install Node.js'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '${{ matrix.node }}'
+
+      - name: 'Install Serverless v2'
+        run: npm install serverless@2
+
+      - name: 'Install dependencies'
+        run: npm ci
+
+      - name: 'Run tests'
+        run: 'npm run test'
+
+  serverless-v4:
+    runs-on: ${{ matrix.os }}
+    name: Node.js ${{ matrix.node }} on ${{ matrix.os }} with Serverless v4
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+        node:
+          - 20
+
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: 'Install Node.js'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '${{ matrix.node }}'
+
+      - name: 'Install dependencies'
+        run: npm ci
+
+      - name: 'Install Serverless v4'
+        run: npm install serverless@4
+
+      - name: 'Run tests'
+        run: npm run test tests/e2e/e2e.test.js
+        env:
+          AWS_DEFAULT_REGION: eu-west-1
+          # personal credentials from j0k3r
+          AWS_ACCESS_KEY_ID: ${{secrets.AWS_ACCESS_KEY_ID}}
+          AWS_SECRET_ACCESS_KEY: ${{secrets.AWS_SECRET_ACCESS_KEY}}
+          SERVERLESS_ACCESS_KEY: ${{secrets.SERVERLESS_ACCESS_KEY}}

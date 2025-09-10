@@ -1,0 +1,35 @@
+name: ddg2dnr
+
+on: [pull_request]
+
+jobs:
+    lint:
+        runs-on: '${{ matrix.os }}'
+        strategy:
+            matrix:
+                node: [22.x]
+                os: [ubuntu-22.04] # FIXME - macos-latest runner keeps failing
+        steps:
+            - uses: actions/checkout@v4
+            - name: Use Node.js ${{ matrix.node }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node }}
+                  cache: 'npm'
+            - run: npm run install-ci
+            - run: npm run lint --workspace=packages/ddg2dnr
+    test:
+        runs-on: '${{ matrix.os }}'
+        strategy:
+            matrix:
+                node: [22.x]
+                os: [ubuntu-22.04]
+        steps:
+            - uses: actions/checkout@v4
+            - name: Use Node.js ${{ matrix.node }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node }}
+                  cache: 'npm'
+            - run: npm run install-ci
+            - run: npm test --workspace=packages/ddg2dnr

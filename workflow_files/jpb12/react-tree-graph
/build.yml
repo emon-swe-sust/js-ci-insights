@@ -1,0 +1,26 @@
+name: Build
+on:
+  push:
+    branches: [ 'master' ]
+  pull_request:
+    branches: [ 'master' ]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js 22.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22.x
+        cache: 'npm'
+    - name: Install
+      run: npm ci
+    - name: Lint
+      run: npm run eslint
+    - name: Build
+      run: npm run build
+    - name: Check Git changes
+      uses: multani/git-changes-action@v1

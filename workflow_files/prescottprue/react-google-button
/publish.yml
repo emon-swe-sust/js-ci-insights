@@ -1,0 +1,66 @@
+name: NPM Package Publish
+
+on:
+  push:
+    branches:
+      - main
+      - next
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+          cache: 'yarn'
+
+      - name: Configure package manager
+        run: |
+          npm config set '//registry.npmjs.org/:_authToken' ${{ secrets.NPM_TOKEN }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+
+      - name: Run Unit Tests + Coverage
+        run: yarn test:cov
+
+      - name: Build
+        run: yarn build
+
+      - name: Publish To NPM
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_REF: ${{ github.ref }}
+        run: npm publish $(if [ "$GITHUB_REF" != 'refs/heads/main' ]; then echo '--tag next';fi;)
+
+      - name: Get package version
+        id: package-info
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          echo "::set-output name=version::$(node -p \"require('./package.json').version\")"
+          echo "::set-output name=body::$(git --no-pager log --format=%B -n 1 $SHA)"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tag_name: v${{ steps.package-info.outputs.version }}
+          release_name: v${{ steps.package-info.outputs.version }}
+          draft: false
+          body: ${{ steps.package-info.outputs.body }}
+          prerelease: ${{ github.ref }} == 'refs/heads/next'
+
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODE_COV }}

@@ -1,0 +1,38 @@
+name: update-contributors-svg
+
+on:
+  workflow_dispatch:
+  # Schedule the interval of the checks.
+  schedule:
+    - cron: '0 16 * * *' # Everyday 00:00 (GMT+8)
+
+jobs:
+  update-svg:
+    name: Update contributors SVG
+    runs-on: ubuntu-latest
+    env:
+      SKIP_BUILD: true
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set node
+        uses: actions/setup-node@v3
+        with:
+          node-version: lts/*
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 7
+
+      - name: Run SVG generation script
+        run: pnpx make-github-contributor-svg -t ${{ secrets.GITHUB_TOKEN }} -o rollup -r rollup-docs-cn
+
+      - name: Commit
+        uses: EndBug/add-and-commit@v9
+        with:
+          default_author: github_actions
+          add: '.github-contributors'
+          message: 'chore(workflow): update contributors image [ci skip]'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

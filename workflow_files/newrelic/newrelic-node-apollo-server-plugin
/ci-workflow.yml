@@ -1,0 +1,152 @@
+name: Apollo Server Plugin CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Enable versioned runner quiet mode to make CI output easier to read:
+  OUTPUT_MODE: quiet
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [lts/*]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+    - name: Install Dependencies
+      run: npm install
+    - name: Run Linting
+      run: npm run lint
+    - name: Inspect Lockfile
+      run: npm run lint:lockfile
+
+  unit:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x, 24.x]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install Dependencies
+        run: npm install
+      - name: Run Unit Tests
+        run: npm run unit
+      - name: Archive Unit Test Coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-${{ matrix.node-version }}
+          path: ./coverage/unit/lcov.info
+
+  integration:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x, 24.x]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install Dependencies
+        run: npm install
+      - name: Run Integration Tests
+        run: npm run integration
+      - name: Archive Integration Test Coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-tests-${{ matrix.node-version }}
+          path: ./coverage/integration/lcov.info
+
+  versioned:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x, 24.x]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+    - name: Install Dependencies
+      run: npm install
+    - name: Run Versioned Tests
+      run: npm run versioned
+      env:
+        VERSIONED_MODE: ${{ github.ref == 'refs/heads/main' && '--minor' || '--major' }}
+        C8_REPORTER: lcovonly
+    - name: Archive Versioned Test Coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: versioned-tests-${{ matrix.node-version }}
+        path: ./coverage/versioned/lcov.info
+
+  codecov:
+    needs: [unit, integration, versioned]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x, 24.x]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+      - name: Post Unit Test Coverage
+        uses: codecov/codecov-action@e28ff129e5465c2c0dcc6f003fc735cb6ae0c673
+        with:
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: unit-tests-${{ matrix.node-version }}
+          flags: unit-tests-${{ matrix.node-version }}
+      - name: Post Integration Test Coverage
+        uses: codecov/codecov-action@e28ff129e5465c2c0dcc6f003fc735cb6ae0c673
+        with:
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: integration-tests-${{ matrix.node-version }}
+          flags: integration-tests-${{ matrix.node-version }}
+      - name: Post Versioned Test Coverage
+        uses: codecov/codecov-action@e28ff129e5465c2c0dcc6f003fc735cb6ae0c673
+        with:
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: versioned-tests-${{ matrix.node-version }}
+          flags: versioned-tests-${{ matrix.node-version }}
+  all-clear:
+    if: always()
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+      - unit
+      - integration
+      - versioned
+    steps:
+      - name: All checks passed
+        if: ${{ !(contains(needs.*.result, 'failure')) }}
+        run: exit 0
+      - name: Some checks failed
+        if: ${{ contains(needs.*.result, 'failure') }}
+        run: exit 1
+

@@ -1,0 +1,247 @@
+name: Update usercount/jsDelivr shields in root readmes
+
+on:
+  schedule:
+    - cron: "25 2 * * 2" # every Tue @ 2:25 AM
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-root-usercount-jsd-shields:
+    runs-on: ubuntu-latest
+    env:
+      TZ: PST8PDT
+
+    steps:
+      - name: Checkout adamlui/ai-web-extensions
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.REPO_SYNC_PAT }}
+          path: adamlui/ai-web-extensions
+
+      - name: Fetch/sum user + JSD request counts
+        run: |
+          declare -A CHROME_EXTENSIONS=( # for Chrome extension user counts
+            ["obnaimomofoogphlhlaipeflcbneamnj"]="Brave Omnibox"
+            ["lbojnhaafilddefkdgmbplkafnckaoga"]="ChatGPT Auto-Continue"
+            ["amikeononomkhphopbflomhnmdijjpmb"]="ChatGPT Infinity"
+            ["jgnjpnmofkalfliddjelaciggjgnphgm"]="ChatGPT Widescreen"
+            ["gcgfmipiaiopmjcmggnnehnehhdjdkgi"]="DeepSeek Omnibox"
+            ["ckhgddjdjkphbaediggjdddjdjgkalom"]="Perplexity Omnibox"
+          )
+
+          declare -A FF_ADDONS=( # for Firefox add-on daily user counts
+            ["brave-omnibox"]="Brave Omnibox"
+            ["chatgpt-auto-continue"]="ChatGPT Auto-Continue"
+            ["chatgpt-infinity"]="ChatGPT Infinity"
+            ["chatgpt-omnibox"]="ChatGPT Omnibox"
+            ["chatgpt-widescreen"]="ChatGPT Widescreen"
+            ["deepseek-omnibox"]="DeepSeek Omnibox"
+            ["phind-omnibox"]="Phind Omnibox"
+            ["you-com-omnibox"]="You.com Omnibox"
+          )
+
+          declare -A EDGE_ADDONS=( # for Edge addon user counts
+            ["meolmkblenpohjlndodfbgpcfioampim"]="Brave Omnibox"
+            ["kaicnimcjamamnlbaeaneofmdjibgepl"]="ChatGPT Auto-Continue"
+            ["jgonecnbmehicpdpjkdekamhmlebfagb"]="ChatGPT Infinity"
+            ["obnaaalnokmchdoagnhmllakaclaaooa"]="ChatGPT Widescreen"
+            ["hghigiebpackbakklainbimglgiepfei"]="DeepSeek Omnibox"
+            ["ffpccpmmcnampmlpdeioklmdjccfmpih"]="Perplexity Omnibox"
+          )
+
+          JSD_GH_REPOS=( # for jsDelivr request counts
+            "adamlui/ai-web-extensions"
+            "adamlui/autoclear-chatgpt-history"
+            "adamlui/brave-omnibox"
+            "adamlui/chatgpt-auto-continue"
+            "adamlui/chatgpt-auto-refresh"
+            "adamlui/chatgpt-auto-talk"
+            "adamlui/chatgpt-infinity"
+            "adamlui/chatgpt-omnibox"
+            "adamlui/deepseek-omnibox"
+            "adamlui/chatgpt-widescreen"
+            "adamlui/perplexity-omnibox"
+            "adamlui/phind-omnibox"
+            "adamlui/you.com-omnibox"
+            "KudoAI/amazongpt"
+            "KudoAI/bravegpt"
+            "KudoAI/duckduckgpt"
+            "KudoAI/googlegpt"
+          )
+
+          expand_num() { # expand nums abbreviated w/ 'k' or 'm' suffix to integers
+            local num=$(echo "$1" | tr '[:upper:]' '[:lower:]') # convert to lowercase
+            if [[ $num =~ k$ ]] ; then
+              num="${num%k}" # remove 'k' suffix
+              num=$(awk "BEGIN { printf \"%.0f\", $num * 1000 }") # multiply by 1000
+            elif [[ $num =~ m$ ]] ; then
+              num="${num%m}" # remove 'm' suffix
+              num=$(awk "BEGIN { printf \"%.0f\", $num * 1000000 }") # multiply by 1000000
+            fi ; echo "$num"
+          }
+
+          format_total() {
+            local num=$1 ; first_digit="${num:0:1}" second_digit="${num:1:1}"
+            second_digit_rounded=$(( second_digit < 5 ? 0 : 5 ))
+            if (( num >= 1000000000 )) ; then # 1B+ w/ one decimal place
+              formatted_num="$(( num / 1000000000 ))"
+              remainder=$(( (num % 1000000000) / 100000000 ))
+              if (( remainder != 0 )) ; then formatted_num+=".$remainder" ; fi
+              formatted_num+="B+"
+            elif (( num >= 10000000 )) ; then # abbr 10,000,000+ to 999,000,000+
+              formatted_num=$(printf "%'.f+" $((( num / 1000000 ) * 1000000 )))
+            elif (( num >= 1000000 )) ; then # abbr 1,000,000+ to 9,500,000+
+              formatted_num="${first_digit},${second_digit}00,000+"
+            elif (( num >= 100000 )) ; then # abbr 100,000+ to 950,000+
+              formatted_num="${first_digit}${second_digit_rounded}0,000+"
+            elif (( num >= 10000 )) ; then # abbr 10,000+ to 90,000+
+              formatted_num="${first_digit}0,000+"
+            elif (( num >= 1000 )) ; then # abbr 1K to 9.9K
+              formatted_num="$(( num / 1000 ))"
+              remainder=$(( (num % 1000) / 100 ))
+              if (( remainder != 0 )) ; then formatted_num+=".$remainder" ; fi
+              formatted_num+="K"
+            else formatted_num="$num" ; fi # preserve <1K as is
+            echo "$formatted_num"
+          }
+
+          # Alphabetize arrays for more readable logging
+          for array_type in "CHROME_EXTENSIONS" "EDGE_ADDONS" "FF_ADDONS" ; do
+            # Extract IDs/names
+            eval ids=\${!$array_type[@]} names=(\"\${$array_type[@]}\")
+            IFS=' ' read -r -a ids <<< "$ids" # converted space-delimited IDs to actual array
+            for ((i = 0 ; i < ${#ids[@]} ; i++)) ; do
+              app_id="${ids[i]}" app_name="${names[i]}" ; done
+            # Create alphabetized arrays
+            sorted_array=()
+            for ((i = 0; i < ${#ids[@]}; i++)) ; do
+              sorted_array+=("${names[i]}:${ids[i]}") ; done
+            IFS=$'\n' sorted_array=($(sort <<<"${sorted_array[*]}"))
+            eval sorted_${array_type}=\(\"\${sorted_array[@]}\"\)
+          done
+
+          # Init Greasy Fork user counts
+          total_gf_users=200000
+          echo -e "\n-----\nTotal Greasy Fork users: $total_gf_users\n-----\n"
+
+          # Fetch/sum Chrome weekly user counts
+          for tuple in "${sorted_CHROME_EXTENSIONS[@]}" ; do
+            app_id="${tuple##*:}" app_name="${tuple%%:*}"
+            base_url="https://img.shields.io/chrome-web-store/users/"
+            chrome_users=$(curl -s "$base_url$app_id" |
+              sed -n 's/.*<title>users: \([0-9.k]\+\)*<\/title>.*/\1/Ip')
+            chrome_users=$(expand_num "$chrome_users")
+            echo "$app_name Chrome users: $chrome_users"
+            total_chrome_users=$((total_chrome_users + chrome_users))
+          done ; echo -e "\n-----\nTotal Chrome users: $total_chrome_users\n-----\n"
+
+          # Fetch/sum FF daily user counts
+          for tuple in "${sorted_FF_ADDONS[@]}" ; do
+            app_id="${tuple##*:}" app_name="${tuple%%:*}"
+            base_url="https://addons.mozilla.org/api/v5/addons/addon/"
+            ff_users=$(curl -s "$base_url$app_id/" |
+              sed -n 's/.*"average_daily_users":\([0-9]*\).*/\1/p')
+            echo "$app_name FF users: $ff_users"
+            total_ff_users=$((total_ff_users + ff_users))
+          done ; echo -e "\n-----\nTotal Firefox users: $total_ff_users\n-----\n"
+
+          # Fetch/sum Edge user counts
+          for tuple in "${sorted_EDGE_ADDONS[@]}" ; do
+            app_id="${tuple##*:}" app_name="${tuple%%:*}"
+            base_url="https://microsoftedge.microsoft.com/addons/getproductdetailsbycrxid/"
+            edge_users=$(curl -s "$base_url$app_id" |
+              grep -o '"activeInstallCount":[0-9]*' |
+              sed 's/"activeInstallCount"://')
+            echo "$app_name Edge users: $edge_users"
+            total_edge_users=$((total_edge_users + edge_users))
+          done ; echo -e "\n-----\nTotal Edge users: $total_edge_users\n-----\n"
+
+          # Fetch/sum jsDelivr request counts
+          for repo in "${JSD_GH_REPOS[@]}" ; do
+            repo_requests=$(curl -s "https://img.shields.io/jsdelivr/gh/hm/$repo.svg" |
+              sed -n -E 's|.*<title>jsdelivr: ([0-9,.km]+).*</title>.*|\1|Ip')
+            repo_requests=$(expand_num "$repo_requests")
+            echo "$repo jsDelivr hits: $repo_requests"
+            total_requests=$((total_requests + repo_requests))
+          done ; echo -e "\n-----\nTotal monthly jsDelivr requests: $total_requests\n-----\n"
+
+          # Format totals
+          formatted_total_users=$(format_total "$((
+            total_gf_users + total_chrome_users + total_ff_users + total_edge_users))")
+          echo "Formatted total users: $formatted_total_users"
+          formatted_total_requests=$(format_total "$total_requests")
+          echo "Formatted total monthly jsDelivr requests: $formatted_total_requests"
+
+          # Expose totals for update step next
+          echo "TOTAL_USERS=$formatted_total_users" >> $GITHUB_ENV
+          echo "TOTAL_REQUESTS=$formatted_total_requests" >> $GITHUB_ENV
+
+      - name: Update README shields
+        run: |
+          cd ${{ github.workspace }}/adamlui/ai-web-extensions
+
+          TOTAL_USERS="${{ env.TOTAL_USERS }}"
+          TOTAL_REQUESTS="${{ env.TOTAL_REQUESTS }}"
+
+          # Update usercount shields
+          if [ "$TOTAL_USERS" == "0" ] ; then echo "Error getting total usercount"
+          else
+            for readme in README.md $(find docs/ -name "README.md") ; do
+              old_readme=$(<"$readme")
+              sed -i -E "s|(badge/[^-]+-)[0-9.,km+]+([^?]+\?logo=weightsandbiases)|\1$TOTAL_USERS\2|gI" "$readme"
+              new_readme=$(<"$readme")
+              if [ "$old_readme" != "$new_readme" ] ; then users_updated=true ; fi
+            done
+            if [ "$users_updated" = true ] ; then echo "Usercount shields updated to $TOTAL_USERS"
+            else echo "Usercount shields already up-to-date" ; fi
+          fi
+
+          # Update jsDelivr shields
+          if [ "$TOTAL_REQUESTS" == "0" ] ; then echo "Error getting total jsDelivr requests"
+          else
+            for readme in README.md $(find docs/ -name "README.md") ; do
+              old_readme=$(<"$readme")
+              sed -i -E "s|(badge/jsDelivr_[^-]+-)[0-9.,km+]+|\1$TOTAL_REQUESTS|Ig" "$readme"
+              new_readme=$(<"$readme")
+              if [ "$old_readme" != "$new_readme" ] ; then requests_updated=true ; fi
+            done
+            if [ "$requests_updated" = true ] ; then echo "jsDelivr shields updated to $TOTAL_REQUESTS"
+            else echo "jsDelivr shields already up-to-date" ; fi
+          fi
+
+          # Count shield types updated for commit msg
+          shield_types_updated=0
+          [ "$users_updated" = true ] && ((shield_types_updated+=1))
+          [ "$requests_updated" = true ] && ((shield_types_updated+=1))
+          if (( "$shield_types_updated" > 1 )) ; then multi_shield_types_updated=true ; fi
+
+          # Define commit msg for push step next
+          COMMIT_MSG="Updated "
+          [ "$users_updated" = true ] && COMMIT_MSG+="usercount"
+          if [ "$requests_updated" = true ] ; then
+             [ "$multi_shield_types_updated" = true ] && COMMIT_MSG+="/" ; COMMIT_MSG+="jsDelivr" ; fi
+          COMMIT_MSG+=" shield counters in root readmes"
+          echo "COMMIT_MSG=$COMMIT_MSG" >> $GITHUB_ENV # expose for push step
+
+          # Set Updated flag to check in subsequent steps
+          if (( "$shield_types_updated" > 0 )) ; then echo "SHIELDS_UPDATED=true" >> $GITHUB_ENV ; fi
+
+      - name: Config committer
+        if: env.SHIELDS_UPDATED == 'true'
+        run: |
+          gpg --batch --import <(echo "${{ secrets.GPG_PRIVATE_KEY }}")
+          git config --global commit.gpgsign true
+          git config --global user.name "kudo-sync-bot"
+          git config --global user.email "auto-sync@kudoai.com"
+          git config --global user.signingkey "${{ secrets.GPG_PRIVATE_ID }}"
+
+      - name: Push changes to adamlui/ai-web-extensions
+        if: env.SHIELDS_UPDATED == 'true'
+        run: |
+          cd ${{ github.workspace }}/adamlui/ai-web-extensions
+          git pull # again to sync w/ concurrent workflow updates
+          git add . && git commit -n -m "${{ env.COMMIT_MSG }}" || true
+          git push

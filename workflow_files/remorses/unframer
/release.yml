@@ -1,0 +1,53 @@
+name: Release
+
+on:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    release:
+        name: Release
+        strategy:
+            matrix:
+                os: [ubuntu-latest, windows-latest]
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 10
+        permissions:
+            # Give the default GITHUB_TOKEN write permission to commit and push the changed files back to the repository.
+            contents: write
+            pull-requests: write
+            actions: write
+        steps:
+            - name: Checkout Repo
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+                  run_install: false
+            # - name: Install pnpm dependencies (with cache)
+            #   uses: covbot/pnpm-install-with-cache@v1
+            - run: pnpm i --frozen-lockfile false
+            - run: pnpm --filter unframer build && pnpm unframer && pnpm framer-simplicity && pnpm framer-unchatgpt
+              working-directory: nextjs-app
+            - run: node -e "console.log(require('fs').readFileSync('nextjs-app/src/framer/framerNav.jsx','utf8'))"
+            - run: npx --yes tree-node-cli -I node_modules &&  pnpm build
+              working-directory: nextjs-app
+            # - name: Create Release Pull Request or Publish to npm
+            #   id: changesets
+            #   uses: changesets/action@v1
+            #   with:
+            #       publish: pnpm changeset publish
+            #   env:
+            #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            #       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

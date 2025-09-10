@@ -1,0 +1,27 @@
+name: Verify PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  verify:
+    # Prevents changesets action from creating a PR on forks
+    if: github.repository == 'bennypowers/lit-css'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install packages
+        run: sudo npm ci --prefer-offline
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test

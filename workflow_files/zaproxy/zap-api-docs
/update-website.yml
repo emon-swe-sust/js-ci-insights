@@ -1,0 +1,47 @@
+name: Update Website
+
+on:
+  push:
+    branches:
+    - main
+
+jobs:
+  update-website:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: 3.2
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - uses: actions/checkout@v4
+      with:
+        path: zap-api-docs
+    - name: Checkout zaproxy.github.io
+      uses: actions/checkout@v4
+      with:
+        repository: zaproxy/zaproxy.github.io
+        persist-credentials: false
+        path: zaproxy.github.io
+        fetch-depth: 0
+    - name: Generate apis.md
+      run: |
+        cd zap-api-docs
+        npm install
+        npm run build
+    - name: Build API docs
+      run: |
+        cd zap-api-docs
+        gem install bundler
+        bundle install
+        bundle exec middleman build --clean 
+    - name: Update Website
+      uses: ./zap-api-docs/.github/actions/update-website
+      with:
+        repo: 'zaproxy.github.io'
+        branch: 'master'
+        user: 'zapbot'
+        email: '12745184+zapbot@users.noreply.github.com'
+      env:
+        AUTH_TOKEN: ${{ secrets.ZAPBOT_TOKEN }}

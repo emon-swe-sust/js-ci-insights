@@ -1,0 +1,56 @@
+name: Update Submodules
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  update-submodules:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # Restrict permissions to only what is needed
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive # Checkout submodules recursively
+          token: ${{ secrets.GITHUB_TOKEN }} # Explicitly use the token securely
+          fetch-depth: 1
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+
+      - name: Update from upstream
+        run: |
+          git submodule update --init --recursive
+          git submodule foreach --recursive 'git fetch && git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)'
+          # git submodule foreach --recursive git pull --rebase
+          # cd ./submodules/bigthundersr/onstar2mqtt || exit 1
+          # git pull || exit 1
+
+      - name: Run link script
+        run: |
+          if [ -d "submodules" ]; then
+            cd submodules || exit 1
+          else
+            echo "Directory 'submodules' does not exist. Exiting..."
+            exit 1
+          fi
+          sh link_bigthundersr.sh || exit 1
+
+      - name: Commit and push changes
+        run: |
+          git add .
+          if ! git diff-index --quiet HEAD; then
+            echo "Changes detected, committing..."
+            git commit -S -m "Pick up upstream updates"
+            echo "Pushing changes..."
+            git push origin main
+          else
+            echo "No changes to commit"
+          fi

@@ -1,0 +1,34 @@
+name: Install and test @ava/typescript
+on:
+  push:
+    branches:
+    - main
+    tags:
+    - 'v*'
+  pull_request:
+    paths-ignore:
+    - '*.md'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  nodejs:
+    name: Node.js
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [^20.8, ^22, ^24]
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm install --no-audit
+      - run: npm test
+      - uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info
+          name: ${{ matrix.os }}/${{ matrix.node-version }}
+          token: ${{ secrets.CODECOV_TOKEN }}

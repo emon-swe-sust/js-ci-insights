@@ -1,0 +1,36 @@
+name: ci
+# https://github.com/actions/starter-workflows/blob/master/ci/npm-publish.yml
+on:
+  push:
+  pull_request:
+    branches:
+      - master
+# https://github.com/actions/starter-workflows/issues/158
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+    env:
+      NODE_ENV: ci
+    steps:
+      - uses: actions/checkout@v1
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: yarn && yarn run ci
+      - run: yarn run test
+
+      - name: check process start
+        working-directory: ./examples/websocket-chat/game-server
+        run: node ci-test.js && pkill -f node
+      - name: check nestjs example start
+        working-directory: ./examples/websocket-chat-ts-run/game-server
+        run: node ci-test.js && pkill -f node
+      - name: check ssl example start
+        working-directory: ./examples/ssl-connector/game-server
+        run: node ci-test.js && pkill -f node
+        
+

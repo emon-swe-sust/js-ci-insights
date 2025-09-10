@@ -1,0 +1,69 @@
+name: "CI - Rubocop"
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths:
+      # NOTE: GitHub Actions do not allow using YAML references, the same path
+      # list is used below for the pull request event. Keep both lists in sync!!
+
+      # this file as well
+      - .github/workflows/ci-rubocop.yml
+      # Rubocop configuration
+      - service/.rubocop.yml
+      # all Ruby files
+      - service/Gemfile
+      - service/bin/**
+      - service/**.rb
+
+  pull_request:
+    paths:
+      # NOTE: GitHub Actions do not allow using YAML references, the same path
+      # list is used above for the push event. Keep both lists in sync!!
+
+      # this file as well
+      - .github/workflows/ci-rubocop.yml
+      # Rubocop configuration
+      - service/.rubocop.yml
+      # all Ruby files
+      - service/Gemfile
+      - service/bin/**
+      - service/**.rb
+
+jobs:
+  rubocop:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./service
+
+    steps:
+
+    - name: Git Checkout
+      uses: actions/checkout@v4
+
+    # cache the locally installed Ruby gems for the next invocation to speed up the run,
+    # installing Rubocop from scratch takes about 1 minute, the cache is restored in about 2 seconds
+    # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/caching-dependencies-to-speed-up-workflows#using-the-cache-action
+    - name: Rubygem cache
+      id:   rubygem-cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.local/share/gem
+        key: ${{ runner.os }}-rubocop-${{ hashFiles('.github/workflows/ci-rubocop.yml') }}
+
+    - name: Install Rubocop
+      # install Rubocop if it was not restored from the cache
+      if: steps.rubygem-cache.outputs.cache-hit != 'true'
+      run: gem install --user-install rubocop:1.24.1
+
+    - name: Modify Rubocop config
+      # read the shared configuration directly from the GitHub repository
+      run: sed -i -e "s#/usr/share/YaST2/data/devtools/data/#https://raw.githubusercontent.com/yast/yast-devtools/refs/heads/master/ytools/y2tool/#" .rubocop.yml
+
+    - name: Rubocop
+      run: ~/.local/share/gem/ruby/*/bin/rubocop

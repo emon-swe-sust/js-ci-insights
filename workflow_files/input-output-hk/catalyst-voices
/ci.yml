@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["**"]
+  pull_request:
+    types:
+      - synchronize
+      - ready_for_review
+      - opened
+
+permissions:
+  id-token: write
+  contents: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  reject:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Forge
+        uses: input-output-hk/catalyst-forge/actions/install@ci/v1.10.0
+        with:
+          enable_caching: "true"
+          version: 0.21.0
+      - name: Reject Earthfile
+        uses: input-output-hk/catalyst-forge/actions/reject-earthfile@ci/v1.10.0
+        with:
+          filter-source: earthfile
+          filters: |
+            \s*FROM.*?:latest
+              No images should be built using the 'latest' tag
+
+  ci:
+    if: ${{ !github.event.pull_request.draft }}
+    needs: [reject]
+    uses: input-output-hk/catalyst-forge/.github/workflows/ci.yml@ci/v1.10.0
+    with:
+      forge_version: 0.21.0
+      release_only: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+
+  integration-tests:
+    needs: ci
+    uses: ./.github/workflows/gateway-tests.yml
+
+  test-reporting:
+    if: success() || failure()
+    needs: integration-tests
+    uses: ./.github/workflows/generate-allure-report.yml

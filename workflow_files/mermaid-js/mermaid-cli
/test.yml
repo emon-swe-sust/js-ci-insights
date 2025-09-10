@@ -1,0 +1,27 @@
+name: Test
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        node: [ 18.19 ]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node.JS ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
+      # throws an error if package-lock.json is out-of-date
+      - run: npm ci
+      # We use aa-exec since Ubuntu 24.04's AppArmor profile blocks the use
+      # of puppeteer otherwise, see
+      # https://github.com/puppeteer/puppeteer/issues/12818
+      - run: aa-exec --profile=chrome npm test

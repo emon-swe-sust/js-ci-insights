@@ -1,0 +1,52 @@
+name: Review PR
+run-name: Review PR ${{ inputs.pr }} - ${{ inputs.url }}
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number"
+        required: true
+      url:
+        description: "Web URL"
+        required: true
+  workflow_call:
+    inputs:
+      pr:
+        description: "PR number"
+        type: string
+        required: true
+      url:
+        description: "Web URL"
+        type: string
+        required: true
+    secrets:
+      SITE_FETCHER_API_KEY:
+        required: true
+      SK_PGR3DU5RPHDF8L8GGIH6:
+        required: true
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+jobs:
+  update:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 22.x
+
+      # Build and run site-fetcher locally
+      - name: Run site-fetcher Docker container
+        uses: ./.github/actions/site-fetcher-docker
+
+      - run: yarn
+      - run: node automation/pr-validator ${{ inputs.url }} ${{ inputs.pr }}
+        env:
+          BOT_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SK_PGR3DU5RPHDF8L8GGIH6: ${{ secrets.SK_PGR3DU5RPHDF8L8GGIH6 }}
+
+      - name: Display site-fetcher logs
+        if: always()
+        run: docker logs site-fetcher || true

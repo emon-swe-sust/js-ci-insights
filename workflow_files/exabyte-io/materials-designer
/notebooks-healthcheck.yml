@@ -1,0 +1,56 @@
+name: Notebooks Healthcheck
+
+on:
+  schedule:
+    - cron: '0 0 * * 5' # Run every Friday at midnight
+  workflow_dispatch:
+
+jobs:
+  run-notebook-tests:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: Exabyte-io/actions
+          token: ${{ secrets.BOT_GITHUB_TOKEN }}
+          path: actions
+
+      - name: Login to GitHub Container registry
+        uses: docker/login-action@v3
+        env:
+          GITHUB_USER: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          registry: ghcr.io
+          username: $GITHUB_USER
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker build
+        uses: ./.github/workflows/docker-build-test
+        with:
+          skip_tests: 'true'
+
+      - name: Docker test, healthchecks only
+        uses: ./.github/workflows/docker-build-test
+        with:
+          skip_build: 'true'
+          run-test-environment: NPM_RUN_COMMAND='test:healthcheck'
+
+      - name: Upload test artifacts
+        if: failure()  # Only upload when tests fail
+        uses: actions/upload-artifact@v4
+        with:
+          name: notebook-healthcheck-results-${{ github.run_id }}
+          path: |
+            tests/cypress/screenshots/
+            tests/cypress/videos/
+            tests/cypress/results/
+          retention-days: 30
+          if-no-files-found: ignore

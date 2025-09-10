@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+
+jobs:
+  lint-git:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.pull_request.head.sha }}
+    # grab default branch to calculate branch point to know when to stop linting
+    - if: ${{ github.base_ref }}
+      run: |
+        ref="${{ github.base_ref }}"
+        if git check-ref-format --branch "$ref"; then
+          git branch "$ref" "origin/$ref"
+        else
+          echo "Invalid base_ref: '$ref'"
+          exit 1
+        fi
+    - uses: actions/setup-node@v4
+
+    - run: yarn install --frozen-lockfile --ignore-scripts
+    - run: yarn lint:git
+
+  lint:
+    needs: lint-git
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - run: yarn install --frozen-lockfile --ignore-scripts
+    - run: yarn lint:md
+    - run: yarn lint:js
+
+  test:
+    needs: lint
+
+    strategy:
+      matrix:
+        os:
+        - ubuntu-latest
+        - macos-latest
+        node:
+        - 20
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node }}
+
+    # This is needed for tests
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 8
+
+    - run: yarn install --frozen-lockfile --ignore-scripts
+    - run: yarn test
+
+  ember-cli-update:
+    needs: test
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.head_ref }}
+        token: ${{ secrets.GitHubToken }}
+    - uses: actions/setup-node@v4
+
+    - uses: kellyselden/ember-cli-update-action@v7
+      with:
+        autofix_command: yarn lint:js --fix && yarn lint:md -o
+        ignore_to: true

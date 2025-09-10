@@ -1,0 +1,16 @@
+name: Test
+on: [push, pull_request, workflow_call]
+jobs:
+  test:
+    name: Unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build
+        run: |
+          cd web
+          npm install
+      - name: Test
+        run: |
+          cd web
+          npm test

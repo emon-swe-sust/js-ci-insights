@@ -1,0 +1,22 @@
+# This workflow deploys the current model to PyPI after a new release is created on GitHub.
+
+name: Test JS-PyTorch
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test framework # instantiate testing job
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2 # checkout the repo
+      - name: Download dependencies  # execute tests in tests/
+        run: |
+          npm install
+      - name: Execute tests  # execute tests in tests/
+        run: |
+          npm run test

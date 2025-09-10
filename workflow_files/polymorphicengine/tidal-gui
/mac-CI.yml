@@ -1,0 +1,153 @@
+name: Mac-CI
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+
+    runs-on: macOS-latest
+    strategy:
+      matrix:
+        ghc: ['9.2.3']
+        cabal: ['3.6.2.0']
+        
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v2
+
+    - name: Setup Haskell
+      uses: haskell/actions/setup@v1
+      id: setup-haskell-cabal
+      with:
+        ghc-version: ${{ matrix.ghc }}
+        cabal-version: ${{ matrix.cabal }}
+        
+    - name: Freeze
+      run: |
+        cabal freeze
+    - name: Cache cabal
+      uses: actions/cache@v2
+      id: cache-cabal
+      with:
+        path: '~/.cabal'
+        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('/Users/runner/work/tidal-gui/tidal-gui/src/') }}-a
+        
+    - name: Cache dist
+      uses: actions/cache@v2
+      id: cache-bin
+      with:
+        path: '/dist-newstyle/'
+        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('/Users/runner/work/tidal-gui/tidal-gui/src/') }}-b
+    
+    - name: cabal update and build
+      run: |
+            cabal update
+            cabal v2-build --enable-tests
+    
+    - name : make directory
+      run: |
+            mkdir binary
+            mkdir binary/haskell-libs/
+            mkdir binary/c-libs/
+            ls
+            
+    - name: move GHC libs and configs
+      run: |
+            mkdir binary/haskell-libs/ghc-packages/
+            cd ${{ steps.setup-haskell-cabal.outputs.ghc-path }}
+            cd ..
+            cd lib
+            cp -R ghc-${{ matrix.ghc }}/lib/* /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages
+            ls /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/
+            
+    - name: move installed packages
+      run: | 
+            mkdir binary/haskell-libs/packages/
+            cp -R ${{ steps.setup-haskell-cabal.outputs.cabal-store }}/ghc-${{ matrix.ghc }}/* binary/haskell-libs/packages
+            ls binary/haskell-libs/packages
+   
+    - name: change paths in config files (GHC)
+      run: |
+            export LANG=C
+            export LC_CTYPE=C
+            export LC_ALL=C
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/package.conf.d /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/package.conf.d
+            cd /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/package.conf.d/
+            sed -i '' 's+${pkgroot}/../lib+${pkgroot}/ghc-packages+g' *
+     
+    - name: change paths in config files (cabal)
+      run: |
+            export LANG=C
+            export LC_CTYPE=C
+            export LC_ALL=C
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/packages/package.db /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/package.db
+            cd /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/package.db/
+            sed -i '' 's+/Users/runner/.cabal/store/ghc-${{ matrix.ghc }}+${pkgroot}/packages+g' *
+   
+    - name: move ghc settings etc
+      run: |
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/settings /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/settings
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/llvm-targets /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/llvm-targets
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/llvm-passes /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/llvm-passes
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/template-hsc.h /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/template-hsc.h
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/ghcversion.h /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghcversion.h
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/ghcplatform.h /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghcplatform.h
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/ghcautoconf.h /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghcautoconf.h
+            mv /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/DerivedConstants.h /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/DerivedConstants.h
+
+    - name: ghc-pkg recache
+      run: |
+            ghc-pkg --package-db=/Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/package.conf.d recache
+            ghc-pkg --package-db=/Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/package.db recache
+            ghc-pkg --package-db=/Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/package.conf.d --package-db=/Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/package.db check
+   
+    - name: remove unneccessary libs 
+      run: |
+            cd /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/ghc-packages/x86_64-osx-ghc-${{ matrix.ghc }}
+            rm -R Cabal-*
+            rm -R rts-*
+            
+    - name: fake gcc
+      run: |
+            export LANG=C
+            export LC_CTYPE=C
+            export LC_ALL=C
+            mkdir binary/haskell-libs/bin
+            cp -R fake_gcc.sh binary/haskell-libs/bin/fake_gcc.sh
+            sed -i '' 's+gcc+$topdir/bin/fake_gcc.sh+g' /Users/runner/work/tidal-gui/tidal-gui/binary/haskell-libs/settings
+            chmod 755 binary/haskell-libs/bin/fake_gcc.sh
+   
+    - name: move executable
+      run: cp -R dist-newstyle/build/x86_64-osx/ghc-${{ matrix.ghc }}/tidal-gui-0.1.0.0/x/tidal-gui/build/tidal-gui/tidal-gui binary/tidal-gui
+  
+    - name: move static
+      run : cp -R static binary/static
+  
+ # - name: zip files
+ #   run: |
+ #         cd /Users/runner/work/tidal-gui/tidal-gui/
+ #         tar cvfj tidal-mac.tar binary/*
+    
+  #  - name: Release
+  #    uses: softprops/action-gh-release@v1
+  #    with:
+  #      files: '/Users/runner/work/tidal-gui/tidal-gui/tidal-mac.tar'
+    
+    - name: setup node
+      uses: actions/setup-node@v3
+      with:
+         node-version: 16
+    
+    - name: electron forge
+      run: |
+            npm install --save-dev @electron-forge/cli
+            npx electron-forge import
+            npm run make
+            
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+          files: out/make/zip/darwin/x64/*.zip

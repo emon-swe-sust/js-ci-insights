@@ -1,0 +1,35 @@
+name: Sync with OpenCC
+
+on:
+  schedule:
+    - cron:  '0 4 2 * *'
+    # * is a special character in YAML so you have to quote this string
+    
+  
+  workflow_dispatch:
+
+          
+
+jobs:
+  my_first_job_id:
+    name: Sync with OpenCC
+    runs-on: ubuntu-latest
+    steps:
+    - name: Job's checkout
+      uses: actions/checkout@master
+      
+    - name: Show some info
+      run: |
+        pwd
+        ls -la
+        git config user.name bot
+        git config user.email bot@github.bot.none
+        git config --list
+        
+    - name: Setup node
+      uses: actions/setup-node@v3
+      with:
+        node-version: 20
+      
+    - name: Run the bash
+      run: bash sync_opencc.sh 

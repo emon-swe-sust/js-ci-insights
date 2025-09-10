@@ -1,0 +1,408 @@
+name: Build Binaries
+
+on:
+  push:
+    tags:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  build:
+    name: Build Binaries
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      matrix:
+        include:
+          - runs-on: ubuntu-latest
+            artifact-name: cadt-linux-x64
+            build-command: npm run create-linux-x64-dist
+            sqlite-path: ./node_modules/sqlite3/build/Release/
+          - runs-on: ubuntu-24.04-arm
+            artifact-name: cadt-linux-arm64
+            build-command: npm run create-linux-arm64-dist
+            sqlite-path: ./node_modules/sqlite3/build/Release/
+          - runs-on: macos-13
+            artifact-name: cadt-macos-x64
+            build-command: npm run create-mac-x64-dist
+            sqlite-path: ./node_modules/sqlite3/build/Release/
+          - runs-on: macos-latest
+            artifact-name: cadt-macos-arm64
+            build-command: npm run create-mac-arm64-dist
+            sqlite-path: ./node_modules/sqlite3/build/Release/
+          - runs-on: windows-latest
+            artifact-name: cadt-windows-x64
+            build-command: npm run create-win-x64-dist
+            sqlite-path: .\node_modules\sqlite3\build\Release\
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.16'
+
+      - name: Install Husky
+        run: npm install --save-dev husky
+
+      - name: Ignore Husky where not compatible
+        run: npm pkg delete scripts.prepare
+        if: matrix.runs-on != 'windows-latest'
+
+      # RC release should not be set as latest
+      - name: Decide if release should be set as latest
+        id: is_latest
+        shell: bash
+        run: |
+          unset IS_LATEST
+
+          echo "Github ref is $GITHUB_REF"
+
+          if [[ "$GITHUB_REF" =~ "-rc" ]]; then
+            echo "release candidate tag matched"
+            IS_LATEST='false'
+            IS_PRERELEASE='true'
+          else
+            echo "main branch release matched"
+            IS_LATEST='true'
+            IS_PRERELEASE='false'
+          fi
+
+          echo "IS_LATEST=${IS_LATEST}" >> "$GITHUB_OUTPUT"
+          echo "IS_PRERELEASE=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+
+      - name: npm install
+        run: |
+          node --version
+          npm install
+
+      - name: npm cache clear --force
+        run: npm cache clear --force
+
+      - name: npm cache rm
+        run: npm cache rm --force
+
+      - name: npm cache verify
+        run: npm cache verify
+
+      - name: install global packages
+        run: npm i -g @babel/cli @babel/preset-env pkg
+
+      - name: create distributions
+        run: ${{ matrix.build-command }}
+
+      - name: Make binary executable
+        run: |
+          chmod +x dist/cadt
+
+      - name: Copy sqlite3
+        run: cp ${{ matrix.sqlite-path }}node_sqlite3.node ./dist/
+
+      - name: Test for secrets access
+        id: check_secrets
+        shell: bash
+        run: |
+          unset HAS_SIGNING_SECRET
+
+          if [ -n "$SIGNING_SECRET" ]; then HAS_SIGNING_SECRET='true' ; fi
+          echo "HAS_SIGNING_SECRET=${HAS_SIGNING_SECRET}" >> "$GITHUB_OUTPUT"
+        env:
+          SIGNING_SECRET: "${{ secrets.SM_CLIENT_CERT_FILE_B64 }}"
+
+      # Windows Code Signing
+      - name: Sign windows artifacts
+        if: matrix.runs-on == 'windows-latest' && steps.check_secrets.outputs.HAS_SIGNING_SECRET
+        uses: chia-network/actions/digicert/windows-sign@main
+        with:
+          sm_certkey_alias: ${{ secrets.SM_CERTKEY_ALIAS }}
+          sm_api_key: ${{ secrets.SM_API_KEY }}
+          sm_client_cert_file_b64: ${{ secrets.SM_CLIENT_CERT_FILE_B64 }}
+          sm_client_cert_password: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          sm_code_signing_cert_sha1_hash: ${{ secrets.SM_CODE_SIGNING_CERT_SHA1_HASH }}
+          file: ${{ github.workspace }}/dist/cadt.exe
+
+      # Mac .pkg build + sign
+      - name: Import Apple installer signing certificate
+        if: startsWith(matrix.runs-on , 'macos') && steps.check_secrets.outputs.HAS_SIGNING_SECRET && contains( github.ref, '-rc')
+        uses: Apple-Actions/import-codesign-certs@v5
+        with:
+          keychain-password: ${{ secrets.KEYCHAIN_PASSWORD }}
+          p12-file-base64: ${{ secrets.APPLE_DEV_ID_INSTALLER }}
+          p12-password: ${{ secrets.APPLE_DEV_ID_INSTALLER_PASS }}
+
+      - name: Import Apple Application signing certificate
+        if: startsWith(matrix.runs-on , 'macos') && steps.check_secrets.outputs.HAS_SIGNING_SECRET && contains( github.ref, '-rc')
+        uses: Apple-Actions/import-codesign-certs@v5
+        with:
+          create-keychain: false # Created when importing the first cert
+          keychain-password: ${{ secrets.KEYCHAIN_PASSWORD }}
+          p12-file-base64: ${{ secrets.APPLE_DEV_ID_APP }}
+          p12-password: ${{ secrets.APPLE_DEV_ID_APP_PASS }}
+
+      - name: Prep building Mac .pkg
+        if: startsWith(matrix.runs-on , 'macos')
+        run: |
+          rm -rf ${{ github.workspace }}/build-scripts/macos/darwin/application || true
+          cp -r ${{ github.workspace }}/dist ${{ github.workspace }}/build-scripts/macos/application
+
+      - name: Sign Mac binaries
+        if: startsWith(matrix.runs-on , 'macos') && steps.check_secrets.outputs.HAS_SIGNING_SECRET && contains( github.ref, '-rc')
+        run: |
+          echo "Signing the binaries"
+          codesign -f -s "Developer ID Application: Chia Network Inc." --timestamp --options=runtime --entitlements ${{ github.workspace }}/build-scripts/macos/entitlements.mac.plist ${{ github.workspace }}/build-scripts/macos/application/cadt
+          codesign -f -s "Developer ID Application: Chia Network Inc." --timestamp ${{ github.workspace }}/build-scripts/macos/application/node_sqlite3.node
+
+      - name: Build Mac .pkg
+        if: startsWith(matrix.runs-on , 'macos')
+        run: |
+          # Makes the .pkg in ./build-scripts/macos/target/pkg
+          echo "Building the .pkg"
+          bash ${{ github.workspace }}/build-scripts/macos/build-macos.sh CADT
+
+          mkdir -p ${{ github.workspace }}/build-scripts/macos/target/ready-to-upload
+          cp ${{ github.workspace }}/build-scripts/macos/target/pkg/CADT-macos-installer-x64.pkg ${{ github.workspace }}/build-scripts/macos/target/ready-to-upload/${{ matrix.artifact-name }}-installer.pkg
+
+      - name: Notarize Mac .pkg
+        if: startsWith(matrix.runs-on , 'macos') && steps.check_secrets.outputs.HAS_SIGNING_SECRET && contains( github.ref, '-rc')
+        run: |
+          mkdir -p ${{ github.workspace }}/build-scripts/macos/target/pkg-signed
+
+          echo "Signing the .pkg"
+          productsign --sign "Developer ID Installer: Chia Network Inc." ${{ github.workspace }}/build-scripts/macos/target/pkg/CADT-macos-installer-x64.pkg ${{ github.workspace }}/build-scripts/macos/target/pkg-signed/CADT-macos-installer-x64.pkg
+
+          echo "Notarizing the .pkg"
+          xcrun notarytool submit \
+          --wait \
+          --apple-id "${{ secrets.APPLE_NOTARIZE_USERNAME }}" \
+          --password "${{ secrets.APPLE_NOTARIZE_PASSWORD }}" \
+          --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+          "${{ github.workspace }}/build-scripts/macos/target/pkg-signed/CADT-macos-installer-x64.pkg"
+
+          rm -f ${{ github.workspace }}/build-scripts/macos/target/ready-to-upload/*
+          mv ${{ github.workspace }}/build-scripts/macos/target/pkg-signed/CADT-macos-installer-x64.pkg ${{ github.workspace }}/build-scripts/macos/target/ready-to-upload/${{ matrix.artifact-name }}-installer.pkg
+
+      - name: Upload Mac Installer
+        if: startsWith(matrix.runs-on , 'macos')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}-mac-installer
+          path: ${{ github.workspace }}/build-scripts/macos/target/ready-to-upload
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ github.workspace }}/dist
+
+  # build-linux-arm64:
+  #   name: Build Linux ARM64 Binaries
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@v3
+  #       with:
+  #         platforms: arm64
+
+  #     - uses: Chia-Network/actions/clean-workspace@main
+
+  #     - name: Checkout Code
+  #       uses: actions/checkout@v5
+
+  #     - name: Determine npm cache key
+  #       id: npm-cache
+  #       run: |
+  #         CACHE_KEY=node-linux-arm64-$(shasum package.json | awk '{ print $1 }')-$(shasum package-lock.json | awk '{ print $1 }')
+  #         echo "CACHE_KEY=$CACHE_KEY" >> $GITHUB_OUTPUT
+
+  #     - name: Setup NPM Cache
+  #       uses: actions/cache@v4
+  #       with:
+  #         path: node_modules
+  #         key: ${{ steps.npm-cache.outputs.CACHE_KEY }}
+
+  #     - name: Build arm 64 dist
+  #       run: |
+  #         mkdir pkgcache
+  #         docker run --rm --platform linux/arm64 -v $(pwd):/app -w /app -e PKG_CACHE_PATH=pkgcache node:20.16 /bin/bash -c "npm pkg delete scripts.prepare && npm install && npm i -g @babel/cli @babel/preset-env pkg && npm run create-linux-arm64-dist"
+
+  #     - name: Copy sqlite3
+  #       run: |
+  #         sudo cp ./node_modules/sqlite3/build/Release/node_sqlite3.node ./dist/
+
+  #     - name: Upload artifacts
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: cadt-linux-arm64
+  #         path: ${{ github.workspace }}/dist
+
+  debs:
+    name: Build ${{ matrix.name }} deb
+    runs-on: ubuntu-latest
+    needs:
+      - build
+  #    - build-linux-arm64
+    strategy:
+      matrix:
+        include:
+          - name: cadt-linux-x64
+            platform: amd64
+          - name: cadt-linux-arm64
+            platform: arm64
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+      - name: Get tag name
+        id: tag-name
+        run: |
+          echo "TAGNAME=$(echo $GITHUB_REF | cut -d / -f 3)" >> $GITHUB_OUTPUT
+
+      - name: Build .deb
+        env:
+          CADT_VERSION: ${{ steps.tag-name.outputs.TAGNAME }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          pip install jinjanator
+          CLI_DEB_BASE="cadt_${{ steps.tag-name.outputs.TAGNAME }}-1_${PLATFORM}"
+          mkdir -p "deb/$CLI_DEB_BASE/opt/cadt"
+          mkdir -p "deb/$CLI_DEB_BASE/usr/bin"
+          mkdir -p "deb/$CLI_DEB_BASE/etc/systemd/system"
+          mkdir -p "deb/$CLI_DEB_BASE/DEBIAN"
+          jinjanate -o "deb/$CLI_DEB_BASE/DEBIAN/control" build-scripts/deb/control.j2
+          cp -r ${{ matrix.name }}/* "deb/$CLI_DEB_BASE/opt/cadt/"
+          cp build-scripts/deb/cadt@.service deb/$CLI_DEB_BASE/etc/systemd/system/cadt@.service
+          chmod +x deb/$CLI_DEB_BASE/opt/cadt/cadt
+          ln -s ../../opt/cadt/cadt "deb/$CLI_DEB_BASE/usr/bin/cadt"
+          dpkg-deb --build --root-owner-group "deb/$CLI_DEB_BASE"
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-deb
+          path: ${{ github.workspace }}/deb/*.deb
+
+  release:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - debs
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: cadt-windows-x64
+          path: cadt-windows-x64
+
+      - name: Download MacOS x64 artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: cadt-macos-x64-mac-installer
+          path: cadt-macos-x64-mac-installer
+
+      - name: Download MacOS arm64 artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: cadt-macos-arm64-mac-installer
+          path: cadt-macos-arm64-mac-installer
+
+      - name: Download x64 Linux artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: cadt-linux-x64
+          path: cadt-linux-x64
+
+      - name: Download arm64 Linux artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: cadt-linux-arm64
+          path: cadt-linux-arm64
+
+      - name: Download Linux x64 deb
+        uses: actions/download-artifact@v5
+        with:
+          name: cadt-linux-x64-deb
+          path: cadt-linux-x64-deb
+
+      - name: Download Linux arm64 deb
+        uses: actions/download-artifact@v5
+        with:
+          name: cadt-linux-arm64-deb
+          path: cadt-linux-arm64-deb
+
+      - name: Get tag name
+        id: tag-name
+        run: |
+          echo "TAGNAME=$(echo $GITHUB_REF | cut -d / -f 3)" >>$GITHUB_OUTPUT
+
+      - name: Create zips and renname installers
+        run: |
+          ls -lah
+          zip -r cadt-windows-x64-${{ steps.tag-name.outputs.TAGNAME }}.zip cadt-windows-x64
+          zip -r cadt-linux-x64-${{ steps.tag-name.outputs.TAGNAME }}.zip cadt-linux-x64
+          zip -r cadt-linux-arm64-${{ steps.tag-name.outputs.TAGNAME }}.zip cadt-linux-arm64
+          zip -r cadt-macos-x64-${{ steps.tag-name.outputs.TAGNAME }}.zip cadt-macos-x64-mac-installer
+          zip -r cadt-macos-arm64-${{ steps.tag-name.outputs.TAGNAME }}.zip cadt-macos-arm64-mac-installer
+
+          echo ""
+          ls -lah
+
+      # RC release should not be set as latest
+      - name: Decide if release should be set as latest
+        id: is_latest
+        shell: bash
+        run: |
+          unset IS_LATEST
+
+          echo "Github ref is $GITHUB_REF"
+
+          if [[ "$GITHUB_REF" =~ "-rc" ]]; then
+            echo "release candidate tag matched"
+            IS_LATEST='false'
+            IS_PRERELEASE='true'
+          else
+            echo "main branch release matched"
+            IS_LATEST='true'
+            IS_PRERELEASE='false'
+          fi
+
+          echo "IS_LATEST=${IS_LATEST}" >> "$GITHUB_OUTPUT"
+          echo "IS_PRERELEASE=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{steps.is_latest.outputs.IS_PRERELEASE}}
+          make_latest: "${{steps.is_latest.outputs.IS_LATEST}}"
+          files: |
+            cadt-windows-x64-${{ steps.tag-name.outputs.TAGNAME }}.zip
+            cadt-macos-x64-${{ steps.tag-name.outputs.TAGNAME }}.zip
+            cadt-macos-arm64-${{ steps.tag-name.outputs.TAGNAME }}.zip
+            cadt-linux-x64-${{ steps.tag-name.outputs.TAGNAME }}.zip
+            cadt-linux-arm64-${{ steps.tag-name.outputs.TAGNAME }}.zip
+            cadt-linux-x64-deb/*.deb
+            cadt-linux-arm64-deb/*.deb
+
+      - name: Trigger apt repo update
+        uses: Chia-Network/actions/github/glue@main
+        with:
+          json_data: '{"cadt_repo":"cadt","release_version":"${{ steps.tag-name.outputs.TAGNAME }}"}'
+          glue_url: ${{ secrets.GLUE_API_URL }}
+          glue_project: "${{ steps.is_latest.outputs.IS_PRERELEASE == 'true' && 'cadt-test' || 'cadt' }}"
+          glue_path: "trigger"

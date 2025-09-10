@@ -1,0 +1,20 @@
+name: '[backend] Docker build WWS (dev)'
+
+on:
+  pull_request:
+    paths:
+      - 'wws/**'
+      - 'install/dev/wws/Dockerfile'
+      - '.github/workflows/docker-build-wws.dev.yaml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build image
+        run: docker build -f install/dev/wws/Dockerfile .
+        env:
+          DOCKER_BUILDKIT: 1

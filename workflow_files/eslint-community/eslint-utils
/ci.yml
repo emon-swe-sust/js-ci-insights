@@ -1,0 +1,159 @@
+name: CI
+on:
+    push:
+        branches:
+            # default semantic-release branches
+            - +([0-9])?(.{+([0-9]),x}).x
+            - main
+            - next
+            - next-major
+            - beta
+            - alpha
+    pull_request:
+    schedule:
+        - cron: 0 0 * * 0
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: write # to be able to publish a GitHub release
+    id-token: write # to enable use of OIDC for npm provenance
+    issues: write # to be able to comment on released issues
+    pull-requests: write # to be able to comment on released pull requests
+
+jobs:
+    lint:
+        name: ⬣ Lint
+        runs-on: ubuntu-latest
+        steps:
+            - name: ⬇️ Checkout repo
+              uses: actions/checkout@v4
+
+            - name: ⎔ Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
+            - name: 📥 Install dependencies
+              run: npm install
+
+            - name: ▶️ Run lint script
+              run: npm run lint
+
+    test:
+        name:
+            🧪 Test (Node@${{ matrix.node }} - ESLint@${{ matrix.eslint }} - ${{
+            matrix.os }})
+        strategy:
+            matrix:
+                eslint: [9]
+                node: [18, 20, 22]
+                os: [ubuntu-latest]
+                include:
+                    # On other platforms
+                    - os: windows-latest
+                      eslint: 9
+                      node: 22
+                    - os: macos-latest
+                      eslint: 9
+                      node: 22
+                    # On old Node versions & ESLint v8
+                    - eslint: 8
+                      node: 12.22.0
+                      os: ubuntu-latest
+                    - eslint: 8
+                      node: 12
+                      os: ubuntu-latest
+                    - eslint: 8
+                      node: 14.17.0
+                      os: ubuntu-latest
+                    - eslint: 8
+                      node: 14
+                      os: ubuntu-latest
+                    - eslint: 8
+                      node: 16
+                      os: ubuntu-latest
+                    # On old ESLint versions
+                    - eslint: 7
+                      node: 20
+                      os: ubuntu-latest
+                    - eslint: 6
+                      node: 20
+                      os: ubuntu-latest
+                    # On the minimum supported ESLint/Node.js version
+                    - eslint: 6.0.0
+                      node: 12.22.0
+                      os: ubuntu-latest
+        runs-on: ${{ matrix.os }}
+        steps:
+            - name: ⬇️ Checkout repo
+              uses: actions/checkout@v4
+
+            - name: ⎔ Setup Node v${{ matrix.node }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node }}
+
+            # If we run this after `npm install`, it may hang with npm warnings.
+            - name: 📥 Install ESLint v${{ matrix.eslint }}
+              run: npm install --save-dev eslint@${{ matrix.eslint }}
+
+            - name: 📥 Install dependencies
+              run: npm install
+
+            - name: 🏗 Build
+              run: npm run build
+
+            - name: ▶️ Run test script
+              run: |
+                  npm run test-coverage
+
+                  # Load src/index.mjs to check for syntax errors.
+                  # This is because for some reason the exit code does not become 1 in Node.js 12.
+                  # See https://github.com/eslint-community/eslint-utils/pull/253
+                  node src/index.mjs
+
+            - name: ⬆️ Upload coverage report
+              uses: codecov/codecov-action@v4
+
+    release:
+        name: 🚀 Release
+        needs: [lint, test]
+        runs-on: ubuntu-latest
+        if: github.repository == 'eslint-community/eslint-utils' &&
+            contains('refs/heads/main,refs/heads/next,refs/heads/beta,refs/heads/alpha',
+            github.ref) && github.event_name == 'push'
+        steps:
+            - name: ⬇️ Checkout repo
+              uses: actions/checkout@v4
+
+            - name: ⎔ Setup node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
+            - name: 📥 Install dependencies
+              run: npm install
+
+            - name: 🏗 Build
+              run: npm run build
+
+            - name: 🚀 Release
+              uses: cycjimmy/semantic-release-action@v4
+              with:
+                  semantic_version: 19
+                  branches: |
+                      [
+                        '+([0-9])?(.{+([0-9]),x}).x',
+                        'main',
+                        'next',
+                        'next-major',
+                        {name: 'beta', prerelease: true},
+                        {name: 'alpha', prerelease: true}
+                      ]
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  NPM_CONFIG_PROVENANCE: true
+                  NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

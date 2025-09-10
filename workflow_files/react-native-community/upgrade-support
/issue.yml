@@ -1,0 +1,16 @@
+name: Issue handling
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  add_label_rn_version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Add label with the React Native version
+        uses: ./actions/addLabelRNVersion
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

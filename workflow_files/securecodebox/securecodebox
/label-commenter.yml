@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: the secureCodeBox authors
+#
+# SPDX-License-Identifier: Apache-2.0
+
+name: Label Commenter
+
+on:
+  issues:
+    types: [labeled, unlabeled]
+  pull_request_target:
+    types: [labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Label Commenter
+        uses: peaceiris/actions-label-commenter@f0dbbef043eb1b150b566db36b0bdc8b7f505579 # v1.10.0
+        with:
+          github_token: ${{ secrets.SCB_BOT_USER_TOKEN }}

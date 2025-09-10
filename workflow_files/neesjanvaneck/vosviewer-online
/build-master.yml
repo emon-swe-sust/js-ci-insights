@@ -1,0 +1,51 @@
+# This workflow will build the code in the master branch using npm.
+
+name: Build master branch
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+    - run: npm install
+    - run: npm run build:vosviewer
+    - run: npm run build:dimensions
+    - run: npm run build:zeta-alpha
+    - run: npm run build:rori
+    - run: npm run build-component-package
+
+    - name: Upload VOSviewer Online app artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: vosviewer-online-app
+        path: dist/vosviewer-online
+    - name: Upload Dimensions app artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: vosviewer-online-dimensions-app
+        path: dist/vosviewer-online-dimensions
+    - name: Upload Zeta Alpha app artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: vosviewer-online-zeta-alpa-app
+        path: dist/vosviewer-online-zeta-alpha
+    - name: Upload RoRI app artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: vosviewer-online-rori-app
+        path: dist/vosviewer-online-rori
+    - name: Upload VOSviewer Online component package artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: vosviewer-online-lib
+        path: lib

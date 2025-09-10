@@ -1,0 +1,34 @@
+name: test season pass
+
+on:
+  pull_request:
+    paths-ignore:
+      - "contracts/common/**"
+      - "contracts/game/**"
+      - "contracts/season_resources/**"
+      - "contracts/utils/**"
+      - "contracts/world/**"
+      - "client/**"
+      - "**/manifest.json"
+      - "config/**"
+      - ".github/**"
+      - "pnpm-lock.yaml"
+
+env:
+  SCARB_VERSION: v2.8.2
+
+jobs:
+  test-season-pass:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          tool-versions: contracts/season_pass/.tool-versions
+      - uses: foundry-rs/setup-snfoundry@v3
+        with:
+          tool-versions: contracts/season_pass/.tool-versions
+      - run: scarb build
+        working-directory: contracts/season_pass
+      - run: snforge test
+        working-directory: contracts/season_pass

@@ -1,0 +1,47 @@
+name: Deploy to netlify from APG trigger
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+        fetch-depth: 0
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        cache: npm
+        cache-dependency-path: scripts/pre-build/package-lock.json
+
+    - name: Set up Ruby 3.3
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.3.3'
+        bundler-cache: true
+
+    - name: Update git submodules
+      run: |
+        git submodule update --recursive --remote
+
+    - name: Update site files
+      run: |
+        bundle install
+        npm install -C scripts/pre-build
+        node ./scripts/pre-build
+
+    - name: Commit changed files and submodule updates
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_user_name: w3cgruntbot
+        commit_user_email: w3cgruntbot@users.noreply.github.com
+        commit_author: w3cgruntbot <w3cgruntbot@users.noreply.github.com>
+        commit_message: "chore: Update `main` with latest changes from `aria-practices`"
+        branch: main
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

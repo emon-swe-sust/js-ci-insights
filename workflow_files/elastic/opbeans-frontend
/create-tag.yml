@@ -1,0 +1,37 @@
+---
+# Creates a new GitHub release if the version in package.json changed in the main branch and
+# if the tag does not exist yet.
+name: create-tag
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # also fetch tags
+
+      - name: Get token
+        id: get_token
+        uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2.1.0
+        with:
+          app_id: ${{ secrets.OBS_AUTOMATION_APP_ID }}
+          private_key: ${{ secrets.OBS_AUTOMATION_APP_PEM }}
+          permissions: >-
+            {
+              "contents": "write"
+            }
+
+      - run: make create-release
+        env:
+          GH_TOKEN: ${{ steps.get_token.outputs.token }}

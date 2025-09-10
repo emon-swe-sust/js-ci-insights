@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  push:
+    branches:
+      - '*-dev'
+
+jobs:
+  semantic:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+      - name: Test
+        run: ./scripts/audit.sh
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build icons
+        run: yarn build:icons
+      - name: Build presets
+        run: yarn build:presets
+      - name: Test
+        run: yarn test
+  size:
+    name: size
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build presets
+        run: yarn dist:presets
+      - name: Test
+        run: yarn size-limit
+  deploy-pull-request-preview:
+    name: deploy preview
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build icons
+        run: yarn build:icons
+      - name: Package application
+        run: yarn dist
+      - name: Deploy to Netlify
+        uses: nwtgck/actions-netlify@v2.0
+        with:
+          alias: ecl-preview-${{ github.event.number }}
+          publish-dir: 'dist/website'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          NETLIFY: true
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+  deploy-release-branch:
+    name: deploy release branch
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && endsWith(github.ref, '-dev')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build icons
+        run: yarn build:icons
+      - name: Package application
+        run: yarn dist
+      - name: Deploy to Netlify
+        uses: nwtgck/actions-netlify@v2.0
+        with:
+          alias: ${{ github.ref_name }}
+          publish-dir: 'dist/website'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          NETLIFY: true
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

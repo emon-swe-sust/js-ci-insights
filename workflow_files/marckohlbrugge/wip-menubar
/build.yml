@@ -1,0 +1,96 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    branches:
+      - master
+
+env:
+  APPLE_CERTIFICATE_PASS: ${{ secrets.APPLE_CERTIFICATE_PASS }}
+  APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
+  AuthKey_B64: ${{ secrets.AuthKey_B64 }}
+  API_KEY_ID: ${{ secrets.API_KEY_ID }}
+  macinstaller_B64: ${{ secrets.macinstaller_B64 }}
+  developerid_B64: ${{ secrets.developerid_B64 }}
+  thirdpartydeveloperinstaller_B64: ${{ secrets.thirdpartydeveloperinstaller_B64 }}
+  macdistribution_B64: ${{ secrets.macdistribution_B64 }}
+  provisionprofile_B64: ${{ secrets.provisionprofile_B64 }}
+
+jobs:
+  release:
+    runs-on: macos-11
+
+    steps:
+      - name: Import macinstaller Code-Signing Certificate
+        uses: Apple-Actions/import-codesign-certs@v1
+        id: import-installer-cert
+        with:
+          # The certificates in a PKCS12 file encoded as a base64 string.
+          p12-file-base64: ${{ env.macinstaller_B64 }}
+          # The password used to import the PKCS12 file.
+          p12-password: ${{ env.APPLE_CERTIFICATE_PASS }}
+
+      - name: Import developerid Code-Signing Certificate 2
+        uses: Apple-Actions/import-codesign-certs@v1
+        with:
+          # do not create keychain as it is already created in the first step
+          create-keychain: false
+          keychain-password: ${{steps.import-installer-cert.outputs.keychain-password}}
+          # The certificates in a PKCS12 file encoded as a base64 string.
+          p12-file-base64: ${{ env.developerid_B64 }}
+          # The password used to import the PKCS12 file.
+          p12-password: ${{ env.APPLE_CERTIFICATE_PASS }}
+
+      - name: Import mac app distribution certificate
+        uses: Apple-Actions/import-codesign-certs@v1
+        with:
+          # do not create keychain as it is already created in the first step
+          create-keychain: false
+          keychain-password: ${{steps.import-installer-cert.outputs.keychain-password}}
+          # The certificates in a PKCS12 file encoded as a base64 string.
+          p12-file-base64: ${{ env.macdistribution_B64 }}
+          # The password used to import the PKCS12 file.
+          p12-password: ${{ env.APPLE_CERTIFICATE_PASS }}
+
+      - name: Import 3rd party developer installer certificate
+        uses: Apple-Actions/import-codesign-certs@v1
+        with:
+          # do not create keychain as it is already created in the first step
+          create-keychain: false
+          keychain-password: ${{steps.import-installer-cert.outputs.keychain-password}}
+          # The certificates in a PKCS12 file encoded as a base64 string.
+          p12-file-base64: ${{ env.thirdpartydeveloperinstaller_B64 }}
+          # The password used to import the PKCS12 file.
+          p12-password: ${{ env.APPLE_CERTIFICATE_PASS }}
+
+      - name: Creating private_keys dir
+        run: mkdir ~/private_keys
+
+      - name: Copying auth key
+        run: echo $AuthKey_B64 | base64 --decode > ~/private_keys/AuthKey_${{ env.API_KEY_ID }}.p8
+
+      - name: Check out Git repository
+        uses: actions/checkout@v2
+
+      - name: Install Node.js, NPM and Yarn
+        uses: actions/setup-node@v1
+        with:
+          node-version: 16
+
+      - name: Installing Modules
+        run: yarn --frozen-lockfile --network-timeout 1000000
+
+      - name: Compiling the main and renderer code
+        run: yarn build:release
+
+      - name: Copying provision profile
+        run: echo $provisionprofile_B64 | base64 --decode > ./embedded.provisionprofile
+
+      - name: Building and packaging the app
+        run: yarn dist --publish=always
+        env:
+          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          API_KEY: ~/private_keys/AuthKey_${{ env.API_KEY_ID }}.p8
+
+      - name: Tagging the release
+        run: yarn ci:tag-release

@@ -1,0 +1,26 @@
+name: Public Changelog
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  changelog:
+    name: Public Changelog
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Automattic/vip-actions/changelog@a83b38ef1ac701c4d8ca2b27bac2d6ebad17e684
+        with:
+          endpoint: 'https://docs.wpvip.com/wp-json/wp/v2/changelogs'
+          endpoint-token: ${{ secrets.CHANGELOG_DOCS_POST_TOKEN }}
+          endpoint-auth-type: 'basic'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          status: 'publish'
+          terms: changelog_category:110
+          tag-id: '115'
+          link-to-pr: false
+          source: 'last-release'

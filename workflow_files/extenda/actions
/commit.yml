@@ -1,0 +1,252 @@
+name: Commit
+on: push
+
+permissions: write-all
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/build-dist
+
+      - name: Lint Javascript
+        run: npm run lint:js
+
+      - name: Read secrets used by tests
+        uses: ./gcp-secret-manager
+        with:
+          service-account-key: ${{ secrets.SECRET_AUTH }}
+          secrets: |
+            NEXUS_USERNAME: nexus-username
+            NEXUS_PASSWORD: nexus-password
+
+      - name: Configure git short-sha length for tests
+        run: |
+          echo "Before: $(git rev-parse --short HEAD)"
+          git config core.abbrev 7
+          echo "After: $(git rev-parse --short HEAD)"
+
+      - name: Run tests
+        run: |
+          echo "::stop-commands::`echo -n "$GITHUB_RUN_ID-$GITHUB_RUN_NUMBER" | sha256sum | head -c 64`"
+          npm test -- --ci
+          echo "::`echo -n "$GITHUB_RUN_ID-$GITHUB_RUN_NUMBER" | sha256sum | head -c 64`::"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Analyze with SonarCloud
+        uses: ./sonar-scanner
+        with:
+          sonar-host: https://sonarcloud.io
+          service-account-key: ${{ secrets.SECRET_AUTH }}
+
+  verify-dist:
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/build-dist
+
+      - name: Check compiled dist/* files
+        run: |
+          git add '*/dist/**'
+          if [ "$(git diff --staged --ignore-space-at-eol '*/dist/**' | wc -l)" -gt "0" ]; then
+            echo ""
+            echo "::error::Found uncommitted changes to compiled javascripts."
+            echo ""
+            git diff --staged '*/dist/**'
+            echo ""
+            echo "::error::Did you remember to run 'npm run build'?"
+            exit 1
+          fi
+
+  acceptance-windows:
+    runs-on: windows-2025
+    if: github.actor != 'dependabot[bot]'
+    needs:
+      - verify-dist
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: ./setup-msbuild
+
+      - name: Assert MSBuild exists on PATH
+        run: where MSBuild.exe
+
+      - name: Run MSBuild
+        run: MSBuild -version
+
+      - name: Setup Terraform
+        uses: ./setup-terraform
+        with:
+          terraform-version: 0.12.24
+          terragrunt-version: 0.23.3
+
+      - name: Test Terragrunt
+        run: terragrunt -version
+
+      - name: Conventional version
+        uses: ./conventional-version
+        id: version
+
+      - name: Print version
+        run: |
+          echo VERSION=${{ steps.version.outputs.version }}
+          echo RELEASE_TAG=${{ steps.version.outputs.release-tag }}
+
+      - name: GCP Secret Manager
+        uses: ./gcp-secret-manager
+        with:
+          service-account-key: ${{ secrets.SECRET_AUTH }}
+          secrets: |
+            TEST_TOKEN: sonarqube-token
+            TEST2_TOKEN: sonarqube-token
+
+      - name: Assert GCP secrets
+        shell: bash
+        run: |
+          if [ -n "$TEST_TOKEN" ]; then
+            echo "Secret successfully set to env"
+          else
+            echo "Failed to set secret to env"
+            exit 1
+          fi
+
+          if [ "$TEST_TOKEN" = "$TEST2_TOKEN" ]; then
+            echo "Secret matches expectation"
+          else
+            echo "Second secret does not match"
+            exit 1
+          fi
+
+  acceptance-linux:
+    name: ${{ matrix.job-name }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        job-name: [acceptance-linux]
+    runs-on: ${{ matrix.os }}
+    if: github.actor != 'dependabot[bot]'
+    needs:
+      - verify-dist
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: adopt
+          java-version: 11
+
+      - name: Run Maven (no POM)
+        uses: ./maven
+        with:
+          args: --version
+          service-account-key: ${{ secrets.SECRET_AUTH }}
+
+      - name: Run Maven CLI
+        run: mvn dependency:get -Dartifact=se.extenda.maven:commonpom:2.5.1:pom
+
+      - name: GCP Secret Manager
+        uses: ./gcp-secret-manager
+        with:
+          service-account-key: ${{ secrets.SECRET_AUTH }}
+          secrets: |
+            TEST_TOKEN: sonarqube-token
+            TEST2_TOKEN: sonarqube-token
+
+      - name: Assert GCP secrets
+        run: |
+          if [ -n "$TEST_TOKEN" ]; then
+            echo "Secret successfully set to env"
+          else
+            echo "Failed to set secret to env"
+            exit 1
+          fi
+
+          if [ "$TEST_TOKEN" = "$TEST2_TOKEN" ]; then
+            echo "Secret matches expectation"
+          else
+            echo "Second secret does not match"
+            exit 1
+          fi
+
+      - name: Setup Gcloud
+        uses: ./setup-gcloud
+        id: gcloud
+        with:
+          service-account-key: ${{ secrets.SECRET_AUTH }}
+
+      - name: Test Gcloud
+        run: |
+          gcloud --version
+          gsutil --version
+          if [ "${{ steps.gcloud.outputs.project-id }}" == "" ]; then
+            echo "Failed to set project-id"
+            exit 1
+          fi
+
+      - name: Setup Terraform
+        uses: ./setup-terraform
+        with:
+          terraform-version: 0.11.14
+          terragrunt-version: 0.23.3
+
+      - name: Test Terraform
+        run: |
+          terraform -version
+          if [[ "$(terraform -version)" != *"v0.11.14"* ]]; then
+            echo "Did not find expected terraform v0.11.14"
+            which -a terraform
+            exit 1
+          fi
+          terragrunt -version
+
+      - name: Conventional version
+        uses: ./conventional-version
+        id: version
+
+      - name: Print version
+        run: |
+          echo VERSION=${{ steps.version.outputs.version }}
+          echo RELEASE_TAG=${{ steps.version.outputs.release-tag }}
+
+  release:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    needs:
+      - test
+      - verify-dist
+      - acceptance-windows
+      - acceptance-linux
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Create release
+        uses: ./conventional-release
+        with:
+          name: Actions
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update release branch
+        run: |
+          releaseBranch=$(echo "${{ steps.release.outputs.release-tag }}" | tr "." " " | awk '{print $1}')
+          git checkout -B $releaseBranch ${{ steps.release.outputs.release-tag }}
+          git config --add user.name "GitHub Actions"
+          git config --add user.email devops@extendaretail.com
+          git push origin $releaseBranch --force

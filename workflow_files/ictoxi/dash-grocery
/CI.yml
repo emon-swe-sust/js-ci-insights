@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        architecture: 'x64'
+        cache: 'pip'
+
+    - run: pip install -r requirements.txt
+
+    - uses: browser-actions/setup-geckodriver@latest
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Use Corepack for package management
+      run: npm install -g corepack
+
+    - name: Install dependencies
+      run: corepack enable && yarn
+
+    - name: Build & Test
+      run: |
+        yarn build
+        pytest --webdriver=Firefox --cov=examples --junitxml=junit/test-results-${{ matrix.python-version }}.xml --cov-report=xml tests
+
+    - name: Upload Results
+      uses: actions/upload-artifact@v4.3.3
+      with:
+        path: junit/test-results-${{ matrix.python-version }}.xml
+      if: ${{ always() }}
+
+    - name: Upload to Codecov
+      uses: codecov/codecov-action@v4.4.1

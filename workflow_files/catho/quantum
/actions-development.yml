@@ -1,0 +1,27 @@
+name: Quantum CI - development
+
+on: [pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install the dependencies
+        run: yarn
+
+      - name: Run storybook
+        run: yarn storybook --smoke-test
+
+      - name: Run unit tests
+        run: yarn test:components
+
+      - name: Run the regression tests
+        run: yarn build:regression

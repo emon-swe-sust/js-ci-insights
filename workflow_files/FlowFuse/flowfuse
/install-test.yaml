@@ -1,0 +1,79 @@
+name: Install Test
+on:
+  schedule:
+    - cron: '45 23 * * *'
+  workflow_dispatch:
+
+jobs:
+  install:
+    name: Install and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 20
+      - name: install
+        run: |
+          npm install @flowfuse/flowfuse
+          mkdir etc var
+          cp node_modules/@flowfuse/flowfuse/etc/flowforge.yml etc/
+          ls -lh node_modules/.bin
+      - name: start server in background
+        uses: JarvusInnovations/background-action@2428e7b970a846423095c79d43f759abf979a635 # v1.0.7
+        with:
+          run: |
+            node_modules/.bin/flowfuse
+          wait-on: |
+            http://localhost:3000
+          tail: true
+          wait-for: 2m
+          log-output: stderr,stdout
+          log-output-if: failure
+      - name: test access
+        run: |
+          curl -L -v http://localhost:3000
+
+  notify-slack:
+    name: Notify about test failure
+    needs: [install]
+    if: failure()
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Post to a Slack channel
+      id: slack
+      uses: slackapi/slack-github-action@fcfb566f8b0aab22203f066d80ca1d7e4b5d05b3 # v1.27.1
+      with:
+        channel-id: 'C067BD0377F'
+        payload: |
+          {
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": ":x: ${{ github.workflow }} workflow failed",
+                  "emoji": true
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "<${{ github.server_url }}/${{ github.repository }}/actions/workflows/install-test.yaml|${{ github.workflow }}> workflow failed to complete successfully."
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Workflow run:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View>"
+                }
+              }
+            ]
+          }
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_GHBOT_TOKEN }}

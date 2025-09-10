@@ -1,0 +1,30 @@
+name: Format Solution Issue Handler
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  handle-format-issue:
+    if: contains(github.event.issue.labels.*.name, 'bug')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v2
+        with:
+          version: latest
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Process issue and generate comment
+        run: node scripts/issueAction.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_PAT_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}

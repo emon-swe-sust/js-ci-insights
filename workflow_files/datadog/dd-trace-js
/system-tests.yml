@@ -1,0 +1,50 @@
+name: System Tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  schedule:
+    - cron: 0 4 * * *
+
+concurrency:
+  # this ensures that only one workflow runs at a time for a given branch on pull requests
+  # as the group key is the workflow name and the branch name
+  # for scheduled runs and pushes to master, we use the run id to ensure that all runs are executed
+  group: ${{ (github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref)) || format('{0}-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: true
+
+jobs:
+  build-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dd-trace-js
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: dd-trace-js
+      - name: Pack dd-trace-js
+        run: mkdir -p ./binaries && echo /binaries/$(npm pack --pack-destination ./binaries ./dd-trace-js) > ./binaries/nodejs-load-from-npm
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: system_tests_binaries
+          path: ./binaries/**/*
+
+  main:
+    needs:
+      - build-artifacts
+    uses: DataDog/system-tests/.github/workflows/system-tests.yml@main
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    with:
+      library: nodejs
+      binaries_artifact: system_tests_binaries
+      desired_execution_time: 300  # 5 minutes
+      scenarios_groups: tracer-release
+      excluded_scenarios: APM_TRACING_E2E_OTEL,APM_TRACING_E2E_SINGLE_SPAN  # require AWS and datadog credentials
+      parametric_job_count: 8
+      skip_empty_scenarios: true

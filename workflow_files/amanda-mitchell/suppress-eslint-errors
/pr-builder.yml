@@ -1,0 +1,21 @@
+name: Build PR
+on: pull_request
+jobs:
+  lint:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Install dependencies
+        run: yarn --frozen-lockfile --ignore-scripts
+      - name: Prettier check
+        run: yarn prettier --check "./**/*.{js,md}"
+      - name: Lint
+        run: yarn eslint "./**/*.js"
+      - name: Test
+        run: yarn jest

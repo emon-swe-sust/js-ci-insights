@@ -1,0 +1,75 @@
+# Copyright (c) 2024 Willem 'Jip' Wijnia
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+name: build
+
+on:
+    workflow_dispatch:
+    workflow_call:
+
+jobs:
+    update:
+        uses: ./.github/workflows/generate.yaml
+    build:
+        needs: [update]
+        name: build application
+        runs-on: ubuntu-latest
+        steps:
+            # https://github.com/actions/checkout/tree/v4/
+            - name: Checkout spooky db code
+              uses: actions/checkout@v4
+              with: 
+                  repository: FAForever/spooky-db
+                  ref: master
+
+            - name: Remove existing unit information
+              run: |
+                rm app/data/*.json
+                
+            - name: Download recent unit information
+              uses: actions/download-artifact@v4
+              with:
+                  name: spookydb-generated-files
+                  path: app/data
+
+            # https://github.com/actions/setup-node/tree/main
+            - name: Use Node.js 20.x
+              uses: actions/setup-node@v4
+              with:
+                  cache: npm
+                  node-version: 20.x
+
+            - name: Install
+              run: |
+                  npm install
+                  npm install bower
+                  npm install grunt-cli
+                  npx bower install
+
+            - name: Build
+              run: |
+                  grunt build
+
+            - name: Upload
+              uses: actions/upload-artifact@v4
+              with:
+                  name: spookydb-dist
+                  path: |
+                      dist

@@ -1,0 +1,25 @@
+name: Quality gate
+on:
+  push:
+    branches:
+      - '**'
+
+concurrency:
+  group: "quality_gate"
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+      - run: dart format --set-exit-if-changed .
+
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+      - run: echo "${{ secrets.CONFIG }}" > lib/config.dart
+      - run: flutter analyze

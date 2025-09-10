@@ -1,0 +1,51 @@
+name: Test Modulix content
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+defaults:
+  run:
+    working-directory: api
+
+jobs:
+  test-modulix-content:
+    if: contains(github.event.pull_request.labels.*.name, 'contribution-modulix')
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm clean-install
+
+      - id: tests
+        name: Run Modulix Tests
+        run: |
+          set +e -o pipefail
+          npm run modulix:test 2>&1 | tee test_output.log
+          ERROR_CODE=$?
+          echo "TEST_ERRORS<<EOF" >> $GITHUB_ENV
+          cat test_output.log >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          exit $ERROR_CODE
+
+      - name: Comment PR with Test Modulix Error details
+        if: ${{ failure() }}
+        run: |
+          echo -e "Les tests Modulix ont échoué. Voici les détails :
+
+          \`\`\`
+          $TEST_ERRORS
+          \`\`\`" > comment-body
+          gh pr comment ${{github.event.pull_request.number}} -F comment-body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

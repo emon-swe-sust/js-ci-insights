@@ -1,0 +1,81 @@
+name: ci
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - '**'
+jobs:
+  check-pre-check:
+     name: PreCheck
+     timeout-minutes: 5
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v3
+       - name: Use Node.js 20
+         uses: actions/setup-node@v3
+         with:
+           node-version: 20
+       - name: Install Dependencies
+         run: npm install
+       - name: ESLint
+         run: npm run lint
+       - name: Spelling Check
+         run: npm run spelling
+  check-postgres:
+    strategy:
+      matrix:
+        include:
+          # Note that we do keep Node v18 here, because v20+ changes the error syntax for DB again,
+          # which requires refactoring corresponding tests again, and for no good reason at all.
+          - name: PostgreSQL 10, Node 18
+            POSTGRES_IMAGE: postgres:10
+            NODE_VERSION: 18
+          - name: PostgreSQL 14, Node 18
+            POSTGRES_IMAGE: postgres:14
+            NODE_VERSION: 18
+          - name: PostgreSQL 17, Node 18
+            POSTGRES_IMAGE: postgres:17
+            NODE_VERSION: 18
+      fail-fast: false
+    name: ${{ matrix.name }}
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: ${{ matrix.POSTGRES_IMAGE }}
+        env:
+          POSTGRES_HOST: postgres
+          POSTGRES_DB: pg_promise_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js ${{ matrix.NODE_VERSION }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.NODE_VERSION }}
+      - name: Cache Node.js modules
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ matrix.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.NODE_VERSION }}-
+      - name: Install Dependencies
+        run: npm install
+      - name: Initialize Database
+        run: npm run test:init
+      - name: Test and Coverage
+        run: npm run coverage
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true

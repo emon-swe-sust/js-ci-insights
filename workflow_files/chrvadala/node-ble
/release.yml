@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  workflow_dispatch:
+   inputs:
+      NEXT_VERSION:
+        description: Define next version (major/minor/patch)
+        required: true
+      REPOSITORY_NAME:
+        description: Repository full name (e.g. chrvadala/hello )
+        required: true
+
+jobs:
+  build_and_release:
+    runs-on: ubuntu-24.04
+    if: ${{ github.event.inputs.REPOSITORY_NAME ==  github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup dbus permissions
+        run: sudo sh -c 'sed "s/my_username/runner/g" node-ble.conf > /etc/dbus-1/system.d/dbus.conf'
+      - name: Release library
+        uses: chrvadala/github-actions/nodejs-release-library-action@v1
+        with:
+          NEXT_VERSION: ${{ github.event.inputs.NEXT_VERSION }}
+          NPM_TOKEN: ${{ secrets.npm_token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

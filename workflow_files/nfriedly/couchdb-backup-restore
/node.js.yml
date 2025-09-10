@@ -1,0 +1,51 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Node.js CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  COUCHDB: 'http://admin:password@localhost:5984'
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} with CouchDB ${{ matrix.couchdb }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [lts/*, latest]
+        os: [ubuntu-latest]
+        couchdb: ["3", "2"] # "latest" == "3"
+
+    steps:
+      - name: Set up CouchDB
+        uses: iamssen/couchdb-github-action@master
+        with:
+          couchdb-version: ${{ matrix.couchdb }}
+
+      - name: Test CouchDB
+        run: |
+          curl -X POST -H "Content-Type: application/json; charset=utf-8" -d '{"name": "admin", "password": "password"}' http://127.0.0.1:5984/_session
+      
+      - name: Clone Repository
+        uses: actions/checkout@v4
+
+      - name: Set Node.js version
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install Dependencies
+        run: npm ci
+        
+      - name: Test
+        run: npm test

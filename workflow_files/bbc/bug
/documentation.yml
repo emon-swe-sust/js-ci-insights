@@ -1,0 +1,84 @@
+# .github/workflows/documentation.yml
+name: Documentation
+
+on:
+    # Runs on pushes targeting the default branch
+    push:
+        branches: ["main"]
+        paths: ["docs/**", "src/client/src/components/**"]
+    # Allows you to run this workflow manually from the Actions tab
+    workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+    contents: read
+    pages: write
+    id-token: write
+
+# Allow one concurrent deployment
+concurrency:
+    group: "pages"
+    cancel-in-progress: true
+
+jobs:
+    # Check spelling the documentation
+    codespell:
+        runs-on: ubuntu-latest
+        steps:
+            #Get the latest version of the repository
+            - name: Checkout
+              uses: actions/checkout@v4
+            #Check github pages docs for spelling errors
+            - name: "Documentation: Spell Check Documentation"
+              uses: codespell-project/actions-codespell@master
+              with:
+                  check_filenames: true
+                  check_hidden: true
+                  path: docs
+                  only_warn: 1
+                  ignore_words_list: aoto,daa,te
+
+    # Build Storybook Static Files
+    storybook:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: ./src/client
+        steps:
+            - name: Checkout 🛎️
+              uses: actions/checkout@v4
+              with:
+                  persist-credentials: false
+            - name: Install and Build 🔧
+              run: | # Install npm packages and build the Storybook files
+                  npm install --legacy-peer-deps
+                  npm run build-storybook
+
+    # Build Jekyll Documentation
+    pages:
+        runs-on: ubuntu-latest
+        needs: storybook
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+            - name: Setup Pages
+              uses: actions/configure-pages@v5
+            - name: Build with Jekyll
+              uses: actions/jekyll-build-pages@v1
+              with:
+                  source: ./docs
+                  destination: ./_site
+            - name: Upload artifact
+              uses: actions/upload-pages-artifact@v3
+
+    # Deployment job
+    deploy:
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        runs-on: ubuntu-latest
+        needs: pages
+        steps:
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@v4

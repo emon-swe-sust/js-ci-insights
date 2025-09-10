@@ -1,0 +1,61 @@
+name: Push a tagged PR to staging env
+
+on:
+  pull_request:
+    types: [labeled]
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  ECR_NAME: ${{ secrets.ECR_NAME }}
+  KUBE_CLUSTER: ${{ secrets.KUBE_CLUSTER }}
+  KUBE_NAMESPACE: ${{ secrets.KUBE_NAMESPACE }}
+
+jobs:
+  push-to-staging:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    if: ${{ github.event.label.name == 'staging:request' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove active labels from other PRs
+        run: |
+          for number in $(gh pr list --label "staging:active" --json number | jq -r '.[].number'); do
+          gh pr edit ${number} --remove-label "staging:active"
+          done
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.ECR_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.ECR_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: login-ecr
+      - run: |
+          docker build --target=staging -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+          docker build --target=staging-express-app -t $REGISTRY/$REPOSITORY:express-$IMAGE_TAG .
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+          docker push $REGISTRY/$REPOSITORY:express-$IMAGE_TAG
+          cat kubernetes-deploy-staging.tpl | envsubst > kubernetes-deploy-staging.yaml
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+          BRANCH: 'staging'
+      - run: |
+          echo "${KUBE_CERT}" > ca.crt
+          kubectl config set-cluster ${KUBE_CLUSTER} --certificate-authority=./ca.crt --server=https://${KUBE_CLUSTER}
+          kubectl config set-credentials deploy-user --token=${KUBE_TOKEN}
+          kubectl config set-context ${KUBE_CLUSTER} --cluster=${KUBE_CLUSTER} --user=deploy-user --namespace=${KUBE_NAMESPACE}
+          kubectl config use-context ${KUBE_CLUSTER}
+          kubectl -n ${KUBE_NAMESPACE} apply -f kubernetes-deploy-staging.yaml
+        env:
+          KUBE_CERT: ${{ secrets.KUBE_CERT }}
+          KUBE_TOKEN: ${{ secrets.KUBE_TOKEN }}
+          KUBE_CLUSTER: ${{ secrets.KUBE_CLUSTER }}
+      - name: Update PR with success
+        run: |
+          echo -e "🚀 Deploying to [staging environment](https://moj-frontend-staging.apps.live.cloud-platform.service.justice.gov.uk/)\n\n**Username:** \`staging\`, **Password:** \`moj\`" > comment.txt
+          gh pr comment ${{ github.event.pull_request.number }} --body-file comment.txt
+          gh pr edit ${{ github.event.pull_request.number }} --remove-label "staging:request"
+          gh pr edit ${{ github.event.pull_request.number }} --add-label "staging:active"

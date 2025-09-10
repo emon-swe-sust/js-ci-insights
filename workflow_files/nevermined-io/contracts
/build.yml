@@ -1,0 +1,85 @@
+name: Build and Tests
+
+on: push
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '16.x'
+      - name: Pre-install
+        run: |
+          rm -rf node_modules
+          yarn install --frozen-lockfile
+          git submodule init
+          git submodule update
+          npx hardhat node --port 8545 &
+      - name: Lint
+        run: |
+          yarn lint
+      - name: Generate circuits
+        run: |
+          sh ./scripts/build-circuit.sh
+          git diff --exit-code
+      - name: Compile
+        run: |
+          yarn clean
+          yarn compile
+      - name: Run OpenGSN Tests
+        run: |
+          npx hardhat test test/OpenGSN.test.js --network local
+      - name: Run Unit Tests
+        run: |
+          yarn test:unit
+      - name: Run Integration Tests
+        run: |
+          yarn test:integration
+
+  frost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '16.x'
+      - name: Pre-install
+        run: |
+          rm -rf node_modules
+          yarn install --frozen-lockfile
+          git submodule init
+          git submodule update
+          npx hardhat node --port 8545 &
+      - name: Generate circuits
+        run: |
+          sh ./scripts/build-circuit.sh
+          git diff --exit-code
+      - name: Compile
+        run: |
+          yarn clean
+          yarn compile
+      - name: Run test
+        run: |
+          sh ./server/test.sh
+
+  upgradability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '16.x'
+      - name: Pre-install
+        run: |
+          export
+          yarn install --frozen-lockfile
+          git submodule init
+          git submodule update
+      - name: Run Upgrade Tests
+        run: |
+          bash ./scripts/test-upgradeability.sh
+

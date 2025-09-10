@@ -1,0 +1,25 @@
+name: build charlie
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    container: node:22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v3
+        id: depcache
+        with:
+          path: ./node_modules
+          key: 18f-bot-${{ runner.os }}-${{ hashFiles('package.json') }}-v1
+      - uses: actions/cache@v3
+        id: npmcache
+        with:
+          path: ./npm-cache
+          key: 18f-bot-${{ runner.os }}-npmcache-${{ hashFiles('package.json') }}-v1
+      - name: install dependencies
+        if: steps.depcache.outputs.cache-hit != 'true'
+        run: npm ci --cache npm-cache

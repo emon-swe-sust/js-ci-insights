@@ -1,0 +1,26 @@
+name: Docker Image client/base
+
+on:
+  push:
+    branches: ['**']
+    paths: 
+      - 'client/base/**'
+      - '.github/workflows/docker-client-base.yml'
+  workflow_dispatch:
+    branches: ['**']
+
+jobs:
+  docker-client-base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Kaniko build
+        uses: julsemaan/action-kaniko@master
+        with:
+          registry: ghcr.io
+          image: julsemaan/anyfile-notepad/client-base
+          password: ${{ secrets.GITHUB_TOKEN }}
+          cache: true
+          cache_registry: ghcr.io/julsemaan/anyfile-notepad/client-base/cache
+          path: client/base/
+          extra_args: --push-retry 5

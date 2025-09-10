@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+
+  node_lint:
+
+    name: Node.js Linting
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js LTS
+      uses: actions/setup-node@v4
+      with:
+        node-version: lts/*
+    - name: npm install, build, and test
+      working-directory: js
+      run: |
+        npm install
+        npm run lint
+      env:
+        CI: true
+  
+  node_test:
+
+    name: Node.js CI Tests
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [windows-latest, macOS-latest, ubuntu-latest]
+        node: [18.x, 20.x, 21.x, 22.x]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node }}
+    - name: npm install, build, and test
+      working-directory: js
+      run: |
+        npm install
+        npm run build --if-present
+        npm test
+      env:
+        CI: true
+
+  node_types_test:
+
+    name: Node.js CI Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: lts/*
+    - name: npm install, build, and test
+      working-directory: js
+      run: |
+        npm install
+        npm run build --if-present
+        npm run test:types
+        npm run test:attw
+      env:
+        CI: true
+
+  rust_test:
+
+    name: Rust CI Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Test Rust
+        run: cargo test
+        working-directory: rust
+        env:
+          CI: true

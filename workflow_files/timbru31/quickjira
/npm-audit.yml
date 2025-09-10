@@ -1,0 +1,20 @@
+name: Security
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5.0.0
+
+      - uses: actions/setup-node@v5.0.0
+        with:
+          node-version-file: '.node-version'
+
+      - run: npm audit

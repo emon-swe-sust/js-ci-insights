@@ -1,0 +1,143 @@
+name: PHPUnit Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  
+env:
+  POSTGRES_PASSWORD: nc_test_db
+  MYSQL_USER: nc_test
+  MYSQL_PASSWORD: nc_test_db
+  MYSQL_DATABASE: nc_test
+  MYSQL_PORT: 3800
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental }}
+    name: "PHP: Nextcloud ${{ matrix.nextcloud }} - PHP ${{ matrix.php-version }} - DB ${{ matrix.database }}"
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432 # Maps tcp port 5432 on service container to the host
+    strategy:
+      matrix:
+        php-version: ['8.2', '8.3', '8.4']
+        nextcloud: ['stable29', 'stable30', 'stable31']
+        database: ['sqlite', 'pgsql', 'mysql']
+        experimental: [false]
+        exclude:
+          - php-version: '8.4'
+            nextcloud: 'stable29'
+          - php-version: '8.4'
+            nextcloud: 'stable30'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: pdo_sqlite,pdo_mysql,pdo_pgsql,gd,zip
+          coverage: pcov
+          
+      - name: Setup mysql
+        if: matrix.database == 'mysql'
+        uses: getong/mariadb-action@v1.1
+        with:
+          mariadb version: '10.11'
+          host port: ${{ env.MYSQL_PORT }}
+          mysql database: ${{ env.MYSQL_DATABASE }}
+          mysql root password: ${{ env.MYSQL_PASSWORD }}
+          mysql user: ${{ env.MYSQL_USER }}
+          mysql password: ${{ env.MYSQL_PASSWORD }}
+
+      - name: Set up server MySQL
+        if: matrix.database == 'mysql'
+        uses: SMillerDev/nextcloud-actions/setup-nextcloud@main
+        with:
+          version: ${{ matrix.nextcloud }}
+          cron: true
+          database-type: ${{ matrix.database }}
+          database-host: 127.0.0.1
+          database-port: ${{ env.MYSQL_PORT }}
+          database-name: ${{ env.MYSQL_DATABASE }}
+          database-user: root
+          database-password: ${{ env.MYSQL_PASSWORD }}
+
+      - name: Set up server non MySQL
+        if: matrix.database != 'mysql'
+        uses: SMillerDev/nextcloud-actions/setup-nextcloud@main
+        with:
+          version: ${{ matrix.nextcloud }}
+          cron: true
+          database-type: ${{ matrix.database }}
+          database-host: localhost
+          database-port: 5432
+          database-name: postgres
+          database-user: postgres
+          database-password: ${{ env.POSTGRES_PASSWORD }}
+
+      - name: Prime app build
+        run: make
+
+      - name: Configure server with app
+        uses: SMillerDev/nextcloud-actions/setup-nextcloud-app@main
+        with:
+          app: 'geoblocker'
+          check-code: false
+          force: ${{ matrix.experimental }}
+
+      - name: Cache Maxmind DB
+        id: cache-maxmind
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/work/_temp/GeoIP/GeoLite2-Country.mmdb
+          key: ${{ runner.os }}-maxmind-db
+
+      - name: Prep Maxmind No Cache Hit
+        if: steps.cache-maxmind.outputs.cache-hit != 'true'
+        run: sudo apt-get update 
+          && sudo apt-get install geoipupdate 
+          && sudo mv GeoIP.template.conf /etc/GeoIP.conf 
+          && sudo sed -i "s/<<ID>>/${{ secrets.MM_ID }}/g" /etc/GeoIP.conf
+          && sudo sed -i "s/<<KEY>>/${{ secrets.MM_KEY }}/g" /etc/GeoIP.conf
+          && sudo geoipupdate
+          && mkdir -p /home/runner/work/_temp/GeoIP/
+          && cp /var/lib/GeoIP/GeoLite2-Country.mmdb /home/runner/work/_temp/GeoIP/GeoLite2-Country.mmdb
+
+      - name: Prep Maxmind Cache Hit
+        if: steps.cache-maxmind.outputs.cache-hit == 'true'
+        run: sudo mkdir -p /var/lib/GeoIP/
+          && sudo cp /home/runner/work/_temp/GeoIP/GeoLite2-Country.mmdb /var/lib/GeoIP/GeoLite2-Country.mmdb 
+      
+      - name: Prep GeoIPLookup
+        run: sudo apt-get update 
+          && sudo apt-get install geoip-bin geoip-database
+
+      - name: Prep PHPUnit tests
+        working-directory: ../server/apps/geoblocker
+        run: make prepare-test
+        
+      - name: Unit and Integration Tests
+        working-directory: ../server/apps/geoblocker
+        run: sudo make test
+#        
+#      - name: Upload codecoverage
+#        working-directory: ../server/apps/geoblocker
+#        run: bash <(curl -s https://codecov.io/bash) -f build/php-unit.clover -N ${{ github.sha }}
+
+      - name: Clean up
+        run: sudo rm -f /etc/GeoIP.conf

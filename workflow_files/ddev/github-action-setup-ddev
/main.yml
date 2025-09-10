@@ -1,0 +1,47 @@
+name: tests
+
+on:
+  pull_request:
+  merge_group:
+    types: [checks_requested]
+  push:
+    branches:
+      - 'main'
+  workflow_dispatch:
+  schedule:
+    - cron: 0 0 * * *
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        version: ['latest', '1.24.0']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./
+        with:
+          ddevDir: tests/fixtures/ddevProj1
+          autostart: false
+          version: ${{ matrix.version }}
+      - name: ddev version
+        run: |
+          if [[ ${{ matrix.version }} == '1.24.0' ]]; then
+            test "$(ddev --version)" == 'ddev version v1.24.0'
+          else
+            test "$(ddev --version)" != 'ddev version v1.24.0'
+          fi
+      - name: ddev stopped
+        run: |
+          cd tests/fixtures/ddevProj1
+          test '"stopped"' = "$(ddev describe --json-output | jq '.raw.status')"
+      - name: start ddev
+        run: |
+          cd tests/fixtures/ddevProj1
+          ddev start --json-output --skip-confirmation
+      - name: Mailpit reachable
+        run: curl --silent --dump-header - --output /dev/null https://setup-ddev-proj1.ddev.site:8026
+      - name: "index.html: expected output"
+        run: test 'index.html test output' = "$(curl --silent https://setup-ddev-proj1.ddev.site)"

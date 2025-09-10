@@ -1,0 +1,109 @@
+name: End-to-end tests with live services
+on:
+  workflow_call:
+    secrets:
+      CODECOV_TOKEN:
+        required: true
+      DANDI_SANDBOX_API_KEY:
+        required: true
+
+jobs:
+
+  run:
+    # Will read on PR dashboard as 'Deploy / E2ELiveServices / {os}'
+    # Action dashboard identified by 'End-to-end tests with live services'
+    # Requirement settings identified as 'E2ELiveServices / {os}'
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash -l {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: environments/environment-Linux.yml
+
+          - os: macos-latest  # Mac arm64 runner
+            label: environments/environment-MAC-apple-silicon.yml
+
+          - os: macos-13  # Mac x64 runner
+            label: environments/environment-MAC-intel.yml
+
+          - os: windows-latest
+            label: environments/environment-Windows.yml
+
+    steps:
+      - uses: actions/checkout@v4
+      - run: git fetch --prune --unshallow --tags
+
+      # see https://github.com/conda-incubator/setup-miniconda#caching-environments
+      - name: Set up conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: nwb-guide
+
+      - name: Set cache date
+        id: get-date
+        run: echo "today=$(/bin/date -u '+%Y%m%d')" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Cache Conda env
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CONDA }}/envs
+          key: conda-${{ runner.os }}-${{ runner.arch }}-${{steps.get-date.outputs.today }}-${{ hashFiles(matrix.label) }}-${{ env.CACHE_NUMBER }}
+        id: cache
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Create and activate environment
+        run: conda env update -n nwb-guide -f ${{ matrix.label }}
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install GUIDE
+        run: npm ci --verbose
+
+      - name: Install testing dependencies
+        run: pip install pytest pytest-cov
+
+      - name: Manually remove matplotlib
+        run: pip uninstall matplotlib --yes
+
+      - name: Create env file
+        run: |
+          touch .env
+          echo DANDI_SANDBOX_API_KEY=${{ secrets.DANDI_SANDBOX_API_KEY }} >> .env
+
+      - if: matrix.os != 'ubuntu-latest'
+        name: Run tests
+        run: npm run coverage:tutorial
+
+      - if: matrix.os == 'ubuntu-latest'
+        name: Run tests with xvfb
+        run: |
+          # Adjust Chrome sandbox (used by Puppeteer) owner and permissions to bypass Ubuntu 24.04's
+          # new restrictions for AppImage apps. https://github.com/electron/electron/issues/42510
+          sudo chown root ./node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 ./node_modules/electron/dist/chrome-sandbox
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run coverage:tutorial
+
+      - name: Archive E2E Test Screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots-${{ matrix.os }}
+          path: docs/assets/tutorials
+          retention-days: 1
+          overwrite: true
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          fail_ci_if_error: true

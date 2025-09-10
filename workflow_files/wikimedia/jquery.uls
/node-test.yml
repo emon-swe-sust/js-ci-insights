@@ -1,0 +1,24 @@
+name: Test
+on:
+  [pull_request, push]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        node: [ '18.x', '20.x' ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Use Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v2
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install package.json dependencies
+        run: npm install
+
+      - name: Run QUnit test suite
+        run: npm run qunit

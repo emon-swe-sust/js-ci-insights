@@ -1,0 +1,25 @@
+name: ESLint
+on: [push, pull_request]
+
+jobs:
+    eslint:
+        name: ESLint
+        runs-on: ubuntu-latest
+        env:
+            # We don't want Puppeteer to automatically download a browser when dependencies are being installed
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
+            
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v4
+
+            -   name: Node ${{matrix.node-versions}}
+                uses: actions/setup-node@v4
+                with:
+                    node-version: '22'
+
+            -   name: Install Yarn Dependencies
+                run: yarn install
+
+            -   name: Run ESLint
+                run: yarn lint

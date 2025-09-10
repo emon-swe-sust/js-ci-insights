@@ -1,0 +1,13 @@
+name: example-install-command
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          install-command: yarn --frozen-lockfile --silent
+          working-directory: examples/yarn
+      - run: npm t
+        working-directory: examples/yarn

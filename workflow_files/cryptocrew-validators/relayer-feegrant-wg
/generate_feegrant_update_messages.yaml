@@ -1,0 +1,36 @@
+---
+name: Generate feegrant update messages
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-feegrant-messages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download gaiad binary
+        run: |
+          wget https://github.com/cosmos/gaia/releases/download/v14.1.0/gaiad-v14.1.0-linux-amd64 -O gaiad
+
+      - name: Make gaiad executable
+        run: chmod +x gaiad
+
+      - name: Move gaiad to bin
+        run: sudo mv gaiad /usr/local/bin/
+
+      - name: Verify gaiad installation
+        run: gaiad version
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dotenv
+
+      - name: Generate feegrant messages
+        run: python ./utils/generate_feegrant_messages.py

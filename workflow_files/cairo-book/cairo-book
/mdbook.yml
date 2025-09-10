@@ -1,0 +1,105 @@
+# Sample workflow for building and deploying a mdBook site to GitHub Pages
+#
+# To get started with mdBook see: https://rust-lang.github.io/mdBook/index.html
+#
+name: Deploy mdBook site to Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install asdf & tools
+        uses: asdf-vm/actions/install@9cd779f40fe38688dd19505ccbc4eaaf018b44e7
+        with:
+          asdf_version: 0.16.7
+
+      - name: Set default scarb version # First version in .tool-versions
+        run: asdf set -u scarb $(cat .tool-versions | grep scarb | cut -d ' ' -f 2)
+
+      - name: Set default starknet-foundry version
+        run: asdf set -u starknet-foundry $(cat .tool-versions | grep starknet-foundry | cut -d ' ' -f 2)
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install mdbook
+        uses: ./.github/workflows/install-mdbook
+
+      - name: Build book (English)
+        run: mdbook build -d book
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Fix meta descriptions
+        run: |
+          echo "Updating meta descriptions..."
+          bun run scripts/update-meta-descriptions.ts
+
+      - name: Copy LLMs file
+        run: cp llms.txt book/html/
+
+      # Disabled in favor of using the summary.md file
+      # - name: Combine Markdown Files for LLMs-full.txt
+      #   run: |
+      #     chmod +x scripts/combine-markdown.sh
+      #     scripts/combine-markdown.sh
+
+      - name: Copy summary.md to book/html/
+        run: cp summary.md book/html/llms-full.txt
+
+      - name: Build all translations
+        run: |
+          for po_lang in $(cat ./LANGUAGES); do
+              echo "::group::Building $po_lang translation"
+              MDBOOK_BOOK__LANGUAGE=$po_lang \
+              mdbook build -d book/$po_lang
+              mv book/$po_lang/html book/html/$po_lang
+              echo "::endgroup::"
+          done
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./book/html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

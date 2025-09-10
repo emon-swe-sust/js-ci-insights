@@ -1,0 +1,51 @@
+name: Tests
+on:
+  pull_request: ~
+  push:
+    branches: [ main ]
+
+  # Allow job to be triggered manually.
+  workflow_dispatch:
+
+  # Run job each night after CrateDB nightly has been published.
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  tests:
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ] #, macos-latest, windows-latest ]
+        node-version: [ '22' ]
+
+    name: Node.js ${{ matrix.node-version }} on OS ${{ matrix.os }}
+    steps:
+
+      - name: Acquire sources
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # https://github.com/actions/setup-node
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
+
+      - name: Install package
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+
+      # https://github.com/codecov/codecov-action
+      - name: Upload coverage results to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: app/tests/coverage/cobertura/cobertura-coverage.xml
+          fail_ci_if_error: false
+          verbose: false

@@ -1,0 +1,30 @@
+name: version-bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      versionType:
+        type: choice
+        description: 'Version type to bump to'
+        required: true
+        options:
+          - 'patch'
+          - 'minor'
+          - 'major'
+
+jobs:
+  release-tag:
+    name: Version bump 
+    runs-on: ubuntu-latest
+    steps: 
+    - name: Checkout
+      uses: actions/checkout@v4
+    - id: version-bump 
+      name:  'Automated Version Bump'
+      uses:  'phips28/gh-action-bump-version@master'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        version-type:  ${{ github.event.inputs.versionType }}
+        skip-tag: true
+

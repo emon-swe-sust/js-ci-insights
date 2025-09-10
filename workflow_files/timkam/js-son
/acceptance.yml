@@ -1,0 +1,88 @@
+name: acceptance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      # Need to checkout for testing the Action in this repo
+      - uses: actions/checkout@v4
+
+      # creates invalid files that are excluded by git and should not fail
+      - name: invalid file creation
+        run: |
+          mkdir -p tmp/
+          echo "invalid: yaml" > tmp/invalid.yaml
+          echo "invalid: json" > tmp/invalid.json
+
+      # creates a valid file that should not fail
+      - name: valid file creation
+        run: echo "{}" > valid.yaml
+
+      - name: acceptance test
+        uses: ./
+        id: json-yaml-validate
+        with:
+          comment: "true"
+          exclude_file: .github/config/exclude.txt
+
+      - name: acceptance test - files input option (glob)
+        uses: ./
+        id: json-yaml-validate-glob-test
+        with:
+          comment: "true"
+          yaml_as_json: "false"
+          exclude_file: .github/config/exclude-alt.txt
+          files: |
+            __tests__/**/test1.yml
+            __tests__/**/test*.json
+
+      - name: acceptance test - custom formats
+        uses: ./
+        id: json-yaml-validate-custom-formats-test
+        with:
+          comment: "true"
+          json_schema: ./__tests__/fixtures/schemas/schema_with_custom_ajv_regexp_format.json
+          ajv_custom_regexp_formats: |
+            lowercase_char=^[a-z]*$
+            lowercase_alphanumeric=^[a-z0-9]*$
+          files: |
+            __tests__/fixtures/json/custom_ajv_regexp_format/valid.json
+
+      - name: acceptance test - flat yaml
+        uses: ./
+        id: json-yaml-validate-flat-yaml-test
+        with:
+          comment: "true"
+          yaml_schema: ./__tests__/fixtures/schemas/flat.yaml
+          files: |
+            __tests__/acceptance/flat_yaml/flat.yaml
+
+      - name: acceptance test - multi yaml as json
+        uses: ./
+        id: json-yaml-validate-multi-yaml-as-json-test
+        with:
+          comment: "true"
+          allow_multiple_documents: true
+          yaml_as_json: true
+          json_schema: ./__tests__/fixtures/schemas/schema1.json
+          files: |
+            __tests__/fixtures/yaml_as_json/valid_multi/yaml1.yaml
+
+      - name: acceptance test - excluding helm charts
+        uses: ./
+        id: json-yaml-validate-exclude-helm-charts-test
+        with:
+          comment: "true"
+          yaml_exclude_regex: "(charts/external-dns/templates.*|mkdocs.yml)"
+          allow_multiple_documents: "true"
+          base_dir: __tests__/acceptance

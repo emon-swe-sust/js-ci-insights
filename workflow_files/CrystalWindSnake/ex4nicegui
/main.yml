@@ -1,0 +1,51 @@
+name: test
+run-name: test Actions
+on:
+  workflow_dispatch:
+  schedule:
+   - cron: '0 0 * * *'
+  pull_request:
+    branches:
+      - main
+jobs:
+  run-all-test:
+    runs-on: ubuntu-latest
+    needs: [import-correct]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+      - name: set up Poetry
+        uses: abatilo/actions-poetry@v2.0.0
+        with:
+          poetry-version: "1.6.1"
+      - name: install dependencies
+        run: |
+          set -x
+          poetry config virtualenvs.create false
+          poetry install --all-extras
+          python -m playwright install 
+      - run: pytest __tests/
+  import-correct:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+      - name: set up Poetry
+        uses: abatilo/actions-poetry@v2.0.0
+        with:
+          poetry-version: "1.6.1"
+      - name: install dependencies
+        run: |
+          set -x
+          poetry config virtualenvs.create false
+          poetry install --all-extras
+      - run: poetry build
+      - name: run
+        run: |
+          poetry install
+          python -c "import ex4nicegui;from ex4nicegui.reactive import rxui;from ex4nicegui import bi"
+    

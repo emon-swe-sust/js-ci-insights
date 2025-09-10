@@ -1,0 +1,33 @@
+# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Push or PR workflow
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Lint, test, and run visual regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+    - name: Checkout branch
+      uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.x
+        cache: 'npm'
+    - name: Install dependencies
+      run: npm ci
+    - name: Run visual regression
+      shell: 'script -q -e -c "bash {0}"'
+      env:
+        SCENARIO_FILTER: "Skip all scenarios"
+        NONINTERACTIVE: 1
+      run: |
+        script -e -c "./pixel.js runAll --priority 3"

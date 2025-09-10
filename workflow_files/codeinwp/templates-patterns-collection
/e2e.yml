@@ -1,0 +1,41 @@
+name: E2E Tests
+
+on:
+  pull_request:
+
+# Cancel previous workflow run groups that have not completed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: true
+env:
+  CYPRESS_LICENSE_KEY: ${{ secrets.CYPRESS_LICENSE_KEY }}
+jobs:
+  e2e:
+    name: E2E Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: "yarn"
+      - name: Build
+        run: |
+          yarn install --frozen-lockfile
+          composer install --no-dev --prefer-dist --no-progress --no-suggest
+          yarn run build
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: "npm"
+      - name: Run E2E
+        run: npm run ci:e2e
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: ./artifacts
+          retention-days: 1

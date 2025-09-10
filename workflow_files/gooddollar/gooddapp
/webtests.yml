@@ -1,0 +1,169 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Web CI/CD v1
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+# events but only for the master branch
+on:
+  push:
+    branches:
+      - master
+
+  pull_request:
+    branches:
+      - master
+
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'release type'
+        required: true
+        default: 'qa'
+      targetbranch:
+        description: 'target deployment branch'
+        required: false
+        default: 'staging'
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  release:
+    name: Release
+    if: "github.event_name == 'workflow_dispatch'"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.release == 'qa' && 'master' || 'staging' }}
+      - name: setup git
+        run: |
+          git config --local user.email "techadmin@gooddollar.org"
+          git config --local user.name "Techadmin"
+          npm install -g auto-changelog
+      - name: update version qa
+        if: "github.event.inputs.release == 'qa'"
+        run: |
+          npm version prerelease -m "chore: release qa version %s [skip build]"
+          git push https://${{ secrets.GIT_AUTH }}@github.com/GoodDollar/GoodDAPP master:${{ github.event.inputs.targetbranch }} --force --follow-tags
+          git push https://${{ secrets.GIT_AUTH }}@github.com/GoodDollar/GoodDAPP master --follow-tags
+
+      - name: update version prod
+        if: "github.event.inputs.release != 'qa'"
+        run: |
+          npm version minor -m "chore: release prod version %s [skip build]"
+          git push https://${{ secrets.GIT_AUTH }}@github.com/GoodDollar/GoodDAPP staging:${{ github.event.inputs.targetbranch }} --force --follow-tags
+          git checkout master
+          git merge staging
+          git push https://${{ secrets.GIT_AUTH }}@github.com/GoodDollar/GoodDAPP master --follow-tags
+
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      test-chunks: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
+      test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
+      wallet-chunk-id: ${{ steps['set-test-chunk-ids'].outputs['wallet-chunk-id'] }}
+
+    steps:
+      - uses: actions/checkout@v3
+      - id: set-test-chunks
+        name: Set Chunks
+        run: echo "test-chunks=$(find ./src -path \*/__tests__/*.js* | sort | jq -R -s -c 'split("\n")[:-1] | map(select(contains("__util") == false))' | jq -cM '[_nwise(length / 10 | floor)]')" >> $GITHUB_OUTPUT
+      - id: set-test-chunk-ids
+        name: Set Chunk IDs
+        run: |
+          echo "test-chunk-ids=$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')" >> $GITHUB_OUTPUT
+          echo "wallet-chunk-id=$(echo $CHUNKS | jq -cM 'to_entries | map(select(.value | .[] | index("GoodWallet"))) | unique | first | .key')" >> $GITHUB_OUTPUT
+        env:
+          CHUNKS: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
+
+  test:
+    name: Unit Tests (Chunk ${{ matrix.chunk }})
+    needs:
+      - setup
+    strategy:
+      matrix:
+        chunk: ${{ fromJson(needs.setup.outputs['test-chunk-ids']) }}
+    if: "github.event_name != 'workflow_dispatch' && !contains(github.event.head_commit.message,'skip ci') && !contains(github.event.head_commit.message,'skip build')"
+    env:
+      REACT_APP_ENV: 'test'
+      TEST_REACT_NATIVE: false
+      BUNDLESIZE_GITHUB_TOKEN: 63f6d1717c6652d63234cf9629977b08f4bac3fd
+      MNEMONIC: 'test test test test test test test test test test test junk'
+      ADMIN_MNEMONIC: 'test test test test test test test test test test test junk'
+      REACT_APP_ADMIN_MNEMONIC: 'test test test test test test test test test test test junk'
+      CI: true
+      CHUNKS: ${{ needs.setup.outputs['test-chunks'] }}
+      WALLET_CHUNK: ${{ needs.setup.outputs['wallet-chunk-id'] }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "wallet chunk id $WALLET_CHUNK chunk ${{ matrix.chunk }}"
+      - run: corepack enable
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'yarn'
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.13.x'
+
+      - name: Install dependencies
+        run: yarn --immutable
+
+      # - uses: actions/cache@v3
+      #   id: contractsCache
+      #   if: matrix.chunk == env.WALLET_CHUNK
+      #   name: cache goodcontracts
+      #   with:
+      #     path: /tmp/goodprotocol
+      #     key: ${{ hashFiles('node_modules/@gooddollar/goodprotocol/yarn.lock') }}
+
+      - name: install goodcontracts
+        if: matrix.chunk == env.WALLET_CHUNK
+        run: |
+          npm i -g yarn
+          yarn test:setup
+
+      - name: run local node so providers dont crash in tests
+        if: matrix.chunk != env.WALLET_CHUNK
+        run: yarn run ganache
+
+      - name: run tests and code coverage
+        env:
+          NODE_OPTIONS: '--max-old-space-size=8192'
+        run: |
+          echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text'
+          echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn coverage
+
+      - name: Coveralls
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel: true
+          flag-name: run-${{ matrix.chunk }}
+
+  coverage:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
+
+    # This allows us to have a branch protection rule for tests and deploys with matrix
+  deploy-status:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Successful deploy
+        if: ${{ !(contains(needs.*.result, 'failure')) }}
+        run: exit 0
+      - name: Failing deploy
+        if: ${{ contains(needs.*.result, 'failure') }}
+        run: exit 1

@@ -1,0 +1,75 @@
+name: E2E Test
+on:
+  push:
+    branches:
+      - main
+      - master
+
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.repository }}-concurrency-for-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e-tests:
+    name: Run E2E Tests
+    runs-on: [ubuntu-latest]
+    container:
+      image: cypress/browsers:node-20.18.0-chrome-130.0.6723.69-1-ff-131.0.3-edge-130.0.2849.52-1
+      options: --user 1001
+
+    permissions:
+      contents: read
+      deployments: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        containers: [1, 2, 3, 4, 5]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Application
+        uses: ./.github/actions/setup-app
+
+      - name: Cache cypress binary
+        id: cacheCypressBinary
+        uses: actions/cache@v4
+        with:
+          path: /root/.cache/Cypress
+          key: ${{ runner.os }}-cypressBinary-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cypressBinary-
+
+      - name: Install cypress binary
+        if: steps.cacheCypressBinary.outputs.cache-hit != 'true'
+        run: npx cypress install
+
+      - name: Cypress run
+        uses: cypress-io/github-action@v6
+        env:
+          CYPRESS_TEST_USERNAME: ${{ secrets.CYPRESS_TEST_USERNAME}}
+          CYPRESS_TEST_PASSWORD: ${{ secrets.CYPRESS_TEST_PASSWORD }}
+          CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_TEST_RECORD_ID}}
+          CYPRESS_PROJECT_ID: ${{ secrets.CYPRESS_TEST_PROJECT_ID }}
+          CYPRESS_DYNAMIC_SCAN_SYSTEM_APK_FILE_ID: ${{ vars.CYPRESS_DYNAMIC_SCAN_SYSTEM_APK_FILE_ID }}
+          CYPRESS_DYNAMIC_SCAN_SYSTEM_IPA_FILE_ID: ${{ vars.CYPRESS_DYNAMIC_SCAN_SYSTEM_IPA_FILE_ID }}
+          CYPRESS_IGNORE_VULNERABILITY_TEST_PACKAGE_NAME: ${{ vars.CYPRESS_IGNORE_VULNERABILITY_TEST_PACKAGE_NAME }}
+          CYPRESS_API_HOST: ${{ vars.CYPRESS_API_HOST }}
+          SERVICE_ACCOUNT_DUPLICATE_ACCOUNT_ID: ${{ vars.SERVICE_ACCOUNT_DUPLICATE_ACCOUNT_ID }}
+          SERVICE_ACCOUNT_VIEW_ACCOUNT_ID: ${{ vars.SERVICE_ACCOUNT_VIEW_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          start: npm run startprod
+          browser: chrome
+          install: false
+          config: pageLoadTimeout=100000
+          wait-on: 'http://localhost:4200'
+          wait-on-timeout: 200
+          record: true
+          parallel: true

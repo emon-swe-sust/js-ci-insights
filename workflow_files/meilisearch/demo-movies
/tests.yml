@@ -1,0 +1,24 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    # trying and staging branches are for BORS config
+    branches:
+      - trying
+      - staging
+      - main
+
+jobs:
+  linter_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.20.0'
+      - name: Install dependencies
+        run: yarn --dev
+      - name: Run style check
+        run: yarn lint

@@ -1,0 +1,45 @@
+name: NodeJS Continuous Integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore:
+      - "main"
+      - "gh-pages"
+
+jobs:
+  tests:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v3
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v3
+        with:
+          node-version: current
+          cache: "npm"
+      - name: "Clean Install"
+        run: npm ci
+      - name: "Run Tests"
+        run: npm test
+      - name: "Build"
+        run: npm run build
+        env:
+          PUBLIC_URL: https://${{ github.ref_name }}.d2-buddy.pages.dev
+          REACT_APP_BUNGIE_API_KEY: ${{ secrets.DEV_BUNGIE_API_KEY }}
+      - name: "Cloudflare Config"
+        run: cp ./.cloudflare/* ./build/
+      - name: Publish
+        uses: cloudflare/pages-action@1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: d2-buddy
+          directory: build
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: "Clean"
+        run: npm run clean

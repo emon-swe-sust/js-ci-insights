@@ -1,0 +1,45 @@
+name: Build/release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on tags starting with 'v'
+
+jobs:
+  release:
+    runs-on: ${{ matrix.os }}
+    env:
+      SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_TOKEN }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js, NPM and Yarn
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set CI to false
+        run: echo "CI=false" >> $GITHUB_ENV
+
+      # install snapcraft and login to allow uploading it to snap store
+      - name: Install Snapcraft
+        uses: samuelmeuli/action-snapcraft@v2
+
+      - name: Build/release Electron app
+        uses: Yan-Jobs/action-electron-builder@v1.7.0
+        with:
+          # GitHub token, automatically provided to the action
+          # (No need to define this secret in the repo settings)
+          github_token: ${{ secrets.github_token }}
+
+      - name: Extract version from tag
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          

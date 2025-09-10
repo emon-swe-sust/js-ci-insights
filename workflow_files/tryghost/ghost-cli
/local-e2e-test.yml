@@ -1,0 +1,39 @@
+name: Local E2E Tests
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  local-e2e:
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22.x]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: "cli"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install Setuptools (MacOS)
+        if: ${{ runner.os == 'macOS' }}
+        run: brew install python-setuptools
+      - name: Install Setuptools (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: pip3 install --upgrade setuptools
+      - name: Prepare CLI
+        run: yarn --cwd cli install --frozen-lockfile
+      - name: Use latest global yarn version
+        run: |
+          cd ~
+          yarn set version berry
+      - name: Setting up Ghost instance
+        run: node ./cli/bin/ghost install local -d ghost
+      - name: Verifying Installation
+        run: sleep 2 && curl -f http://localhost:2368 | grep ghost

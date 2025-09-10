@@ -1,0 +1,24 @@
+name: Self
+on:
+  pull_request_target:
+    types: [opened, edited]
+  issues:
+    types: [opened, edited]
+
+jobs:
+  Self:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        name: Local action (with defaults)
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./
+        name: Local action (with inputs)
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          keywords: question, q
+          labels: question, documentation

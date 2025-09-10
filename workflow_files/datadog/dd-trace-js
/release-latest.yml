@@ -1,0 +1,86 @@
+name: Release (latest)
+
+on:
+  push:
+    branches:
+      - v5.x
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://npmjs.com/package/dd-trace
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: read
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    outputs:
+      pkgjson: ${{ steps.pkg.outputs.json }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/node
+      - run: npm publish --provenance
+      - id: pkg
+        run: |
+          content=`cat ./package.json | tr '\n' ' '`
+          echo "json=$content" >> $GITHUB_OUTPUT
+      - run: |
+          git tag v${{ fromJson(steps.pkg.outputs.json).version }}
+          git push origin v${{ fromJson(steps.pkg.outputs.json).version }}
+      - run: node scripts/release/notes --latest
+
+  status:
+    needs: ['publish']
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - run: node scripts/release/status
+
+  docs:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    needs: ['publish']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/node
+      - id: pkg
+        run: |
+          content=`cat ./package.json | tr '\n' ' '`
+          echo "json=$content" >> $GITHUB_OUTPUT
+      - run: yarn
+      - name: Build
+        working-directory: docs
+        run: |
+          yarn
+          yarn build
+          mv out /tmp/out
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: gh-pages
+      - name: Deploy
+        run: |
+          rm -rf *
+          mv /tmp/out/* .
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add -A
+          git commit -m ${{ fromJson(steps.pkg.outputs.json).version }}
+          git push
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

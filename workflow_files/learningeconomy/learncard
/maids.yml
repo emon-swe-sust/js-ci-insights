@@ -1,0 +1,110 @@
+# For some reason, there are certain files that tend to just update automatically when running
+# our usual scripts, resulting in an unclean git worktree that can be solved by simply committing
+# the updated files. This script does that by creating a PR that cleans the worktree.
+
+name: Maid-Service
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  CI: true
+
+jobs:
+  maid-service:
+    name: Maid-Service
+    runs-on: ubuntu-latest
+    environment: ci-tests
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Fetch main for NX comparison
+        run: |
+          git fetch --no-tags --prune --depth=5 origin main
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        id: pnpm-install
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "pnpm_cache_dir=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.pnpm-cache.outputs.pnpm_cache_dir }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Restore nx cache
+        id: restore-nx-cache
+        uses: actions/cache/restore@v3
+        with:
+          path: .nx-cache
+          key: ${{ runner.os }}-nx-cache-${{ github.workflow }}
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run tests
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          command: pnpm exec nx affected --target=test --base=HEAD~1 --head=HEAD
+        env:
+          SEED: ${{ secrets.SEED }}
+          LEARN_CLOUD_SEED: ${{ secrets.LEARN_CLOUD_SEED }}
+
+      - name: Commit changes
+        run: |
+          echo "DIRTY_TREE=$(git diff --quiet && echo false || echo true)" >> $GITHUB_ENV
+          git config --global user.name "Auto-Commit"
+          git config --global user.email "beestontaylor@learningeconomy.io"
+          git add .
+          git status -s
+          git commit -m ":green_heart: Housekeeping!" || echo "Nothing to see here!"
+
+      - name: Create Pull Request
+        if: ${{ contains(env.DIRTY_TREE, 'true') }}
+        uses: peter-evans/create-pull-request@v5
+        with:
+          commit-message: ":green_heart: Housekeeping!"
+          branch: maid-service/housekeeping
+          title: '[Auto] Housekeeping'
+          body: |
+            This PR was generated automatically by the [Maid Service][1].
+
+            It's existence implies that `main` currently has an untree git worktree, and can be 
+            cleaned by the changes in this PR. 
+
+            Please merge this to clean up main!
+
+            [1]: ./.github/workflows/maids.yml
+
+          labels: |
+            automated pr
+          assignees: TaylorBeeston
+          reviewers: TaylorBeeston
+
+      - name: Save nx cache
+        uses: actions/cache/save@v3
+        with:
+          path: .nx-cache
+          key: ${{ steps.restore-nx-cache.outputs.cache-primary-key }}

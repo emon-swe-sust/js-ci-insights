@@ -1,0 +1,218 @@
+name: Release
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  vars:
+    name: "📋 Generate Variables"
+    runs-on: ubuntu-24.04
+    outputs:
+      NPM_VER: ${{ steps.tag.outputs.NPM_VER }}
+      GH_TAG: ${{ steps.tag.outputs.GH_TAG }}
+    steps:
+      - run: eval $(curl -sSf sh.davidalsh.com/nodejs.sh | sh)
+      - id: tag
+        run: |
+          declare -i var=$(npm info @alshdavid/nitropack version | cut -d "." -f 3)
+          var=$var+1
+          NPM_VER="0.0.$var"
+
+          GH_TAG="$(date -u +"v%Y.%m.%d.%H%M").${GITHUB_SHA::4}"
+
+          echo NPM_VER: $NPM_VER
+          echo GH_TAG:$GH_TAG
+          echo "NPM_VER=$NPM_VER" >> "$GITHUB_OUTPUT"
+          echo "GH_TAG=$GH_TAG" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: 🧪 Test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: eval $(curl -sSf sh.davidalsh.com/just.sh | sh)
+      - run: eval $(curl -sSf sh.davidalsh.com/rust.sh | sh)
+      - run: just test
+
+  format:
+    name: 📝 Format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: eval $(curl -sSf sh.davidalsh.com/just.sh | sh)
+      - run: eval $(curl -sSf sh.davidalsh.com/rust.sh | sh)
+      - run: just fmt
+
+  lint:
+    name: 🤓 Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: eval $(curl -sSf sh.davidalsh.com/just.sh | sh)
+      - run: eval $(curl -sSf sh.davidalsh.com/rust.sh | sh)
+      - run: just lint
+
+  build:
+    strategy:
+      matrix:
+        config:
+          - name: 🐥 Linux AMD64
+            os: linux
+            arch: amd64
+            runner: ubuntu-24.04
+            run: rustup target add x86_64-unknown-linux-musl
+
+          - name: 🐥 Linux ARM64
+            os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            run: rustup target add aarch64-unknown-linux-musl
+
+          # Apple is dropping support for MacOS amd64 and building libnode for it is annoying
+          # - name: 🍎 MacOS AMD64
+          #   os: macos
+          #   arch: amd64
+          #   runner: macos-13
+
+          - name: 🍎 MacOS ARM64
+            os: macos
+            arch: arm64
+            runner: macos-15
+
+          - name: 🟦 Windows AMD64
+            os: windows
+            arch: amd64
+            runner: windows-latest
+
+          # Libnode does not support ARM Windows
+          # - name: 🟦 Windows ARM64
+          #   os: windows
+          #   arch: arm64
+          #   runner: windows-latest
+          #   run: rustup target add aarch64-pc-windows-msvc
+
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.runner }}
+    needs:
+      - vars
+    steps:
+      - uses: actions/checkout@v4
+      - run: eval $(curl -sSf sh.davidalsh.com/just.sh | sh)
+      - run: eval $(curl -sSf sh.davidalsh.com/rust.sh | sh)
+      - run: eval $(curl -sSf sh.davidalsh.com/nodejs.sh | sh)
+      - run: sed -i -e "s/0.0.0-local/${NPM_VER}/g" crates/nitropack_cli/Cargo.toml
+        env:
+          NPM_VER: ${{needs.vars.outputs.NPM_VER}}
+      - if: matrix.config.run
+        run: ${{ matrix.config.run }}
+      - env:
+          os: "${{ matrix.config.os }}"
+          arch: "${{ matrix.config.arch }}"
+          profile: "release"
+        run: just build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.config.os }}-${{ matrix.config.arch }}
+          path: ${{ github.workspace }}/target/${{ matrix.config.os }}-${{ matrix.config.arch }}/**/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-github-release:
+    name: "🔄 Publish Github Release"
+    runs-on: ubuntu-24.04
+    needs:
+      - vars
+      - test
+      - format
+      - lint
+      - build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - name: Publish` Github Release
+        env:
+          GH_TAG: ${{needs.vars.outputs.GH_TAG}}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_VER: ${{needs.vars.outputs.NPM_VER}}
+        run: |
+          set -e
+
+          echo "Tag: ${GH_TAG}"
+
+          gh release create $GH_TAG  --draft --notes "Automatically built binaries"
+          gh release edit $GH_TAG --title "🚀 Nitropack - $NPM_VER"
+
+          cd artifacts
+
+          for name in *; do
+            cd "${{ github.workspace }}/artifacts/${name}/release"
+            ls -la .
+            chmod +x ./*
+            tar -czvf ./${name}.tar.gz ./*
+            gh release upload $GH_TAG ${name}.tar.gz
+            rm -rf ${name}.tar.gz
+            tar -cJvf ./${name}.tar.xz ./*
+            gh release upload $GH_TAG ${name}.tar.xz
+          done
+
+          gh release edit $GH_TAG --draft=false
+
+  publish-npm-package:
+    name: "🔄 Publish NPM Package"
+    runs-on: ubuntu-24.04
+    needs:
+      - publish-github-release
+      - vars
+      - test
+      - format
+      - lint
+      - build
+    steps:
+      - uses: actions/checkout@v4
+      - run: eval $(curl -sSf sh.davidalsh.com/nodejs.sh | sh)
+      - env:
+          GH_TAG: ${{needs.vars.outputs.GH_TAG}}
+          NPM_VER: ${{needs.vars.outputs.NPM_VER}}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> $HOME/.npmrc
+          echo "GH_TAG: ${GH_TAG}"
+          echo "NPM_VER: ${NPM_VER}"
+          sed -i -e "s/0.0.0-local/${NPM_VER}/g" ./npm/package.json
+          cp ./README.md ./npm/README.md
+          cd npm
+          echo "$GH_TAG" > tag
+          npm publish --access=public
+
+  # publish-crate:
+  #   name: "🔁 Publish: Crates.io"
+  #   runs-on: ubuntu-latest
+  #   needs: [unit-tests, integration-tests, benchmarks-micro, npm-package, build]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/setup-just
+  #     - uses: ./.github/actions/setup-nodejs
+  #     - uses: ./.github/actions/setup-rust
+  #     - uses: ./.github/actions/setup-env
+  #     - uses: ./.github/actions/build-nitropack
+  #     - name: Publish Crate
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #         CRATES_IO_API_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
+  #       run: |
+  #         echo TEMP: Skip for now
+  #         exit 0
+
+  #         source .github/actions/setup-env/setup-env.bash
+  #         bash .github/workflows/release/publish-crate.bash

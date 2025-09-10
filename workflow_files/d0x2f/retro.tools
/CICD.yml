@@ -1,0 +1,86 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - uses: actions/checkout@v1
+      - name: Use Node.js 16.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: 16.x
+      - name: Install
+        run: npm install
+      - name: Lint
+        run: npm run lint
+      - name: Audit
+        run: npm audit --production
+      - name: Build
+        run: npm run build
+      - name: Archive Production Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+  cypress:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    strategy:
+      matrix:
+        browser:
+          - chrome
+          # - firefox
+        viewport:
+          [
+            "viewportWidth=375,viewportHeight=667",
+            "viewportWidth=1280,viewportHeight=800",
+          ]
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 16.x
+      - uses: cypress-io/github-action@v5
+        with:
+          build: npm run build -- --mode=development
+          start: npm run preview
+          browser: ${{ matrix.browser }}
+          config: ${{ matrix.viewport }},baseUrl=http://localhost:4173
+      - name: Dump docker logs
+        if: always()
+        uses: jwalton/gh-docker-logs@v1
+      - name: Save cypress test videos as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: videos
+          path: cypress/videos
+          retention-days: 5
+
+  cd:
+    runs-on: ubuntu-latest
+    needs:
+      - ci
+      - cypress
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && github.ref == 'refs/heads/master'"
+    steps:
+      - uses: actions/checkout@v1
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Deploy
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only hosting
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_ACCOUNT_CREDENTIALS }}

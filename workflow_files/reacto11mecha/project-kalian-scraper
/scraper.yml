@@ -1,0 +1,39 @@
+name: Scraper Unit
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "30 12 * * 6"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    name: Mengambil data dan screenshot
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup NodeJS 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          
+      - name: Install pnpm
+        run: npm install -g pnpm@9.15.5
+
+      - name: PNPM install
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run scraping unit
+        run: pnpm start
+
+      - name: Push new result to result folder
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          TIMESTAMP=$(date +"%Y-%m-%dT%H:%M:%S%z")
+
+          git add result; git commit -m "[IMAGE and/or DATA FETCHED] $TIMESTAMP"
+          git push

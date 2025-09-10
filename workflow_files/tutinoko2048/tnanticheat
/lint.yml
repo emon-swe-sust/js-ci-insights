@@ -1,0 +1,61 @@
+on: push
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm i --save-dev
+      - name: Lint
+        run: npm run lint
+  build:
+    name: Build package
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        isRealms:
+          - false
+          - true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm i --save-dev
+
+      - name: Set File Name
+        run: |
+          DATE=$(date "+%Y%m%d-%H-%M")
+          BASE_NAME="${GITHUB_REPOSITORY##*/}"
+          if [ "${{ matrix.isRealms }}" = "true" ]; then
+            FILE_NAME="${BASE_NAME}-realms_${DATE}"
+          else
+            FILE_NAME="${BASE_NAME}_${DATE}"
+          fi
+          echo "FILE_NAME=${FILE_NAME}" >> $GITHUB_ENV
+
+      - name: Additional Setup for Realms
+        if: ${{ matrix.isRealms == true }}
+        run: |
+          # scripts/config.js の fixBDS を true に変更
+          sed -i 's/fixBDS:\s*false/fixBDS: true/g' scripts/config.js
+
+          # manifest.json のパック名に "-realms" を追加
+          sed -i 's/\("name": "TN-AntiCheat v[^"]*\)"/\1-realms"/' manifest.json
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FILE_NAME }}
+          path: |
+            ./
+            !.git
+            !node_modules
+            !package-lock.json
+          if-no-files-found: error

@@ -1,0 +1,28 @@
+name: Docs
+
+on:
+  push:
+    branches:
+    - master
+    paths:
+    - docs/**
+  pull_request:
+    branches:
+    - master
+    paths:
+    - docs/**
+
+jobs:
+  docs:
+    name: Jekyll
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v4
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '2.7'
+    - name: Install
+      run: cd docs && gem install bundler -v 2.4.22 && bundle install
+    - name: Build
+      run: cd docs && bundle exec jekyll build

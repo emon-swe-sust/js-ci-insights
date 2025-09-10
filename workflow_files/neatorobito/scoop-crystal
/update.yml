@@ -1,0 +1,27 @@
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *'
+
+jobs:
+  update-mainline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 16
+      - run: npm install follow-redirects
+      - uses: actions/github-script@v5
+        with:
+          script: |
+            const crystal_mainline = require('./.github/update_mainline.js');
+            const vs_hash = require('./.github/update_vs.js');
+            await crystal_mainline({github, core});
+            await vs_hash();
+
+      - run: git diff --exit-code || git -c user.email='github-actions[bot]@users.noreply.github.com' -c user.name='github-actions[bot]' commit -a -m 'Update mainline version'
+      - run: git push

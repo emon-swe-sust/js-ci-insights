@@ -1,0 +1,27 @@
+name: Public Release
+
+on:
+  push:
+    tags: '*.*.\d+'
+    paths-ignore:
+      - "package.json"
+      - "package-lock.json"
+      - "*.md"
+
+      
+jobs:
+  public-release:
+    uses: ./.github/workflows/common-release.yml
+    with:
+      REGISTRY_URL: "https://registry.npmjs.org"
+      TAG: "public"
+    secrets:
+      IFRAME_SECURE_ORIGIN: ${{ secrets.PROD_IFRAME_SECURE_ORIGIN }}
+      IFRAME_SECURE_SITE: ${{ secrets.PROD_IFRAME_SECURE_SITE }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.PROD_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.PROD_AWS_ACCESS_KEY_SECRET }}
+      AWS_REGION: ${{ secrets.PROD_AWS_REGION }}
+      AWS_BUCKET_NAME: ${{ secrets.PROD_AWS_BUCKET_NAME }}
+      CF_DISTRIBUTION_ID: ${{ secrets.PROD_CF_DISTRIBUTION_ID }}
+      PAT_ACTIONS: ${{ secrets.PAT_ACTIONS }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

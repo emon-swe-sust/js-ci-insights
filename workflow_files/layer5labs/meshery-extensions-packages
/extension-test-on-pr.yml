@@ -1,0 +1,18 @@
+name: Extension Test On PR Dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      pr_commit_sha:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: string
+
+jobs:
+  meshery-extensions-test:
+    uses: ./.github/workflows/extension-test-reusable.yml
+    secrets: inherit
+    with:
+      checkout_ref: ${{inputs.pr_commit_sha}}
+      pr_number: ${{inputs.pr_number}}

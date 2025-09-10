@@ -1,0 +1,43 @@
+name: Daily - npm audit
+
+on:
+  schedule:
+    # run daily at midnight
+    - cron: '0 0 * * *'
+
+jobs:
+  build:
+    if: github.repository == 'adobe/aio-cli'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        node: [22, 24]
+        os: [ubuntu-latest]
+
+    steps:
+    - name: Setup CLI
+      uses: adobe/aio-cli-setup-action@1.0.1
+      with:
+        os: ${{ matrix.os }}
+    - id: createandaudit
+      name: create app and audit
+      run: |
+        mkdir testapp
+        cd testapp
+        aio app init -y --no-login --standalone-app
+        npm audit --audit-level=high --json > auditoutput.txt
+    - id: runaudit
+      name: if audit had failed, run npm audit without json flag so we can see what is failing
+      if: failure() && steps.createandaudit.outcome != 'success'
+      run: |
+        cd testapp
+        npm audit
+    - id: postslackmessage
+      name: Slack Notification
+      if: ${{ failure() }}
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        SLACK_TITLE: 'npm audit'
+        SLACK_MESSAGE: ${{ env.issueurl || 'Vulnerabilities found' }}
+        SLACK_COLOR: ${{ job.status == 'success' && 'good' || job.status == 'cancelled' && '#808080' || 'danger' }}

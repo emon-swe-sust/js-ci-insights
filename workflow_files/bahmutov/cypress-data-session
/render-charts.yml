@@ -1,0 +1,29 @@
+# https://github.com/nielsvaneck/render-md-mermaid
+# https://nielsvaneck.com/post/2021-01-31-render-md-mermaid-a-github-action/
+name: render-charts
+
+on:
+  schedule:
+    # update charts every night
+    - cron: '0 4 * * *'
+
+jobs:
+  render-md-mermaid:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Render images for every Mermaid diagram in all Markdown files (*.md) in the repo
+        # https://github.com/bahmutov/cypress-data-session/issues/115
+        uses: nielsvaneck/render-md-mermaid@3ab9efe2cd2e33157c2b2dcc34f1eb16accb29c9
+
+      - run: git status
+
+      - name: Commit rendered png and svg files
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          file_pattern: '*[.svg,.png]'
+          branch: main
+          commit_message: automatically rendered mermaid diagrams

@@ -1,0 +1,108 @@
+name: Playwright Tests
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master, develop ]
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false  # Ensures the matrix doesn't stop if one job fails
+      matrix:
+        include:
+          - php_version: '7.3'
+            wp_version: 6.5.5
+
+          - php_version: '7.3'
+            wp_version: null
+
+          - php_version: '8.2'
+            wp_version: 6.5.5
+
+          - php_version: '8.2'
+            wp_version: 6.6.2
+
+          - php_version: '8.2'
+            wp_version: 6.7.2
+
+          - php_version: '8.2'
+            wp_version: null
+
+    name: PHP ${{ matrix.php_version }} and WP ${{ matrix.wp_version || 'latest' }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: lts/*
+    - name: Set the version suffix for the output
+      run: echo VERSION_SUFFIX=${GITHUB_REF_NAME//\//-} >> $GITHUB_ENV
+    - name: Set WP Version and create .wp-env.json
+      run: |
+        WP_VERSION="${{ matrix.wp_version }}"
+        core='"Wordpress/Wordpress#'${{ matrix.wp_version }}'"'
+
+        if [[ -z "$WP_VERSION" || "$WP_VERSION" == "null" ]]; then
+          WP_VERSION="latest"
+          core=null
+        fi
+
+        echo "WP_VERSION=$WP_VERSION" >> $GITHUB_ENV
+
+        echo '{
+          "core": '$core',
+          "phpVersion": "${{ matrix.php_version }}",
+          "plugins": [ "." ],
+          "config": {
+              "SCRIPT_DEBUG": false
+            }
+          }' > .wp-env.json
+
+        cat .wp-env.json
+    - name: Build Stackable Free Plugin
+      run: |
+        npm ci --legacy-peer-deps
+        npm run build:no-translate
+    - name: Install Playwright Browsers
+      run: npx playwright install chromium --with-deps
+    - name: Install wp-env
+      run: |
+        npm install -g @wordpress/env
+    - name: Start wp-env
+      run: wp-env start
+    - name: Print current WP version
+      run: wp-env run tests-cli wp core version
+    - name: Create post with existing blocks
+      run: |
+        POST_ID=$(wp-env run tests-cli wp post create wp-content/plugins/Stackable/e2e/config/post-content.txt --post_title="Existing Blocks" --post_status=publish --porcelain)
+        echo "WP_TEST_POSTID=$POST_ID" >> $GITHUB_ENV
+      continue-on-error: true
+    - name: Run playwright tests
+      id: run-playwright-tests
+      env:
+        WP_BASE_URL: http://localhost:8889
+        WP_AUTH_STORAGE: wp-auth.json
+        WP_USERNAME: admin
+        WP_PASSWORD: password
+        STACKABLE_SLUG: Stackable/plugin
+        WP_TEST_POSTID: ${{ env.WP_TEST_POSTID }}
+      run: npm run test
+    - uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() && steps.run-playwright-tests.outcome == 'failure' }}
+      id: artifact-upload-step
+      with:
+        name: playwright-report-php_${{ matrix.php_version }}-wp_${{ env.WP_VERSION }}-${{ env.VERSION_SUFFIX }}
+        path: playwright-report/
+        overwrite: true
+        retention-days: 30
+    - uses: markpatterson27/markdown-to-output@v1
+      id: mto
+      if: ${{ !cancelled() && steps.run-playwright-tests.outcome == 'failure' }}
+      with:
+        filepath: ./playwright-stk/errors.md
+    - name: Add test results to summary
+      if: ${{ !cancelled() && steps.run-playwright-tests.outcome == 'failure' }}
+      run: |
+        echo "${{ steps.mto.outputs.body }}" >> $GITHUB_STEP_SUMMARY
+        echo "Report: [playwright-report-php_${{ matrix.php_version }}-wp_${{ env.WP_VERSION }}-${{ env.VERSION_SUFFIX }}.zip](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.artifact-upload-step.outputs.artifact-id }})" >> $GITHUB_STEP_SUMMARY

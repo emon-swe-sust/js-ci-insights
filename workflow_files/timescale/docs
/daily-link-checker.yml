@@ -1,0 +1,31 @@
+name: Check all Markdown links daily
+
+on:
+  schedule:
+    - cron: "0 23 * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  markdown-link-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9
+
+      - name: Check links
+        uses: tcort/github-action-markdown-link-check@a800ad5f1c35bf61987946fd31c15726a1c9f2ba
+        id: linkcheck
+        with:
+          use-quiet-mode: "yes"
+          use-verbose-mode: "yes"
+          config-file: "mlc_config.json"
+
+      - name: Create issue
+        if: ${{ failure() }}
+        uses: JasonEtco/create-an-issue@e27dddc79c92bc6e4562f268fffa5ed752639abd
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          filename: .github/ISSUE_TEMPLATE/broken_link_report.md

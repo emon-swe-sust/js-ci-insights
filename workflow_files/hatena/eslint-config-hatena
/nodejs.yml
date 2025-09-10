@@ -1,0 +1,32 @@
+name: Node CI
+
+on: [push]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version:
+          - '18'
+          - '20'
+          - '22'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+          always-auth: true
+          registry-url: https://npm.pkg.github.com
+          scope: '@hatena'
+      - run: pnpm install
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm format:check
+      - run: pnpm lint:check
+      - run: pnpm typecheck
+      - run: pnpm configtest

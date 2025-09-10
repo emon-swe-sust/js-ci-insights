@@ -1,0 +1,20 @@
+name: Test for commits
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test for commits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+          cache: yarn
+      - name: Build website
+        run: |
+          yarn install --frozen-lockfile
+          yarn build

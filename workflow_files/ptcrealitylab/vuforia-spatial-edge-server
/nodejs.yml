@@ -1,0 +1,119 @@
+name: Node.js CI
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+
+    - name: Configure git
+      env:
+        TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      run: git config --global url."https://${TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Download and install supplementary addons and test data
+      run: ./scripts/ci.sh
+
+    - name: Run tests
+      run: npm test
+      env:
+        CI: true
+        ALLOW_SECURE_MODE: true
+
+    - uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-screenshots
+        path: screenshots/
+
+    - uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: coverage
+        path: coverage/
+
+    - uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: coverage-ui
+        path: coverage-ui/
+
+  build-insecure:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+
+    - name: Configure git
+      env:
+        TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      run: git config --global url."https://${TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Download and install supplementary addons and test data
+      run: ./scripts/ci.sh
+
+    - name: Run tests (http mode)
+      run: npm test
+      env:
+        CI: true
+
+    # - name: Upload coverage to Codecov
+    #   uses: codecov/codecov-action@v4
+    #   with:
+    #       token: ${{ secrets.CODECOV_TOKEN }}
+
+    - uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-screenshots
+        path: screenshots/
+
+  build-quiet:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [16.x]
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+    - name: Generate self-signed certificate
+      run: ./scripts/ci_generate_certificate.sh
+    - run: npm install
+    - run: npm run test-older
+      env:
+        CI: true

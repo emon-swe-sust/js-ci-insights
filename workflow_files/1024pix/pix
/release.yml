@@ -1,0 +1,34 @@
+name: release
+
+on:
+  repository_dispatch:
+    types: [ 'deploy' ]
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'package.json'
+
+      - uses: 1024pix/pix-actions/release@main
+        id: semantic
+        with:
+          changelogTitle: "# Pix Changelog"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PIX_SERVICE_RELEASE_ACTION_TOKEN }}
+      - name: Notify to a slack channel
+        if: env.new_release_published == 'true'
+        uses: slackapi/slack-github-action@v2.1.1
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_RELEASE_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_RELEASE_CHANNEL_ID }}
+            text: "Coucou 🙃, je lance la mise en recette de la v${{ env.new_release_version }} !"

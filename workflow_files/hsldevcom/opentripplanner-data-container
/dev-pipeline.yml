@@ -1,0 +1,63 @@
+name: Process push or pr
+on:
+  push:
+    branches:
+      - v3
+      - custom-release
+  pull_request:
+    branches:
+      - v3
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: '**/node_modules'
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/package-lock.json') }}
+      - name: Install dependencies
+        run: npm install
+      - name: Run linters
+        run: npm run test
+  docker-push:
+    if: github.event_name != 'pull_request'
+    needs:
+      - lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set time zone to Europe/Helsinki
+        uses: zcong1993/setup-timezone@master
+        with:
+          timezone: 'Europe/Helsinki'
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: '**/node_modules'
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/package-lock.json') }}
+      - name: Install dependencies
+        run: npm install
+      - name: Build docker image from ${{ github.ref_name }} and push it
+        run: ./.github/workflows/scripts/build_and_push_dev.sh
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_AUTH: ${{ secrets.DOCKER_AUTH }}
+          DOCKER_BASE_TAG: ${{ github.ref_name }}

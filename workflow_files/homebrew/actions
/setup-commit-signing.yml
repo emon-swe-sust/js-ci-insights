@@ -1,0 +1,66 @@
+name: Test Setup SSH commit signing
+
+on:
+  pull_request:
+    paths:
+      - '**setup-commit-signing**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'node_modules/**'
+
+permissions:
+  contents: read
+
+jobs:
+  ssh-commit-signing:
+    strategy:
+      matrix:
+        container:
+          - ''
+          - image: ghcr.io/homebrew/ubuntu22.04:main
+            options: --user=root
+    runs-on: ubuntu-latest
+    container: ${{ matrix.container }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Configure git user
+        id: git-config
+        uses: ./git-user-config/
+        with:
+          username: BrewTestBot
+
+      - name: Generate SSH key
+        id: generate-ssh-key
+        run: |
+          ssh-keygen -t ed25519 -C "Test CI key" -f /tmp/test-ssh-key -N ""
+          KEY="$(cat /tmp/test-ssh-key)"
+          # shellcheck disable=SC2001
+          echo "${KEY}" | sed 's/^ */::add-mask::/'
+          echo "key<<!!!
+          ${KEY}
+          !!!" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up commit signing
+        id: set-up-commit-signing
+        uses: ./setup-commit-signing/
+        with:
+          signing_key: ${{ steps.generate-ssh-key.outputs.key }}
+
+      - name: Make changes and commit them
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          git checkout -b test-setup-commit-signing
+
+          touch test.txt
+          echo "Hello, Homebrew!" >> test.txt
+
+          git add test.txt
+          git commit -m "test.txt: create and add content."
+
+      - name: Test
+        run: |
+          git log --show-signature -1 | grep 'Good "git" signature'

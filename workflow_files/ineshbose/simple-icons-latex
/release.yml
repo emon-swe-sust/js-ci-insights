@@ -1,0 +1,64 @@
+name: Release latest version
+on:
+  push:
+    branches:
+      - 'master'
+  workflow_run:
+    workflows:
+      - 'Fetch latest version'
+    types:
+      - completed
+
+jobs:
+  auto-release:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Setup repository
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Get release version
+        id: get-version
+        run: |
+          version="$(cat package.json | jq -r '.version')"
+          echo "::set-output name=si::$version"
+      - name: Get current date
+        id: get-date
+        run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
+      - name: Install system dependencies
+        run: sudo apt-get update -y && sudo apt-get install -y fontforge lcdf-typetools
+      - name: Install node dependencies
+        run: yarn
+      - name: Run script
+        run: node bindings.js
+      - name: Add version to doc
+        run: |
+          sed -i 's|\maketitle|\date{${{ steps.get-version.outputs.si }} -- \\today}\\maketitle|' simpleicons.tex
+      - name: Compile doc
+        uses: xu-cheng/latex-action@v3
+        with:
+          root_file: simpleicons.tex
+      - name: Move files and make archive
+        run: ./scripts/archiver.sh
+      - uses: paolobrasolin/ctan-submit-action@v1
+        with:
+          action: upload
+          file_path: simpleicons.zip
+          fields: |
+            update: "true"
+            pkg: simpleicons
+            version: ${{ steps.get-version.outputs.si }} ${{ steps.date.outputs.date }}
+            uploader: Inesh Bose
+            email: ${{ secrets.UPLOADER_EMAIL }}
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: v${{ steps.get-version.outputs.si }}
+          tag_name: ${{ steps.get-version.outputs.si }}
+          body: |
+            See https://github.com/simple-icons/simple-icons/releases/tag/${{ steps.get-version.outputs.si }}
+          files: |
+            simpleicons.zip
+            simpleicons.pdf

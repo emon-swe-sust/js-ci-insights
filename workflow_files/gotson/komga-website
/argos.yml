@@ -1,0 +1,38 @@
+name: Argos CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  take-screenshots:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v5
+
+      - name: Use Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Mock OpenAPI
+        run: npm -w website run mock-api-docs
+
+      - name: Build website fast
+        run: npm -w website run build
+
+      - name: Take Argos screenshots
+        run: npm -w argos run screenshot
+
+      - name: Upload Argos screenshots
+        run: npm -w argos run upload

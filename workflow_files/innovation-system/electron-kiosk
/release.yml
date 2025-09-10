@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  release:
+    types:
+      - created
+  workflow_dispatch:      
+
+jobs:
+  release:
+    runs-on: ${{ matrix.os }}
+    # env:
+    #     NODE_OPTIONS: --openssl-legacy-provider
+
+    strategy:
+       fail-fast: false
+       matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: "*.AppImage"
+            platform: linux
+            arch: x64
+          - os: ubuntu-latest
+            artifact_name: "*.AppImage"
+            platform: linux
+            arch: arm64
+          - os: windows-latest
+            artifact_name: "*.exe"
+            platform: win
+            arch: x64
+          - os: macos-latest
+            artifact_name: "*.dmg"
+            platform: mac
+            arch: x64
+
+    steps:
+    - uses: actions/setup-node@v3
+      with:
+        node-version: 16.x
+    - uses: actions/checkout@v3      
+    - name: Install dependencies
+      run: npm install
+        
+    - name: Fix prettier windows
+      if: matrix.os == 'windows-latest'
+      run: |
+        npm run lint-fix
+    
+    - name: Build
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: npm run build:${{ matrix.platform }} -- --${{ matrix.arch }}
+
+    - name: Rename ARM64 AppImage
+      if: matrix.os == 'ubuntu-latest' && matrix.arch == 'arm64'
+      run: |
+        cd dist
+        mv *.AppImage $(ls *.AppImage | sed 's/.AppImage/-arm64.AppImage/')
+  
+    - name: Upload artifacts
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{matrix.os}}
+        path: dist/${{matrix.artifact_name}}
+    
+    - name: Upload binaries to release
+      if: github.event_name == 'release'
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file_glob: true
+        file: dist/${{ matrix.artifact_name }}
+        tag: ${{ github.ref }}
+        overwrite: true

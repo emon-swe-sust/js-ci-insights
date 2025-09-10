@@ -1,0 +1,70 @@
+name: Create a report on Discussion weekly
+
+on:
+  schedule:
+    - cron: 0 0 * * 1  # At 00:00 (UTC-0) on every monday.
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - id: date
+        run:
+          echo "DATE=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+
+      - name: Scan
+        id: report
+        run: |
+          echo "OK=false" >> "$GITHUB_OUTPUT"
+
+          c=$(git rev-list --all --since '168 hours ago' --reverse  | head -n1 || true)
+          if [ -z "${c:-}" ]; then
+            echo "[Warn] No any changed"
+            exit 0
+          fi
+
+          git --no-pager diff --no-color -U0 "$c"^ HEAD -- '*.md' ':!./_docs' |
+          grep -v -E '^(index|new file mode|deleted file mode|\-\-\-) ' |
+          sed -E -e 's|^diff --git a/(.+) b/.+|```\n\n### \1\n|g' -e 's/^\+\+\+.+/```diff/' |
+          tail +2 > _report
+
+          if [ ! -s _report ]; then
+            echo "[Warn] report is empty"
+            exit 0
+          fi
+
+          {
+            echo 'What changed in last week:'
+            cat _report
+            printf '```\n\n%s\n' 'Details in https://til.adoyle.me/'
+          } > ./new_report
+
+          echo "OK=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create a new GitHub Discussion
+        uses: abirismyname/create-discussion@main
+        id: create-discussion
+        if: ${{ steps.report.outputs.OK == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: "ADoyle's TIL Weekly (${{ steps.date.outputs.DATE }})"
+          body-filepath: ./new_report
+
+          # https://github.com/marketplace/actions/create-github-discussion#obtaining-the-repository-id-and-category-id
+          repository-id: MDEwOlJlcG9zaXRvcnk1MzAyMzkzNA==
+          category-id: DIC_kwDOAykUvs4CfgjB
+
+      - name: Print discussion url and id
+        if: ${{ steps.create-discussion.conclusion == 'success' }}
+        run: |
+          echo discussion-id: ${{steps.create-discussion.outputs.discussion-id}}
+          echo discussion-url: ${{steps.create-discussion.outputs.discussion-url}}

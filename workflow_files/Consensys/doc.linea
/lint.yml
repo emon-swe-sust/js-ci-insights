@@ -1,0 +1,22 @@
+---
+name: Check for lint errors
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint:
+    name: Lint Code Base, Spelling
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint code
+        uses: ConsenSys/github-actions/docs-lint-all@main
+
+      - name: Lint markdown
+        uses: ConsenSys/github-actions/docs-lint-markdown@main

@@ -1,0 +1,39 @@
+name: Release
+on: workflow_call
+
+permissions: write-all
+
+jobs:
+  run:
+    if: ${{ github.ref_name == 'main' || github.ref_name == 'develop'}}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Install Volta
+        uses: volta-cli/action@v4
+      - name: Echo versions
+        run: |
+          node --version
+          yarn --version
+      - name: Install dependencies
+        run: yarn --prefer-offline
+        env:
+          HUSKY: 0
+      - name: Build app
+        run: yarn build
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HUSKY: 0
+        run: npx semantic-release
+      - name: Sync Dev to Main
+        if: ${{ github.ref_name == 'main'}}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git checkout develop
+          git merge main
+          git push origin develop

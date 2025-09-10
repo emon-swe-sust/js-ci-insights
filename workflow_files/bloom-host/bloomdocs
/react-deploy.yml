@@ -1,0 +1,28 @@
+name: Deploy React Frontend
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - "client/**"
+      - ".github/workflows/react-deploy.yml"
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Frontend VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          password: ${{ secrets.CLIENT_HOST_PASSWORD }}
+          port: ${{ secrets.VM_CLIENT_PORT }}
+          script: |
+            cd /home/edisonyls/LeetCodeRecorder/client
+            git pull --no-rebase
+            npm install
+            npm run build
+            sudo rm -rf /var/www/ylslc
+            sudo mv build /var/www/ylslc

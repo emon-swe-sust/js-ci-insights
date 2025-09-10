@@ -1,0 +1,347 @@
+#please edit  public static version: string = '
+name: "tagged-release to be moved some to NetCoreBlockly"
+env:
+  DOTNET_VERSION: '8.0.x'           # set this to the dot net version to use
+  AZURE_WEBAPP_NAME: 'AutoBlocklyApp'
+on:
+  push:    
+    tags:
+      - "vBlockly*"
+  
+  workflow_dispatch:
+
+jobs:
+  buildSite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.9.0]
+
+    steps:
+    - name: 'Checkout Github Action'
+      uses: actions/checkout@master
+
+    - name: Node ${{ matrix.node-version }}
+      uses: actions/setup-node@v1
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: put version
+      run: |
+        echo "${{github.ref_name}}" 
+        echo "${{github.ref_name}}" > version.txt
+
+
+    - name: npm install
+      run: |
+        cd src
+        cd blockly10
+        npm i
+        # cd src
+        # cd react_new_app
+        # cd blockly_automation
+        # npm i            
+        # cd src        
+        # cd AngWorkspace
+        # npm i -g npm@8.1.0               
+        # npm i  
+        # echo 'install angular'    
+        #npm i  @angular/cli@13.3.4
+        # cd projects
+        # cd blockly-helpers
+        # npm i
+        # cd ..
+        # cd blockly-scripts
+        # npm i
+        # cd ..
+        # cd blockly-swagger
+        # npm i
+        # cd ..
+        # cd ..
+        
+    # - name: fix bug #38
+    #   run: |
+    #     cd src
+    #     cd AngWorkspace
+    #     ./fix#38.ps1
+        
+    #   shell: pwsh
+    - name: npm modify docs
+      run: |
+        cd src
+        cd blockly10
+        npm run build
+        cd ..
+        cd ..
+        rm -r docs/*
+        cp -r src/blockly10/build/* docs/
+        cp docs/index.html docs/404.html
+        cd docs
+        echo "${{github.ref_name}}" > version.txt
+        echo ""> .nojekyll
+        cd ..
+        ls -l docs/
+        
+        # cd src
+        # cd AngWorkspace        
+        # echo "build"
+        # npm run buildGitHubPages  
+        # ls -l dist/auto-blockly-app          
+        # cd ..
+        # cd ..
+        # rm -r docs/*
+        # cp -r src/AngWorkspace/dist/auto-blockly-app/* docs/
+        # cp docs/index.html docs/404.html
+        # cd docs
+        # echo "${{github.ref_name}}" > version.txt
+        # cd ..
+        # ls -l docs/
+        
+
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: AutoBlocklyApp
+        path: 'src/blockly10/build/*'
+        retention-days: 1
+
+    - name : autocommit
+      run: |
+        git config --global user.email "taggedrelease@ignatandrei.com"
+        git config --global user.name "Tagged release"
+        git add docs/.
+        git status --porcelain
+        git commit -am "Auto commit from Github Action" --allow-empty
+        git push origin HEAD:main
+
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+        
+    - name: Archive Release 
+      uses: thedoctor0/zip-release@master
+      with:
+        type: 'zip'
+        filename: 'releaseBlocklyAutomation.zip'
+        path: 'src/blockly10/build/'
+        directory: '${{github.workspace}}/'
+        exclusions: '*.git* /*node_modules/* .editorconfig'       
+
+
+    - name: Set up .NET Core
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }} 
+
+    - name: making releases of loaders
+      run: |
+        ls -l
+        find ${{github.workspace}} -type f -name "*.zip"
+        #cp ${{github.workspace}}/src/blockly10/build/releaseBlocklyAutomation.zip ${{github.workspace}}/releaseBlocklyAutomation.zip        
+        rm -r src/blockly10/build/*
+        cd src
+        rm -r Loaders/SimpleSite/AutoBlocklySimple/wwwroot/BlocklyAutomation/*
+        cp -r ${{github.workspace}}/docs/* Loaders/SimpleSite/AutoBlocklySimple/wwwroot/BlocklyAutomation/
+        rm -r Local/LocalAPI/LocalAPI/wwwroot/BlocklyAutomation/*
+        cp -r ${{github.workspace}}/docs/* Local/LocalAPI/LocalAPI/wwwroot/BlocklyAutomation/
+        #cp -r Local/LocalAPI/LocalAPI/wwwroot/customBlocklyAutomation/* Local/LocalAPI/LocalAPI/wwwroot/BlocklyAutomation/
+        # rm -r Local/LocalAPI/LocalAPI/wwwroot/customBlocklyAutomation/*
+        cd Loaders
+        cd SimpleSite
+        cd AutoBlocklySimple
+        
+        dotnet publish -r win-x64 -c Release -o ${{env.AZURE_WEBAPP_NAME}}WinX64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true
+        dotnet publish -r linux-x64 -c Release -o ${{env.AZURE_WEBAPP_NAME}}linX64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true 
+        dotnet publish -r win-x64 -c Release -o ${{env.AZURE_WEBAPP_NAME}}IISWinX64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false
+
+    - name: making releases of localApi
+      run: |
+        cd src
+        cd Local
+        cd LocalAPI
+        cd LocalAPI
+        dotnet publish -r win-x64 -c Release --self-contained -o ${{env.AZURE_WEBAPP_NAME}}LocalAPI 
+
+    - name: Archive LocalAPI
+      uses: thedoctor0/zip-release@master
+      with:
+        type: 'zip'
+        filename: 'releaseLocalAPI.zip'
+        path: '${{env.AZURE_WEBAPP_NAME}}LocalAPI/'
+        directory: '${{github.workspace}}/src/Local/LocalAPI/LocalAPI/'
+        exclusions: '*.git* /*node_modules/* .editorconfig'       
+
+    - name: Archive Release Linux
+      uses: thedoctor0/zip-release@master
+      with:
+        type: 'zip'
+        filename: 'releaseLin.zip'
+        path: '${{env.AZURE_WEBAPP_NAME}}linX64/'
+        directory: '${{github.workspace}}/src/Loaders/SimpleSite/AutoBlocklySimple/'
+        exclusions: '*.git* /*node_modules/* .editorconfig'       
+
+    - name: Archive Release Windows
+      uses: thedoctor0/zip-release@master
+      with:
+        type: 'zip'
+        filename: 'releaseWin.zip'
+        path: '${{env.AZURE_WEBAPP_NAME}}WinX64/'
+        directory: '${{github.workspace}}/src/Loaders/SimpleSite/AutoBlocklySimple/'
+        exclusions: '*.git* /*node_modules/* .editorconfig'       
+    
+
+    - name: Archive Release IIS
+      uses: thedoctor0/zip-release@master
+      with:
+        type: 'zip'
+        filename: 'releaseIISWin.zip'
+        directory: '${{github.workspace}}/src/Loaders/SimpleSite/AutoBlocklySimple/'
+        path: '${{env.AZURE_WEBAPP_NAME}}IISWinX64/'
+        exclusions: '*.git* /*node_modules/* .editorconfig'       
+
+    - name: copy release 
+      run: |
+        find ${{github.workspace}} -type f -name "*.zip"
+        cp ${{github.workspace}}/src/Loaders/SimpleSite/AutoBlocklySimple/releaseLin.zip ${{github.workspace}}/releaseLin.zip
+        cp ${{github.workspace}}/src/Loaders/SimpleSite/AutoBlocklySimple/releaseWin.zip ${{github.workspace}}/releaseWin.zip
+        cp ${{github.workspace}}/src/Loaders/SimpleSite/AutoBlocklySimple/releaseIISWin.zip ${{github.workspace}}/releaseIISWin.zip
+        # cp ${{github.workspace}}/src/AngWorkspace/releaseBlocklyAutomation.zip ${{github.workspace}}/releaseBlocklyAutomation.zip
+        cp ${{github.workspace}}/src/Local/LocalAPI/LocalAPI/releaseLocalAPI.zip ${{github.workspace}}/releaseLocalAPI.zip
+        echo 'copied'
+        find ${{github.workspace}} -type f -name "*.zip"
+
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: AllReleases
+        path: |
+            releaseBlocklyAutomation.zip
+            releaseLin.zip
+            releaseWin.zip
+            releaseIISWin.zip
+            releaseLocalAPI.zip
+            version.txt
+        retention-days: 1
+
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files:  |
+            releaseBlocklyAutomation.zip
+            releaseLin.zip
+            releaseWin.zip
+            releaseIISWin.zip
+            releaseLocalAPI.zip
+            version.txt
+        tag: v${{ env.GITHUB_SHA }}
+        tag_name: v${{ env.GITHUB_SHA }}
+
+
+
+
+    - name: delete older-releases@v0
+      uses: dev-drprasad/delete-older-releases@v0.2.0
+      with:
+        #repo: <owner>/<repoName> # defaults to current repo
+        keep_latest: 2
+        #delete_tag_pattern: beta # defaults to ""
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+  buildDesktop:
+    needs: buildSite
+    runs-on: windows-latest
+
+    steps:
+    - name: 'Checkout Github Action'
+      uses: actions/checkout@master
+
+    - name: Set up .NET Core
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }} 
+    
+    - name: Download artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: AllReleases
+  
+    - name: unzip ang archive
+      shell: pwsh
+      run: |
+        echo 'root'
+        dir
+        echo 'All releases'
+        dir AllReleases/*
+        Expand-Archive -LiteralPath "AllReleases/releaseBlocklyAutomation.zip" -DestinationPath "releaseBlocklyAutomation"
+        echo 'root'
+        dir
+        echo 'releaseBlocklyAutomation'
+        dir releaseBlocklyAutomation
+        echo 'All releases'
+        dir AllReleases/*
+    # - name: build wpf
+    #   shell: pwsh
+    #   run: |        
+    #     rm -r src\apps\wpf\WebView2WpfBrowser\dist\
+    #     cp -r releaseBlocklyAutomation\* src\apps\wpf\WebView2WpfBrowser\dist\
+    #     ((Get-Content -path src\apps\wpf\WebView2WpfBrowser\dist\index.html -Raw) -replace 'base href="/BlocklyAutomation/"','base href="."') | Set-Content -Path src\apps\wpf\WebView2WpfBrowser\dist\index.html
+    #     cd src\apps\wpf\WebView2WpfBrowser
+    #     dotnet publish -r win-x64 -c Release -o ${{env.AZURE_WEBAPP_NAME}}WPF64 --self-contained 
+
+    # - name: zip wpf
+    #   uses: thedoctor0/zip-release@master
+    #   with:
+    #     type: 'zip'
+    #     filename: 'releaseWPF64.zip'
+    #     directory: '${{github.workspace}}/src/apps/wpf/WebView2WpfBrowser'
+    #     path: '${{env.AZURE_WEBAPP_NAME}}WPF64/'
+    #     exclusions: '*.git* /*node_modules/* .editorconfig'       
+
+    # - name: copy zip
+    #   run: |
+    #     # find ${{github.workspace}} -type f -name "*.zip"
+    #     cp ${{github.workspace}}\src\apps\wpf\WebView2WpfBrowser\releaseWPF64.zip ${{github.workspace}}/releaseWPF64.zip 
+    #     cp -r AllReleases/* .
+    #     echo 'copied'
+    #     # find ${{github.workspace}} -type f -name "*.zip"
+
+    # - name: Archive wpf
+    #   uses: actions/upload-artifact@v2
+    #   with:
+    #     name: wpf
+    #     path: |
+    #         releaseWPF64.zip 
+    #         # releaseBlocklyAutomation.zip
+    #         # releaseLin.zip
+    #         # releaseWin.zip
+    #         # releaseIISWin.zip
+    #         # releaseLocalAPI.zip
+    #         # version.txt
+    #     retention-days: 1
+
+    # - name: Release
+    #   uses: softprops/action-gh-release@v1
+    #   with:
+    #     files:  |
+    #         releaseBlocklyAutomation.zip
+    #         releaseLin.zip
+    #         releaseWin.zip
+    #         releaseIISWin.zip
+    #         releaseLocalAPI.zip
+    #         version.txt
+    #     # tag: v${{ env.GITHUB_SHA }}
+    #     # tag_name: v${{ env.GITHUB_SHA }}
+    
+    - name: delete older-releases@v0
+      uses: dev-drprasad/delete-older-releases@v0.2.0
+      with:
+        #repo: <owner>/<repoName> # defaults to current repo
+        keep_latest: 2
+        #delete_tag_pattern: beta # defaults to ""
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+

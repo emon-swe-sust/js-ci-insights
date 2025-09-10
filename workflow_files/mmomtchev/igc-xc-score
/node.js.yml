@@ -1,0 +1,53 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Node.js CI
+
+on:
+  push:
+    branches: [ '*' ]
+  pull_request:
+    branches: [ '*' ]
+
+jobs:
+  build:
+
+    runs-on: ${{ matrix.platform }}
+
+    strategy:
+      matrix:
+        node-version: [ 18.x, 20.x ]
+        platform: [ 'ubuntu-latest', 'macos-latest', 'windows-latest' ]
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ matrix.node-version }}
+    - run: npm ci
+    - run: npm run lint
+    - name: nexe test
+      run: |
+        ./dist/`node -p \
+          '({"linux": "igc-xc-score-linux", "darwin": "igc-xc-score-macos", "win32": "igc-xc-score.exe"}[os.platform()])'` \
+          test/marcourt.igc
+      shell: bash
+    - run: npm test
+
+  codecov:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v5
+      with:
+        node-version: 18.x
+    - run: npm ci
+    - run: npm run c8
+    - run: npm run lcov
+    - run: npm run codecov
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

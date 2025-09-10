@@ -1,0 +1,26 @@
+name: main
+
+on:
+  - push
+  - pull_request
+
+jobs:
+  test:
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{matrix.node}}
+      - run: npm install
+      - run: npm test
+      - uses: codecov/codecov-action@v4
+        if: ${{matrix.os == 'ubuntu-latest' && matrix.node == 22}}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        node:
+          - 20
+          - 22

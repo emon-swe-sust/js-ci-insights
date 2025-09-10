@@ -1,0 +1,102 @@
+name: Node.js CI
+
+on:
+  push:
+    branches:
+      - main
+      - 4.x
+  pull_request:
+    branches:
+      - main
+      - 4.x
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test-node:
+    name: Test on Node.js v${{ matrix.node-version }} and html-webpack-plugin v${{ matrix.html-plugin-version }} and webpack v${{ matrix.webpack-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [16.x, 18.x, 20.x, 22.x, 23.x]
+        html-plugin-version: [4, 5]
+        webpack-version: [5]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+      - name: install with html-webpack-plugin v${{matrix.html-plugin-version }} and webpack v${{ matrix.webpack-version }}
+        run: |
+          yarn
+          yarn add --dev html-webpack-plugin@${{matrix.html-plugin-version }} webpack@${{ matrix.webpack-version }}
+          yarn example
+          git checkout yarn.lock
+      - name: run tests
+        run: yarn cover
+      - uses: codecov/codecov-action@v5
+        if: ${{ always() }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+  test-os:
+    name: Test on ${{ matrix.os }} using Node.js LTS
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+          cache: yarn
+      - run: yarn
+      - name: build example
+        run: |
+          yarn example
+          git checkout yarn.lock
+      - name: run tests
+        run: yarn cover
+  lint:
+    name: Run ESLint using Node.js LTS
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+          cache: yarn
+      - run: yarn
+      - run: yarn lint
+
+  release:
+    if: ${{ github.event_name == 'push' && (github.event.ref == 'refs/heads/main' || github.event.ref == 'refs/heads/4.x') }}
+    name: Release new version
+    needs: [lint, test-node, test-os]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+          cache: yarn
+      - name: install
+        run: yarn
+      - run: yarn semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

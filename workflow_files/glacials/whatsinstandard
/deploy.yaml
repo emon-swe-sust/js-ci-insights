@@ -1,0 +1,29 @@
+name: Deploy
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "15 * * * *"
+jobs:
+  test:
+    name: Test
+    uses: ./.github/workflows/test.yaml
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build
+        run: |
+          cd web
+          npm install
+          npm run build
+          find dist -name .gitignore -delete
+          [[ "${{ github.event.repository.name }}" == "whatsinstandard-beta" ]] && echo "beta.whatsinstandard.com" > dist/CNAME
+          touch dist/.nojekyll # See https://stackoverflow.com/a/43487798/392225
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@4.1.4
+        with:
+          branch: gh-pages
+          folder: web/dist

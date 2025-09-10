@@ -1,0 +1,45 @@
+name: sample-workflow
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    steps:
+      # Need to checkout for testing the Action in this repo
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed to checkout all branches
+
+      # Start check the PR diff
+      - uses: ./
+        id: git-diff-action
+        with:
+          json_diff_file_output: diff.json
+          raw_diff_file_output: diff.txt
+
+      # Print the diff in JSON format
+      - name: print json diff
+        env:
+          DIFF: ${{ steps.git-diff-action.outputs.json-diff-path }}
+        run: cat $DIFF
+
+      # Echo the raw git diff
+      - name: print raw diff
+        env:
+          DIFF: ${{ steps.git-diff-action.outputs.raw-diff-path }}
+        run: cat $DIFF
+
+      # Upload the json diff as an artifact
+      - uses: actions/upload-artifact@v4
+        with:
+          name: json-diff
+          path: diff.json
+          retention-days: 1

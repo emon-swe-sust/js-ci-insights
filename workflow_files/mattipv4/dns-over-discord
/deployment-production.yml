@@ -1,0 +1,68 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - production
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_OPTIONS: --unhandled-rejections=strict
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Tests
+        run: npm test
+
+  deploy:
+    name: Deploy
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://dns-over-discord.v4.wtf/invite
+
+    env:
+      NODE_OPTIONS: --unhandled-rejections=strict
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Generate production.env
+        run: envsubst < production.env.sample > production.env
+        env:
+          CLIENT_ID: ${{ secrets.PRODUCTION_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.PRODUCTION_CLIENT_SECRET }}
+          CLIENT_PUBLIC_KEY: ${{ secrets.PRODUCTION_CLIENT_PUBLIC_KEY }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.PRODUCTION_SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.PRODUCTION_SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.PRODUCTION_SENTRY_PROJECT }}
+          SENTRY_DSN: ${{ secrets.PRODUCTION_SENTRY_DSN }}
+
+      - name: Publish to Production
+        run: npm run publish:production
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}

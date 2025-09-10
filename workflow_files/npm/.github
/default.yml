@@ -1,0 +1,34 @@
+---
+#####
+# https://help.github.com/en/articles/events-that-trigger-workflows
+# https://help.github.com/en/articles/workflow-syntax-for-github-actions
+# https://help.github.com/en/articles/contexts-and-expression-syntax-for-github-actions
+# https://help.github.com/en/articles/software-in-virtual-environments-for-github-actions
+# https://help.github.com/en/categories/automating-your-workflow-with-github-actions
+name: default
+on:
+  push:
+    branches: ['master']
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  pull_request:
+    types:
+      - 'opened'
+      - 'reopened'
+      - 'synchronize'
+
+jobs:
+
+  default:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: 'actions/checkout@v1'
+      - name: npm install
+        env:
+          NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}'
+        run: 'npm ci'
+      - name: npx release
+        env:
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          NPM_TOKEN: '${{ secrets.NPM_TOKEN }}'
+        run: 'npx semantic-release'

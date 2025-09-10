@@ -1,0 +1,88 @@
+name: Protobuf
+# Protobuf runs protobuf related CI checks:
+# - buf (https://buf.build/) lint
+# - buf check-breakage
+# - check protobuf definitions are up-to-date
+on:
+  pull_request:
+  merge_group:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # This job is only run when a .proto file has been changed
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+      - uses: technote-space/get-diff-action@v4
+        with:
+          PATTERNS: |
+            **/**.proto
+            **/buf*.yaml
+      - name: lint
+        run: make proto-lint
+        working-directory: golang/cosmos
+        if: env.GIT_DIFF
+  # This job is only run when a .proto file has been changed
+  breakage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+      - uses: technote-space/get-diff-action@v4
+        with:
+          PATTERNS: |
+            **/**.proto
+            **/buf*.yaml
+      - name: check-breakage
+        if: env.GIT_DIFF
+        run: |
+          if make proto-check-breaking PR_TARGET_REPO="$REPO" PR_TARGET_BRANCH="$BRANCH"; then
+            status=0
+          else
+            status=$?
+          fi
+          if [ $status -eq 0 ]; then
+            if [ "$EXPECT_BREAKAGE" = true ]; then
+              echo "Expected breakage, but got no breakage."
+              exit 1
+            fi
+            echo "As expected, no breakage was detected."
+          elif [ "$EXPECT_BREAKAGE" = true ]; then
+            echo "Expected breakage, and got it."
+            exit 0
+          else
+            echo "Unexpected breakage detected."
+          fi
+          exit $status
+        working-directory: golang/cosmos
+        env:
+          REPO: https://github.com/${{ github.repository }}.git
+          BRANCH: ${{ github.base_ref}}
+          EXPECT_BREAKAGE: ${{ contains( github.event.pull_request.labels.*.name, 'proto:expect-breakage') }}
+  up-to-date:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+      - uses: ./.github/actions/restore-golang
+        with:
+          go-version: '1.22'
+      - name: check protobuf definitions are up-to-date
+        run: |
+          cd packages/cosmic-proto
+          ./update-protos.sh
+          out=$(git status --porcelain)
+          test -n "$out" || exit 0
+          echo "Unexpected git status output:"
+          echo "$out"
+          echo "Please run (cd packages/cosmic-proto && ./update-protos.sh)"
+          echo "and commit the result."
+          exit 1

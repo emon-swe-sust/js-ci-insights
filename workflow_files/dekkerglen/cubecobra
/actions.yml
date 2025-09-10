@@ -1,0 +1,76 @@
+name: CI Tests
+
+# Pull request will trigger when PR is opened or updated, and more (https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request)
+# Thus limit push checks to master branch so things run after the PR is merged. Without the limit multiple actions run on each PR
+on:
+  pull_request:
+  push:
+    branches:
+      - 'master'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # To use with eslint script
+          fetch-depth: 0
+
+      - name: Cache node_modules
+        id: cache-node-modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            - ~/.npm
+            - node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run eslint on changed files
+        # Always run both eslint and prettier
+        if: always()
+        uses: ./.github/actions/eslint
+        with:
+          config_path: 'eslint.config.mjs'
+          eslint_flags: '--max-warnings=0 --no-warn-ignored'
+
+      - name: Run Prettier on changed files
+        # Always run both eslint and prettier
+        if: always()
+        uses: ./.github/actions/prettier
+        with:
+          fail_on_error: true
+          filter_mode: file
+          level: warning
+          prettier_flags: '**/*.{js,jsx,ts,tsx}'
+          reporter: github-pr-review
+
+      - name: Run tests
+        if: always()
+        run: npm run test:ci
+
+      - name: Upload Jest Coverage Report
+        if: success()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-coverage
+          path: coverage
+
+      - name: Build
+        run: npm run ci-build

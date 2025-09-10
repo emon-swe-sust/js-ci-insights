@@ -1,0 +1,46 @@
+name: 'Autorelease'
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ci-autorelease-${{ github.ref }}-1
+  cancel-in-progress: true
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      VERSION: ${{ steps.get_version.outputs.VERSION }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - name: get version
+        id: get_version
+        run: echo ::set-output name=VERSION::v$(cat manifest.json | jq -r .version)
+
+  call-build:
+    needs: get-version
+    uses: ./.github/workflows/_webext-build.yml
+    secrets:
+      signKey: ${{ secrets.AMO_SIGN_KEY }}
+      signSecret: ${{ secrets.AMO_SIGN_SECRET }}
+
+  call-release:
+    needs:
+    - get-version
+    - call-build
+    uses: ./.github/workflows/_release.yml
+    with:
+      tag: ${{ needs.get-version.outputs.VERSION }}

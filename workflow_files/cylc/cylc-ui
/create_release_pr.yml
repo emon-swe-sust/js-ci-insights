@@ -1,0 +1,54 @@
+name: Release stage 1 - create release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version
+        required: true
+      branch:
+        description: The branch to open the PR against
+        required: false
+        default: 'master'
+
+jobs:
+  create-release-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+
+      - name: Sanitise workflow inputs # Should be 1st step
+        uses: cylc/release-actions/stage-1/sanitize-inputs@v1
+
+      - name: Checkout repo
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BASE_REF }}
+          fetch-depth: 0  # need to fetch all commits to check contributors
+
+      - name: Check CONTRIBUTING.md
+        uses: cylc/release-actions/check-shortlog@v1
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Create & checkout PR branch
+        uses: cylc/release-actions/stage-1/checkout-pr-branch@v1
+
+      - name: Set the package version
+        run: |
+          npm version $VERSION
+
+      - name: Generate changelog
+        run: |
+          python3 -m pip install -q towncrier
+          towncrier build --yes --version $VERSION
+
+      - name: Create pull request
+        uses: cylc/release-actions/stage-1/create-release-pr@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          test-workflows: main.yml

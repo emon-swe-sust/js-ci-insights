@@ -1,0 +1,51 @@
+name: Locales
+on:
+  workflow_call:
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+        description: The API key for OpenAI
+
+permissions: write-all
+
+jobs:
+  sync:
+    if: ${{ github.ref_name == 'main' }}
+    runs-on: ubuntu-latest
+    outputs:
+      made_commit: ${{ steps.commit.outputs.made_commit }}
+    env:
+      changes_exist: 'false'
+    steps:
+      - name: Checkout code
+        id: checkout-code
+        uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+      - name: Install dependencies
+        run: yarn
+      - name: Run generating script
+        run: yarn locales:generate
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: Configure git
+        run: |
+          git config --global user.name "turtlesocks-bot"
+          git config --global user.email "turtlesocks-bot@users.noreply.github.com"
+      - name: Check for changes
+        run: |
+          if git diff --quiet; then
+            echo "changes_exist=false" >> $GITHUB_ENV
+          else
+            echo "changes_exist=true" >> $GITHUB_ENV
+          fi
+      - name: Commit and push changes
+        id: commit
+        if: ${{ env.changes_exist == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git add --all
+          git commit --message "chore: sync locales [skip ci]"
+          git push
+          echo "made_commit=true" >> $GITHUB_OUTPUT

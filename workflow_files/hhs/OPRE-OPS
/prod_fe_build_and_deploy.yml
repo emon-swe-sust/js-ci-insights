@@ -1,0 +1,57 @@
+name: Production Frontend Build and Deploy
+
+on:
+  workflow_dispatch:
+
+env:
+  WORKING_DIR: "frontend"
+  DOCKER_FILE: "Dockerfile.azure"
+  ENVIRONMENT: prod
+  DOMAIN_NAME: "ops.opre.acf.gov"
+
+jobs:
+  build-frontend:
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Build and publish the Docker image for ${{ github.repository }}
+        uses: ./.github/actions/build-and-push
+        with:
+          image_name: ${{ github.repository }}/ops-${{ env.WORKING_DIR }} # it will be lowercased internally
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          context: ${{ github.workspace }}/${{ env.WORKING_DIR }}
+          dockerfile: ${{ github.workspace }}/${{ env.WORKING_DIR }}/${{ env.DOCKER_FILE }}
+          image_tags: "${{ github.sha }},${{ env.ENVIRONMENT }}"
+          build_args: "VITE_BACKEND_DOMAIN=https://${{ env.DOMAIN_NAME }}, MODE=production"
+
+  deploy-frontend:
+    needs: build-frontend
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Update yaml file to provide revision suffix
+        uses: fjogeleit/yaml-update-action@04ff6ec06568fd21197db746472e36cc425de850 # v0.16.1
+        with:
+          valueFile: './.github/container-app-suffixes.yml'
+          propertyPath: 'template.revisionSuffix'
+          value: ${{ github.run_id }}-${{ github.run_number }}
+          commitChange: false
+
+      - name: Log in to Azure
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          creds: ${{ secrets.PROD_AZURE_CREDS }}
+
+      - name: Deploy Container App
+        uses: azure/container-apps-deploy-action@8dff69dac3367c32ceb2690d8f13adbeab462703 # v2
+        with:
+            containerAppName: opre-ops-${{ env.ENVIRONMENT }}-app-${{ env.WORKING_DIR }}
+            resourceGroup: opre-ops-${{ env.ENVIRONMENT }}-app-rg
+            imageToDeploy: ghcr.io/hhs/opre-ops/ops-${{ env.WORKING_DIR }}:${{ env.ENVIRONMENT }}
+            yamlConfigPath: ./.github/container-app-suffixes.yml

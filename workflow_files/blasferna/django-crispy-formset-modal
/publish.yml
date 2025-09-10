@@ -1,0 +1,27 @@
+name: Publish Python Package with uv
+
+on:
+  push:
+    tags:
+    - '*'
+
+jobs:
+  publish:
+    if: github.repository == 'blasferna/django-crispy-formset-modal'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Build with uv
+      run: uv build
+
+    - name: Publish with uv
+      env:
+        UV_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      run: uv publish --token $UV_PYPI_TOKEN
+

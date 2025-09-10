@@ -1,0 +1,37 @@
+name: Uploady Storybook Publish
+
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - master
+
+defaults:
+    run:
+        shell: bash
+
+permissions:
+    contents: read
+
+jobs:
+    publish:
+        name: Publish Uploady Storybook
+        runs-on: ubuntu-latest
+        steps:
+            -   uses: actions/checkout@v4
+
+            -   name: Prepare
+                uses: ./.github/actions/prepare
+
+            -   name: Build Storybook Site
+                run: pnpm sb:build:prod
+
+            -   name: Install Netlify CLI
+                run: pnpm install -w netlify-cli
+
+            -   name: Publish Storybook to Netlify
+                env:
+                  NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+                  NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+                run: |
+                    pnpm netlify deploy --prod --debug --cwd .sb-static

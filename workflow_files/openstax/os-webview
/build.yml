@@ -1,0 +1,38 @@
+---
+jobs:
+  osweb:
+    runs-on: ubuntu-22.04
+    steps:
+      -
+        name: "Checkout release tag"
+        uses: actions/checkout@v2
+      -
+        name: "Setup NVM"
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+      -
+        name: "Setup environment"
+        run: ./script/setup
+      -
+        name: "Lint osweb"
+        run: yarn lint
+      -
+        name: "Build osweb"
+        run: ./script/build production
+      -
+        name: "Run tests"
+        run: ./script/test
+      -
+        name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.JENKINS_RUNDECK_ID_RSA }}
+          name: id_rsa
+          known_hosts: ${{ secrets.KNOWN_HOSTS }}
+      -
+        name: "Create archive for packages.cnx.org"
+        run: ./script/archive
+name: build
+on: push

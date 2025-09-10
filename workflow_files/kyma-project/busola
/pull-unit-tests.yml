@@ -1,0 +1,43 @@
+name: PR Unit and Component Tests
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/pull-unit-tests.yml'
+      - 'public/**'
+      - 'src/**'
+      - 'backend/**'
+      - 'package.json'
+      - 'cypress/**'
+      - 'cypress.config.component.ts'
+
+jobs:
+  run-unit-and-component-test:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: gardenlinux/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Merge with latest main
+        uses: ./.github/actions/merge
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: setup_busola
+        shell: bash
+        run: |
+          set -e
+          npm ci
+      - name: run_unit_tests
+        shell: bash
+        run: |
+          npm run test
+      - name: run_component_tests
+        shell: bash
+        run: |
+          npm run component-test-headless

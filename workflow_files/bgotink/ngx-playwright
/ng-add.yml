@@ -1,0 +1,66 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+name: "Test ng-add schematic"
+jobs:
+  ng-add:
+    name: "Validate ng-add"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: yarn
+
+      - name: Build ngx-playwright
+        shell: bash
+        run: |
+          yarn install --immutable
+          yarn sn build
+
+      - name: Prepare environment
+        shell: bash
+        run: ./scripts/ng-add/prepare.sh
+
+      - name: ng-add with typescript & using ngx-playwright fixtures
+        shell: bash
+        run: ./scripts/ng-add/run.sh --typescript
+
+      - name: ng-add without typescript & using ngx-playwright fixtures
+        shell: bash
+        run: ./scripts/ng-add/run.sh --no-typescript
+
+      - name: ng-add with typescript without ngx-playwright fixtures
+        shell: bash
+        run: ./scripts/ng-add/run.sh --no-angular --typescript
+
+      - name: ng-add without typescript without ngx-playwright fixtures
+        shell: bash
+        run: ./scripts/ng-add/run.sh --no-angular --no-typescript
+
+      - name: ng-add with typescript & using ngx-playwright fixtures without harnesses
+        shell: bash
+        run: ./scripts/ng-add/run.sh --typescript --no-harnesses
+
+      - name: ng-add without typescript & using ngx-playwright fixtures without harnesses
+        shell: bash
+        run: ./scripts/ng-add/run.sh --no-typescript --no-harnesses
+
+      - name: ng-add with typescript without ngx-playwright fixtures without harnesses
+        shell: bash
+        run: ./scripts/ng-add/run.sh --no-angular --typescript --no-harnesses
+
+      - name: ng-add without typescript without ngx-playwright fixtures without harnesses
+        shell: bash
+        run: ./scripts/ng-add/run.sh --no-angular --no-typescript --no-harnesses

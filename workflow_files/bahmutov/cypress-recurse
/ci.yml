@@ -1,0 +1,65 @@
+name: ci
+on: push
+jobs:
+  test:
+    # https://github.com/bahmutov/cypress-workflows
+    uses: bahmutov/cypress-workflows/.github/workflows/parallel.yml@v2
+    with:
+      n: 8
+    secrets:
+      recordKey: ${{ secrets.CYPRESS_RECORD_KEY }}
+
+  print-test-names:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        # https://github.com/actions/checkout
+        uses: actions/checkout@v4
+      - name: Install dependencies
+        uses: cypress-io/github-action@v6
+        with:
+          runTests: false
+      # https://github.com/bahmutov/find-cypress-specs
+      - name: Print Cypress test names 🖨
+        run: npm run print-tests
+      - name: Print Cypress test tags if any 🖨
+        run: npm run print-tags
+
+  lint-types:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        # https://github.com/actions/checkout
+        uses: actions/checkout@v4
+      - name: Install dependencies
+        uses: cypress-io/github-action@v6
+        with:
+          command: npm run lint
+
+  release:
+    runs-on: ubuntu-22.04
+    # only try releasing from the main branch
+    if: github.ref == 'refs/heads/main'
+    needs:
+      - test
+      - print-test-names
+      - lint-types
+    steps:
+      - name: Checkout
+        # https://github.com/actions/checkout
+        uses: actions/checkout@v4
+
+      - name: Run linter 🧪
+        # https://github.com/cypress-io/github-action
+        uses: cypress-io/github-action@v6
+        with:
+          command: npm run lint
+
+      - name: Semantic Release 🚀
+        # https://github.com/cycjimmy/semantic-release-action
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          branch: main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

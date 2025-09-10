@@ -1,0 +1,67 @@
+name: Monitor
+
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+      - run: npm install
+      - name: restore HTTP cache
+        id: cache-http-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache
+          key: ${{ runner.os }}-http-cache
+      - name: Run monitor script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node --max-old-space-size=8192 monitor.js
+      - name: save HTTP cache
+        id: cache-http-save
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .cache
+          key: ${{ steps.cache-http-restore.outputs.cache-primary-key }}
+      - name: Run data wranger script
+        run: node prepare-data.js
+      - name: Report encountered errors in job summary
+        run: jq '.data[].activity|tostream|select(length>=2 and .[0][1]=="errors" and .[1]!=null) as [$p,$v]|$v' report.json >> $GITHUB_STEP_SUMMARY
+      - name: Run popularity calculator & graph generation
+        run: |
+          node export-popularity.js
+          node generate-activity-graphs.js
+      - name: Collect charter links
+        run: node collect-charter-links.mjs > charter-links.json
+      - name: Commit changes
+        run: |
+          git config user.name "w3c-cg-monitor-bot"
+          git config user.email "<>"
+          git add report.json popularity.json charter-links.json viz
+          git commit -m "Update data"
+          git show
+      - name: Push changes
+        if: github.ref == 'refs/heads/main' && github.event.commits[0].author.name != 'w3c-cg-monitor-bot'
+        run: |
+          git remote set-url --push origin https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/$GITHUB_REPOSITORY
+          git push origin HEAD:main
+      # upload intermediary data files as artifacts
+      - name: Store retrieved data as artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: data
+          path: |
+            data

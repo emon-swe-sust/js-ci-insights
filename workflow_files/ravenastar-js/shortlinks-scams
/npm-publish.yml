@@ -1,0 +1,75 @@
+# 🤖 Workflow com Versionamento Sequencial Automático
+
+name: Node.js Package
+
+on:
+  push
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: yarn
+
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org/
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Get base version
+        id: get_version
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version.split('-')[0]")
+          echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Get last pre-release number
+        id: get_pre_number
+        run: |
+          # Verifica se já existe versão publicada no npm
+          LATEST_NPM_VERSION=$(npm view . version 2>/dev/null || echo "0.0.0-0")
+          
+          # Se a versão do npm tem o mesmo prefixo da versão base
+          if [[ "$LATEST_NPM_VERSION" =~ ^${{ steps.get_version.outputs.base_version }}-([0-9]+)$ ]]; then
+            PRE_NUMBER=${BASH_REMATCH[1]}
+          else
+            PRE_NUMBER=0
+          fi
+          echo "pre_number=$PRE_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Set new version and commit
+        run: |
+          NEW_PRE_NUMBER=$(( ${{ steps.get_pre_number.outputs.pre_number }} + 1 ))
+          NEW_VERSION="${{ steps.get_version.outputs.base_version }}-$NEW_PRE_NUMBER"
+          
+          # Atualiza a versão no package.json
+          npm version "$NEW_VERSION" --no-git-tag-version
+          
+          # Commita e envia a alteração
+          git add package.json
+          git commit -m "🤖 version to $NEW_VERSION [skip ci]"
+          git push
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

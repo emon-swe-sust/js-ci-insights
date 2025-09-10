@@ -1,0 +1,68 @@
+name: Build and Deploy (staging)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - development
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+
+    env:
+      SITE_NAME: "Safetag"
+
+    steps:
+      # Cancel previous workflows to avoid overlapping deploys as content
+      # editing might add several commits in short intervals.
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.6.0
+        with:
+          access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up secrets
+        run: |
+          touch .env
+          echo TX_TOKEN=${{ secrets.TRANSIFEX_TOKEN }} >> .env
+          cp .env .env.production
+          cp .env .env.development
+          cat .env
+
+      # https://github.com/aws/aws-cli/issues/1249
+      - name: Fix mimetypes detection for yaml files
+        run: |
+          echo 'application/x-yaml yaml yml' | sudo tee -a /etc/mime.types
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v1
+        with:
+          node-version: 20
+
+      - name: Install and lint
+        run: |
+          npm install
+          npm run lint
+
+      - name: Update translations and build
+        run: |
+          export TX_TOKEN=${{ secrets.TRANSIFEX_TOKEN }}
+          npm run extract
+          npm run transifex-push
+          npm run transifex-pull
+          npm run build
+
+      - name: Deploy 🚀
+        uses: burnett01/rsync-deployments@4.1
+        with:
+          switches: -avzr --delete
+          path: public/
+          remote_path: ${{ secrets.SSH_DIR }}
+          remote_host: ${{ secrets.SSH_HOST }}
+          remote_port: 22
+          remote_user: ${{ secrets.SSH_USER }}
+          remote_key: ${{ secrets.SSH_KEY }}

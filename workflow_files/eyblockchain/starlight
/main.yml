@@ -1,0 +1,85 @@
+# This is a basic workflow to help you get started with Actions
+
+name: test-on-pr
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the master branch
+  pull_request:
+  push:
+    branches: [ master ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  test-zappify:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+
+      # Runs a single command using the runners shell
+      - name: compile and test
+        run: |
+          npm i npm@7
+          tsc
+          npm test
+
+      - name: compile shield contracts and circuits
+        run: |
+          npm i solc@^0.8.0 -g
+          chmod +x ./test/test-zapp-actions.sh
+          TERM=xterm bash ./test/test-zapp-actions.sh
+
+  test-zapp:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v1
+        with:
+          node-version: '16.17.0'
+
+      - name: run zappify
+        run: |
+          npm ci && ./bin/start
+          zappify -i test/contracts/user-friendly-tests/Arrays.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/Assign.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/Assign-api.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/BucketsOfBalls.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/CharityPot.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/Constructor.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/Encrypt.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/Escrow.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/for-loop.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/If-Statement.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/MappingtoStruct.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/NFT_Escrow.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/Return.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/SimpleStruct.zol -o temp-zapps
+          zappify -i test/contracts/action-tests/internalFunctionCallTest1.zol -o temp-zapps
+          zappify -i test/contracts/user-friendly-tests/Swap.zol -o temp-zapps
+
+      - name: replace zokrates image for actions test
+        uses: jacobtomlinson/gha-find-replace@v2
+        with:
+          find: "ghcr.io/eyblockchain/zokrates-worker-starlight:v0.2"
+          replace: "ghcr.io/eyblockchain/zokrates-worker-m1:v0.1"
+          include: "**docker-compose.zapp.yml"
+       
+      - name: run zapp apitest
+        run: npx mocha --exit --timeout 50000 --require @babel/register apitest.js
+        
+      - name: disp logs on failure
+        if: failure()
+        run: | 
+          docker logs assign_zokrates_1
+          docker logs if-statement_zokrates_1
+          docker logs internalFunctionCallTest1_zokrates_1
+

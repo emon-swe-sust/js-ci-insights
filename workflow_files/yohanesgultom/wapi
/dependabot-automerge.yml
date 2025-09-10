@@ -1,0 +1,35 @@
+name: Dependabot Approve and Merge
+
+on: pull_request_target
+
+permissions:
+  pull-requests: write
+  contents: write
+  issues: write
+
+jobs:
+  dependabot:
+    name: Auto approve and merge
+    runs-on: ubuntu-latest
+
+    if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+    steps:
+      - name: Approve and merge
+        id: auto-merge
+        run: |
+          gh pr review --approve "$PR_URL"
+          gh pr merge --auto --squash "$PR_URL"
+          echo "STATUS=true" >> $GITHUB_OUTPUT
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write summary
+        run: |
+          result="skip. :x:"
+          if [ "${STATUS}" == "true" ]; then
+              result=" auto-merge! :white_check_mark:"
+          fi
+          echo "### Done with ${result}" >> $GITHUB_STEP_SUMMARY
+        env:
+          STATUS: ${{ steps.auto-merge.outputs.STATUS }}

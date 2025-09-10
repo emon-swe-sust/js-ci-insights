@@ -1,0 +1,22 @@
+name: check examples
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  typo-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: check typos
+        uses: crate-ci/typos@v1.26.0
+
+      - name: autocorrect lint
+        uses: huacnlee/autocorrect-action@v2
+        with:
+          args: . --lint --no-diff-bg-color

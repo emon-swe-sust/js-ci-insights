@@ -1,0 +1,44 @@
+name: "Updates"
+
+on:
+  push:
+    paths:
+      - "whitelist/**"
+
+  schedule:
+    - cron: "6 6 */8 * *"
+  workflow_dispatch:
+
+jobs:
+  Checks:
+    name: "Scheduled updates"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4.2.2
+      - name: Setup node
+        uses: actions/setup-node@v4.2.0
+        with:
+          node-version: "19"
+
+      - name: "Install node dependencies"
+        run: |
+          npm install
+
+      - name: "Update lists"
+        run: |
+          npm run build
+
+      - name: Commit & Push changes
+        uses: actions-js/push@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          author_name: "DW [github actions bot]"
+          message: "auto-update [skip ci]"
+
+      - name: Repository Dispatch
+        uses: peter-evans/repository-dispatch@v3.0.0
+        with:
+          token: ${{ secrets.PAT }}
+          repository: ${{ secrets.REPO_NAME }}
+          event-type: start-building

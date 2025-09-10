@@ -1,0 +1,127 @@
+name: CI
+
+env:
+  VOLTA_FEATURE_PNPM: 1
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request: {}
+
+concurrency:
+   group: ci-${{ github.head_ref || github.ref }}
+   cancel-in-progress: true
+
+jobs:
+  test:
+    name: "Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install volta
+        uses: volta-cli/action@v4
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path -s)" >> $GITHUB_OUTPUT
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        id: cache
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - name: Install Dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+      - name: Prune pnpm store
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        shell: bash
+        run: pnpm store prune
+      - name: Lint
+        run: pnpm lint
+      - name: Run Tests
+        run: pnpm test
+
+  floating:
+    name: "Floating Dependencies"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install volta
+        uses: volta-cli/action@v4
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path -s)" >> $GITHUB_OUTPUT
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        id: cache
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - name: Install Dependencies
+        shell: bash
+        run: pnpm install --no-frozen-lockfile
+      - name: Prune pnpm store
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        shell: bash
+        run: pnpm store prune
+      - name: Run Tests
+        run: pnpm test
+
+  try-scenarios:
+    name: ${{ matrix.try-scenario }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    strategy:
+      fail-fast: false
+      matrix:
+        try-scenario:
+          - ember-lts-3.28
+          - ember-lts-4.12
+          - ember-lts-5.12
+          - ember-release
+          - ember-beta
+          - ember-canary
+          - embroider-safe
+          # - embroider-optimized
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install volta
+        uses: volta-cli/action@v4
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path -s)" >> $GITHUB_OUTPUT
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        id: cache
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - name: Install Dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+      - name: Prune pnpm store
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        shell: bash
+        run: pnpm store prune
+      - name: Run Tests
+        run: pnpm test:ember-compatibility ${{ matrix.try-scenario }} --- pnpm test

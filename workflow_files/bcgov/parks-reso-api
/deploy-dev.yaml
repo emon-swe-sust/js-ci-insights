@@ -1,0 +1,91 @@
+name: Deploy Dev
+
+run-name: Deploying ${{ github.ref_name }} to dev
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  ci:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    environment: dev
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    defaults:
+      run:
+        working-directory: "samNode"
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - shell: bash
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-Type: application/json' $WEBHOOK_URL --data '{"text":" DUP API deploy Dev"}'
+
+      # Setup AWS SAM
+      - name: Setup AWS SAM
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      # Assume AWS IAM Role
+      - name: Get AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # SAM Build
+      - name: Run sam build
+        run: |
+          sam build
+      
+      # Prevent prompts and failure when the stack is unchanged
+      - name: SAM deploy
+        env:
+          ADMIN_FRONTEND: ${{ vars.ADMIN_FRONTEND }}
+          AWS_ACCOUNT_LIST: ${{ vars.AWS_ACCOUNT_LIST }}
+          CF_SECRET_KEY: ${{ secrets.CF_SECRET_KEY }}
+          DATA_REGISTER_API_KEY: ${{ secrets.DATA_REGISTER_API_KEY }}
+          FEEDBACK_SURVEY_URL: ${{ secrets.FEEDBACK_SURVEY_URL }}
+          GC_NOTIFY_API_KEY: ${{ secrets.GC_NOTIFY_API_KEY }}
+          GC_NOTIFY_CANCEL_TEMPLATE_ID: ${{ vars.GC_NOTIFY_CANCEL_TEMPLATE_ID }}  
+          GC_NOTIFY_PARKING_RECEIPT_TEMPLATE_ID: ${{ vars.GC_NOTIFY_PARKING_RECEIPT_TEMPLATE_ID }}
+          GC_NOTIFY_REMINDER_TEMPLATE_ID: ${{ vars.GC_NOTIFY_REMINDER_TEMPLATE_ID }}
+          GC_NOTIFY_SMS_TEMPLATE_ID: ${{ vars.GC_NOTIFY_SMS_TEMPLATE_ID }}
+          GC_NOTIFY_SURVEY_TEMPLATE_ID: ${{ vars.GC_NOTIFY_SURVEY_TEMPLATE_ID }}
+          GC_NOTIFY_TRAIL_RECEIPT_TEMPLATE_ID: ${{ vars.GC_NOTIFY_TRAIL_RECEIPT_TEMPLATE_ID }}
+          HOLD_PASS_TIMEOUT: ${{ vars.HOLD_PASS_TIMEOUT }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          LOW_CAPACITY_THRESHOLD: ${{ vars.LOW_CAPACITY_THRESHOLD }}
+          MODERATE_CAPACITY_THRESHOLD: ${{ vars.MODERATE_CAPACITY_THRESHOLD }}
+          PUBLIC_FRONTEND: ${{ vars.PUBLIC_FRONTEND }}
+          S3_BUCKET_DATA: ${{ vars.S3_BUCKET_DATA }}
+          SSO_ISSUER_URL: ${{ vars.SSO_ISSUER_URL }}
+          SSO_JWKS_URI: ${{ vars.SSO_JWKS_URI }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          SQS_EXPIRY_QUEUE_URL: ${{vars.SQS_EXPIRY_QUEUE_URL}}
+          GC_NOTIFY_QUEUE: ${{vars.GC_NOTIFY_QUEUE}}
+          GC_NOTIFY_IS_SENDING_REMINDERS: ${{vars.GC_NOTIFY_IS_SENDING_REMINDERS}}
+          ARCHIVE_TABLE_NAME: ${{vars.ARCHIVE_TABLE_NAME}}
+          
+        run: |
+          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --parameter-overrides "AdminFrontEnd=$ADMIN_FRONTEND" "AWSAccountList=$AWS_ACCOUNT_LIST" "CFSecretKey=$CF_SECRET_KEY" "DataRegisterApiKey=$DATA_REGISTER_API_KEY" "FeedbackSurveyUrl=$FEEDBACK_SURVEY_URL" "GCNotifyApiKey=$GC_NOTIFY_API_KEY" "GCNotifyCancelTemplateID=$GC_NOTIFY_CANCEL_TEMPLATE_ID" "GCNotifyParkingReceiptTemplateID=$GC_NOTIFY_PARKING_RECEIPT_TEMPLATE_ID" "PublicFrontend=$PUBLIC_FRONTEND" "GCNotifyReminderTemplateID=$GC_NOTIFY_REMINDER_TEMPLATE_ID" "GCNotifySMSTemplateID=$GC_NOTIFY_SMS_TEMPLATE_ID" "GCNotifySurveyTemplateID=$GC_NOTIFY_SURVEY_TEMPLATE_ID" "GCNotifyTrailReceiptTemplateID=$GC_NOTIFY_TRAIL_RECEIPT_TEMPLATE_ID" "HoldPassTimeout=$HOLD_PASS_TIMEOUT" "JWTSecret=$JWT_SECRET" "LowCapacityThreshold=$LOW_CAPACITY_THRESHOLD" "ModerateCapacityThreshold=$MODERATE_CAPACITY_THRESHOLD" "S3BucketData=$S3_BUCKET_DATA" "SSOIssuerUrl=$SSO_ISSUER_URL" "SSOJWKSUri=$SSO_JWKS_URI" "WebHookURL=$WEBHOOK_URL" "GCNotifyQueue=$GC_NOTIFY_QUEUE" "SQSExpiryQueueURL=$SQS_EXPIRY_QUEUE_URL" "GCNotifyIsSendingReminders=$GC_NOTIFY_IS_SENDING_REMINDERS" "ArchiveTableName=$ARCHIVE_TABLE_NAME"
+
+      - shell: bash
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-Type: application/json' $WEBHOOK_URL --data '{"text":" DUP API - Deploy Dev Complete"}'

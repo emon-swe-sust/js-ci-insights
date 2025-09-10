@@ -1,0 +1,23 @@
+name: Submit agama
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths:
+      # run only when a Rust source is changed
+      - rust/**
+
+  # allow running manually
+  workflow_dispatch:
+
+jobs:
+  update_staging:
+    uses: ./.github/workflows/obs-staging-shared.yml
+    # pass all secrets
+    secrets: inherit
+    with:
+      install_packages: obs-service-cargo_audit obs-service-cargo_vendor
+      package_name: agama
+      service_file: rust/package/_service

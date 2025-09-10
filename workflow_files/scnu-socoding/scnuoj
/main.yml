@@ -1,0 +1,107 @@
+name: CI
+
+on: [push, pull_request, workflow_dispatch, merge_group]
+
+jobs:
+  lint:
+    name: lint
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version:
+          - "7.4"
+          - "8.0"
+          - "8.1"
+          - "8.2"
+          - "8.3"
+
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v3"
+
+      - name: "Install PHP"
+        uses: "shivammathur/setup-php@v2"
+        with:
+          coverage: "none"
+          extensions: "intl"
+          ini-values: "memory_limit=-1"
+          php-version: "${{ matrix.php-version }}"
+
+      - name: "Lint PHP files"
+        run: 'find ./ ! -path "./vendor/*"  -type f -name ''*.php'' -print0 | xargs -0 -L1 -P4 -- php -l -f'
+
+  phpstan:
+    name: phpstan
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version:
+          - "7.4"
+          - "8.0"
+          - "8.1"
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: php-actions/composer@v6
+        with:
+          php_version: "${{ matrix.php-version }}"
+      - uses: php-actions/phpstan@v3
+        name: "Level 0 Check"
+        with:
+          path: assets/ commands/ components/ config/ controllers/ mail/ messages/ migrations/ models/ modules/ views/ web/ widgets/
+          php_version: "${{ matrix.php-version }}"
+          version: '2.*'
+          autoload_file: vendor/yiisoft/yii2/Yii.php
+          memory_limit: 512M
+          level: "0"
+      - uses: php-actions/phpstan@v3
+        name: "Level 1 Check"
+        continue-on-error: true
+        with:
+          path: assets/ commands/ components/ config/ controllers/ mail/ messages/ migrations/ models/ modules/ views/ web/ widgets/
+          php_version: "${{ matrix.php-version }}"
+          version: '2.*'
+          autoload_file: vendor/yiisoft/yii2/Yii.php
+          memory_limit: 512M
+          level: "1"
+
+  build-judger:
+    name: build-judger
+
+    runs-on: "${{ matrix.ubuntu-version }}"
+
+    strategy:
+      fail-fast: false
+      matrix:
+        judger:
+          - "judge"
+          - "polygon"
+        ubuntu-version:
+          - "ubuntu-24.04"
+          - "ubuntu-22.04"
+
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v3"
+      - name: "Install dependencies"
+        run: "sudo apt install -y libmysqlclient-dev libmysql++-dev build-essential"
+      - name: "Build judger"
+        run: "cd ${{ matrix.judger }} && make"
+
+  ci-success:
+    name: ci-success
+    if: ${{ success() }}
+    needs:
+      - lint
+      - phpstan
+      - build-judger
+    runs-on: ubuntu-latest
+    steps:
+      - name: CI succeeded
+        run: exit 0

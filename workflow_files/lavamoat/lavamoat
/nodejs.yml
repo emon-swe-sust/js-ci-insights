@@ -1,0 +1,70 @@
+name: CI
+on:
+  push:
+    branches:
+      - main # limit to main, because pushes to pull-requested branches are triggered below
+  pull_request:
+    # any pull request
+
+permissions:
+  contents: read
+
+env:
+  FORCE_COLOR: '1'
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node-version: 16.x
+            workspaces: >-
+              --workspace=packages/aa
+              --workspace=packages/allow-scripts
+              --workspace=packages/preinstall-always-fail
+              --workspace=packages/yarn-plugin-allow-scripts
+          - node-version: 18.x
+          - node-version: 20.x
+          - node-version: 22.x
+          - node-version: 24.x
+    steps:
+      - name: Checkout (PR)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+
+      # fetch-depth: 0 looks like it has a perf impact, so let's not do that if we don't have to.
+      # see https://github.com/actions/checkout/blob/main/README.md#usage
+      - name: Checkout (Push)
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0 # needed for dirty check
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: ./.github/actions/prepare
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Build & Test
+        uses: ./.github/actions/test
+        with:
+          workspaces: ${{ matrix.workspaces }}
+      - name: Dirty Check
+        run: node ./scripts/dirty-check.js
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - name: Use Node.js from .nvmrc
+        uses: ./.github/actions/prepare
+      # the same thing could be accomplished via `npm lint` but this is helpful for organizing job output
+      - name: Lint Sources
+        run: npm run lint:eslint
+      - name: Lint Dependencies
+        run: npm run lint:deps
+      - name: Lint Lockfile
+        run: npm run lint:lockfile

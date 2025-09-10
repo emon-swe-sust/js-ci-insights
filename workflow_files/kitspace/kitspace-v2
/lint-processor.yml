@@ -1,0 +1,24 @@
+name: Lint processor
+
+on:
+  push:
+    paths:
+      - 'processor/**'
+
+defaults:
+  run:
+    working-directory: processor
+
+jobs:
+  lint_processor:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/checkout@v4
+      - run: 'yarn install'
+      - run: 'yarn lint --max-warnings 0'
+      - run: 'yarn tsc'
+      - run: 'yarn prettier --check'

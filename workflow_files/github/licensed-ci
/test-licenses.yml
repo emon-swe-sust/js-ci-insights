@@ -1,0 +1,34 @@
+name: "Run licensed in test"
+on: pull_request
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  licensed_ci:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [ 20.x ]
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        cache: npm
+        node-version: ${{ matrix.node }}
+
+    - run: npm install --production --ignore-scripts
+
+    # install licensed
+    - uses: ruby/setup-ruby@401c19e14f474b54450cd3905bb8b86e2c8509cf
+      with:
+        ruby-version: ruby
+    - uses: github/setup-licensed@v1
+      with:
+        version: '4.x'
+
+    - uses: ./
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        workflow: push

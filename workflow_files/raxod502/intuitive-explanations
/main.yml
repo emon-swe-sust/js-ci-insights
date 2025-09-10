@@ -1,0 +1,32 @@
+name: Build and deploy
+on:
+  push:
+    branches:
+      - main
+concurrency: deploy
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+      - name: Checkout submodules
+        env:
+          FICTION_WRITING: ${{ secrets.CLONE_URL_FICTION_WRITING }}
+        run: |
+          git config -f .gitmodules submodule.doc/stories.url "${FICTION_WRITING}"
+          git submodule update --init --recursive
+      - name: Build website
+        run: |
+          make docker CMD="make checklinks all ENABLE_ANALYTICS=1"
+      - name: Deploy to Vercel
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+        run: |
+          set -e
+
+          npm install -g vercel
+          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+          vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+          vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}

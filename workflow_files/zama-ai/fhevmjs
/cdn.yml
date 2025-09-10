@@ -1,0 +1,32 @@
+on:
+  release:
+    types: [released, prereleased]
+
+jobs:
+  publish:
+    permissions:
+      id-token: 'write'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.x
+      - run: npm ci
+      - run: npm test
+      - name: Get package version
+        id: package-version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+      - run: BASE_PATH=https://cdn.zama.ai/relayer-sdk-js/${{ steps.package-version.outputs.version }}/ npm run build
+      - name: Archive bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: relayer-sdk-js-bundle-${{ steps.package-version.outputs.version }}
+          path: ./bundle
+      - uses: shallwefootball/s3-upload-action@0d261a6f15b3b2e209dfebdecace4b100c04f95b
+        with:
+          aws_key_id: ${{ secrets.AWS_ACCESS_KEY_S3_USER }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_KEY_S3_USER}}
+          aws_bucket: ${{ secrets.AWS_BUCKET_NAME }}
+          destination_dir: relayer-sdk-js/${{ steps.package-version.outputs.version }}
+          source_dir: './bundle'

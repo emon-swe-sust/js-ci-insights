@@ -1,0 +1,31 @@
+name: Publish an extensions from a vsix file
+
+on:
+  workflow_dispatch:
+    inputs:
+      extensions:
+        description: "URL of the `.vsix`"
+        required: true
+      namespace:
+        description: "If a namespace does not exist for the author, provide it here"
+        required: false
+      flags:
+        description: "Additional flags to pass to the `vsce publish` command"
+        required: false
+        default: ""
+
+jobs:
+  publish:
+    name: node publish-extensions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4.3.0
+        with:
+          node-version: "22.x"
+      - name: Download extension file
+        run: wget -O extension.vsix "${{ github.event.inputs.extensions }}"
+      - name: Create Open VSX namespace
+        if: ${{ github.event.inputs.namespace }}
+        run: npx ovsx create-namespace ${{ github.event.inputs.namespace }} -p ${{ secrets.OVSX_PAT }}
+      - name: Publish to Open VSX
+        run: npx ovsx publish extension.vsix  -p ${{ secrets.OVSX_PAT }} ${{ github.event.inputs.flags }}

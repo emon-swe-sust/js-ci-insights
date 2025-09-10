@@ -1,0 +1,55 @@
+name: L'intégration continue
+permissions: {}
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    name: Construction de MonServiceSécurisé
+
+    runs-on: ubuntu-latest
+
+    env:
+      SECRET_COOKIE: secret
+
+    steps:
+      - name: Cloner le dépôt Git
+        uses: actions/checkout@v4
+
+      - name: Déterminer la version de Node.js à utiliser
+        run: |
+          echo "NODE_VERSION=$(./scripts/get-node-version.sh)" >> $GITHUB_ENV
+
+      - name: Utiliser la version Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Installer les dépendances
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+
+      - name: Contrôler la mise en forme avec Prettier
+        run: npx prettier --check .
+
+      - name: Contrôler le Typescript du Backend
+        run: npx tsc --noEmit
+
+      - name: Contrôler le Typescript de Svelte
+        run: npx tsc --noEmit -p svelte/tsconfig.json
+
+      - name: Exécuter les tests
+        run: npx vitest --reporter junit --outputFile=./test-report.xml
+
+      - name: Rapport des tests
+        uses: dorny/test-reporter@v2
+        if: ${{ !cancelled() }} # On force l'exécution même si l'étape précédente a échoué
+        with:
+          name: Tests
+          path: ./test-report.xml
+          reporter: jest-junit

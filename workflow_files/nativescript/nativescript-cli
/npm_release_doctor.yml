@@ -1,0 +1,52 @@
+name: '@nativescript/doctor -> npm'
+
+on:
+  push:
+    branches: [ 'main' ]
+    paths:
+      - 'packages/doctor/**'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: packages/doctor
+
+env:
+  NPM_TAG: 'next'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@v2
+
+      - name: Setup
+        run: npm install
+
+      - name: Generate Version
+        run: |
+          echo NPM_VERSION=$(node -e "console.log(require('./package.json').version);")-$NPM_TAG-$(date +"%m-%d-%Y")-$GITHUB_RUN_ID >> $GITHUB_ENV
+
+      - name: Bump Version
+        run: npm --no-git-tag-version version $NPM_VERSION
+
+      - name: Build @nativescript/doctor
+        run: npm pack
+
+      - name: Publish @nativescript/doctor
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+          echo "Publishing @nativescript/doctor@$NPM_VERSION to NPM with tag $NPM_TAG..."
+          npm publish nativescript-doctor-$NPM_VERSION.tgz --tag $NPM_TAG

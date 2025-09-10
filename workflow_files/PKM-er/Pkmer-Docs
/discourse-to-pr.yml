@@ -1,0 +1,120 @@
+name: Create Doc from PKMer Forum Post
+
+on:
+  repository_dispatch:
+    types: [PKMer_forum_post]
+
+# 【修正】为 git push 操作添加权限
+permissions:
+  contents: write
+
+jobs:
+  commit-to-main:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 【推荐】更明确和健壮的 checkout
+    - name: Checkout main branch
+      uses: actions/checkout@v3
+      with:
+        ref: main
+        token: ${{ secrets.PAT_TOKEN }}
+        fetch-depth: 0
+        
+    - name: Setup Git
+      run: |
+        git config --global user.name "pkmer Bot"
+        git config --global user.email "bot@pkmer.cn"
+
+    - name: 1. Prepare file details and check for updates
+      id: prepare_file
+      env:
+        POST_TITLE: ${{ github.event.client_payload.title }}
+        TOPIC_ID: ${{ github.event.client_payload.topic_id }}
+      run: |
+        # 【推荐】使用更完善的文件名清理逻辑
+        CLEAN_TITLE=$(echo "$POST_TITLE" | tr -d '[:punct:]' | tr ' ' '-')
+        FILENAME="${TOPIC_ID}-${CLEAN_TITLE}.md"
+        FILEPATH="PKMer论坛/${FILENAME}"
+        
+        echo "filepath=${FILEPATH}" >> $GITHUB_OUTPUT
+        if [ -f "$FILEPATH" ]; then
+          echo "is_update=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_update=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: 2. Create content from PKMer Forum post
+      id: create_content
+      env:
+        FORUM_BASE_URL: "https://forum.pkmer.net"
+        POST_ID: ${{ github.event.client_payload.post_id }}
+        TOPIC_ID: ${{ github.event.client_payload.topic_id }}
+        POST_AUTHOR: ${{ github.event.client_payload.author }}
+        POST_TITLE: ${{ github.event.client_payload.title }}
+        POST_TAGS_JSON: ${{ toJSON(github.event.client_payload.tags) }}
+        POST_TIMESTAMP: ${{ github.event.client_payload.timestamp }} # 建议使用 ISO 格式时间戳
+        POST_SOURCE_URL: ${{ github.event.client_payload.source_url }}
+        POST_RAW_CONTENT: ${{ github.event.client_payload.raw }}
+        FILE_PATH: ${{ steps.prepare_file.outputs.filepath }}
+      run: |
+        set -x # 开启调试模式，打印每条命令
+
+        FULL_FORUM_URL="$POST_SOURCE_URL"
+        if [[ ! "$POST_SOURCE_URL" == http* ]]; then
+          FULL_FORUM_URL="${FORUM_BASE_URL}${POST_SOURCE_URL}"
+        fi
+        
+        # 标签数组转字符串，并移除 "精华" 标签
+        TAGS_STRING=$(echo "$POST_TAGS_JSON" | jq -r 'map(select(. != "精华")) | join(", ")')
+       
+   
+        # 【修正】使用 $FILE_PATH 变量
+        mkdir -p "$(dirname "$FILE_PATH")"
+        
+        # 【修正】使用 $FILE_PATH 变量
+        cat > "$FILE_PATH" << EOF
+        ---
+        uid: ${POST_ID}
+        title: ${POST_TITLE}
+        tags: [${TAGS_STRING}]
+        description: ${POST_TITLE}
+        author: ${POST_AUTHOR}
+        type: other
+        draft: false
+        editable: false
+        modified: ${POST_TIMESTAMP}
+        forum_url: ${FULL_FORUM_URL}
+        ---
+        
+        # ${POST_TITLE}
+        
+        > [!INFO] 本文档由 PKMer 论坛导入  
+        > - 作者: ${POST_AUTHOR}
+        > - 原始链接: [${POST_TITLE}](${FULL_FORUM_URL})
+        
+        ---
+        
+        ${POST_RAW_CONTENT}
+        EOF
+
+    - name: 3. Commit and Push to main branch
+      run: |
+        # 把新创建或修改的文件添加到暂存区
+        git add '${{ steps.prepare_file.outputs.filepath }}'
+        
+        # 检查是否有文件变更。如果没有变更（比如重复触发），就退出
+        if git diff --staged --quiet; then
+          echo "✅ No changes to commit. Working tree clean."
+          exit 0
+        fi
+        # 根据是更新还是新建，生成不同的 commit message
+        COMMIT_MESSAGE="docs(forum): ${{ steps.prepare_file.outputs.is_update == 'true' && '更新帖子' || '添加新帖' }} L${{ github.event.client_payload.topic_id }}
+        - 标题: ${{ github.event.client_payload.title }}"
+        
+        # 执行提交
+        git commit -m "$COMMIT_MESSAGE"
+        
+        # 推送到远程 main 分支
+        echo "🚀 Pushing changes to main branch..."
+        git push origin main

@@ -1,0 +1,31 @@
+name: cron
+on:
+  workflow_dispatch: null
+  schedule:
+    - cron: 0 0 * * 0
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-unicode-resource:
+    name: update-unicode-resource
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+      - name: Install Packages
+        run: npm install
+      - name: Update
+        run: npm run resource-update:unicode-properties
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "fix: updates unicode resource with latest"
+          branch: update-unicode-resource
+          branch-suffix: timestamp
+          title: "fix: updates unicode resource with latest"

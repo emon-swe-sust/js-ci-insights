@@ -1,0 +1,108 @@
+# This is a basic workflow to help you get started with Actions
+
+name: firebase functions deploy - dev server
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the develop branch
+  push:
+    branches: [ develop ]
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    
+    steps:
+    
+      - uses: actions/checkout@v2
+       
+      - name: Setting Slack API
+        run: |
+         touch deployMessageToSlack.sh
+         echo 'curl -X POST -H 'Content-type: application/json' --data  "{\"text\":\" [DEPLOY] [HAVIT_SERVER] deployment successful.\", \"icon_emoji\": \":ghost:\"}" ${{ secrets.DEV_WEB_HOOK_ERROR_MONITORING }}' >> deployMessageToSlack.sh
+         chmod 755 deployMessageToSlack.sh
+         
+      - name: create env file
+        run: |
+          cd functions
+          touch .env.dev
+          echo "NODE_ENV=development" >> .env.dev
+          echo "WEB_HOOK_ERROR_MONITORING=${{ secrets.DEV_WEB_HOOK_ERROR_MONITORING }}" >> .env.dev
+          echo "DB_USER=${{ secrets.DB_USER }}" >> .env.dev
+          echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env.dev
+          echo "DB_DB=${{ secrets.DB_DB }}" >> .env.dev
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.dev
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env.dev
+          echo "TYPE=${{ secrets.TYPE }}" >> .env.dev
+          echo "PROJECT_ID=${{ secrets.PROJECT_ID }}" >> .env.dev
+          echo "PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}" >> .env.dev
+          echo "PRIVATE_KEY_ID=${{ secrets.PRIVATE_KEY_ID }}" >> .env.dev
+          echo "CLIENT_EMAIL=${{ secrets.CLIENT_EMAIL }}" >> .env.dev
+          echo "CLIENT_ID=${{ secrets.CLIENT_ID }}" >> .env.dev
+          echo "AUTH_URI=${{ secrets.AUTH_URI }}" >> .env.dev
+          echo "TOKEN_URI=${{ secrets.TOKEN_URI }}" >> .env.dev
+          echo "AUTH_PROVIDER_CERT_URL=${{ secrets.AUTH_PROVIDER_CERT_URL }}" >> .env.dev
+          echo "CLIENT_CERT_URL=${{ secrets.CLIENT_CERT_URL }}" >> .env.dev
+          echo "PUSH_SERVER_URL=${{ secrets.PUSH_SERVER_URL }}" >> .env.dev
+          echo "APPLE_CLIENT_ID=${{ secrets.APPLE_CLIENT_ID}}" >> .env.dev
+          echo "APPLE_KEY_ID=${{ secrets.APPLE_KEY_ID }}" >> .env.dev
+          echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> .env.dev
+          echo "APPLE_PRIVATE_KEY_FILE=${{ secrets.APPLE_PRIVATE_KEY_FILE }}" >> .env.dev
+          echo "JWT_ALGORITHM=${{ secrets.JWT_ALGORITHM }}" >> .env.dev
+          echo "JWT_ACCESS_EXPIRE=${{ secrets.JWT_ACCESS_EXPIRE }}" >> .env.dev
+          echo "JWT_REFRESH_EXPIRE=${{ secrets.JWT_REFRESH_EXPIRE }} " >> .env.dev
+          echo "SENTRY_DSN=${{ secrets.DEV_SENTRY_DSN }} " >> .env.dev
+          echo "SENTRY_TRACES_SAMPLE_RATE=${{ secrets.DEV_SENTRY_TRACES_SAMPLE_RATE }} " >> .env.dev
+          echo "DEV_HOST=${{ secrets.DEV_HOST }} " >> .env.dev
+      
+      - name: create .p8 file
+        run: |
+          cd functions
+          touch ${{ secrets.APPLE_PRIVATE_KEY_FILE }}
+          echo "${{ secrets.APPLE_PRIVATE_KEY }}" >> ${{ secrets.APPLE_PRIVATE_KEY_FILE }}
+
+      - name: create-json
+        id: create-dev-json
+        uses: jsdaniell/create-json@1.1.2
+        with:
+          name: "havit-wesopt29-firebase-adminsdk-mgljp-478046b091.json"
+          json: ${{ secrets.FIREBASE_JSON }}
+          dir: 'functions/'
+
+      - name: create-json
+        id: create-prod-json
+        uses: jsdaniell/create-json@v1.1.2
+        with:
+          name: "havit-production-firebase-adminsdk-bypl1-d081cc62e4.json"
+          json: ${{ secrets.PROD_FIREBASE_JSON }}
+          dir: 'functions/'    
+
+      - name: Install npm pacakges
+        run: |
+          cd functions
+          npm ci
+          npm install -g firebase-tools
+          npm install --save-dev cross-env
+      
+      - name: Create swagger output file
+        run: |
+          cd functions
+          npm run swagger
+      
+      - name: Deploy to Firebase
+        run: |
+          cd functions
+          firebase use dev
+          npm run dev
+        env: 
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: action-slack
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          author_name: Github Actions Dev App Server
+          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.DEV_SLACK_BUILD_WEBHOOK_URL }} # required
+        if: always() # Pick up events even if the job fails or is canceled.

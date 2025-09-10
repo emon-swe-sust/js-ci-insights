@@ -1,0 +1,22 @@
+name: Main workflow
+on: [push]
+jobs:
+  run:
+    name: Run
+    runs-on: ${{ matrix.operating-system }}
+    strategy:
+      matrix:
+        operating-system: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Set Node.js 20.x
+        uses: actions/setup-node@master
+        with:
+          node-version: 20.x
+
+      - name: npm install
+        run: npm ci
+
+      - name: npm test
+        run: npm run test:unit

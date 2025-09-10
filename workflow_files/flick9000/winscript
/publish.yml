@@ -1,0 +1,112 @@
+name: "publish"
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "windows-latest"
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./app/src-tauri -> target"
+
+      - name: install frontend dependencies
+        working-directory: ./app
+        run: npm install
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          projectPath: ./app
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ github.ref_name }}
+          releaseBody: "*The desktop app may be flagged as a threat by Windows Defender; however, this is a false positive. This occurs because the scripts you create with WinScript can modify system settings. Rest assured, WinScript is safe, transparent, and open-source.*"
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Wait for release
+        run: |
+          sleep 5
+
+      - name: Upload Portable Executable to Release
+        run: |
+          ren ./app/src-tauri/target/release/winscript.exe winscript-portable.exe
+          gh release upload ${{ github.ref_name }} ./app/src-tauri/target/release/winscript-portable.exe --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Rename installer file in releases (Windows)
+        shell: pwsh
+        run: |
+          $VERSION = "${{ github.ref_name }}" -replace "^v", ""
+
+          gh release download "${{ github.ref_name }}" -p "WinScript_${VERSION}_x64-setup.exe"
+          Rename-Item "WinScript_${VERSION}_x64-setup.exe" "winscript-installer.exe"
+
+          gh release upload "${{ github.ref_name }}" "winscript-installer.exe" --clobber
+          gh release delete-asset "${{ github.ref_name }}" "WinScript_${VERSION}_x64-setup.exe"
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Modify latest.json
+        shell: powershell
+        run: |
+          # Download the latest.json that was just uploaded
+          gh release download "${{ github.ref_name }}" -p "latest.json"
+
+          # Read the content of the file
+          $content = Get-Content -Path "latest.json" -Raw
+
+          # Replace the URL pattern with the correct filename
+          $modified = $content -replace 'WinScript_\d+\.\d+\.\d+_x64-setup\.exe', 'winscript-installer.exe'
+
+          # Write the modified content back to the file
+          $modified | Set-Content -Path "latest.json"
+
+          # Verify the change (optional)
+          Get-Content -Path "latest.json"
+
+          # Upload the modified file
+          gh release upload "${{ github.ref_name }}" "latest.json" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Remove signature file
+        run: |
+          $VERSION = "${{ github.ref_name }}" -replace "^v", ""
+          gh release delete-asset "${{ github.ref_name }}" "WinScript_${VERSION}_x64-setup.exe.sig"
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}

@@ -1,0 +1,25 @@
+name: JSDoc
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - run: npm ci
+
+    - name: Build
+      run: npm run docs
+
+    - name: Deploy
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+        publish_dir: ./docs

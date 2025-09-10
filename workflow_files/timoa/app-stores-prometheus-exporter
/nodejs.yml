@@ -1,0 +1,208 @@
+name: Build
+
+on: [push]
+
+jobs:
+
+  # -- TESTS ------------------------------------------------------------------
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node: ['18']
+
+    steps:
+      - name: Harden GitHub Actions Runner
+        uses: step-security/harden-runner@951b48540b429070694bc8abd82fd6901eb123ca
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            itunes.apple.com:443
+            pipelines.actions.githubusercontent.com:443
+            objects.githubusercontent.com:443
+            play.google.com:443
+            registry.npmjs.org:443
+            nodejs.org:443
+            snyk.io:443
+
+      - name: Checkout
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3.8.2
+        with:
+          node-version: ${{ matrix.node }}
+          check-latest: true
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Copy Playlists & Inventory examples
+        run: |
+          cp src/examples/apps.json config/apps.json
+          cp src/examples/config.json config/config.json
+
+      - name: Run Unit-Tests + Code Coverage
+        run: npm run test:coverage
+
+      - name: Save Code Coverage
+        uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+        with:
+          name: code-coverage
+          path: coverage
+
+  # -- SONARCLOUD -------------------------------------------------------------
+  code-quality:
+    name : Code Quality
+    runs-on: ubuntu-latest
+    needs: tests
+
+    steps:
+      - name: Harden GitHub Actions Runner
+        uses: step-security/harden-runner@951b48540b429070694bc8abd82fd6901eb123ca
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            pipelines.actions.githubusercontent.com:443
+            sonarcloud.io:443
+            scanner.sonarcloud.io:443
+
+      - name: Checkout
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - name: Download Code Coverage
+        uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3.0.2
+        with:
+          name: code-coverage
+          path: coverage
+
+      - name: Get App Version
+        run: ./scripts/version.sh
+
+      - name: SonarCloud Scan
+        uses: sonarsource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # -- SAST SCAN --------------------------------------------------------------
+  code-security:
+    name: Code Security
+    runs-on: ubuntu-latest
+    needs: tests
+    # Skip any PR created by dependabot to avoid permission issues
+    if: (github.actor != 'dependabot[bot]')
+
+    steps:
+      - name: Harden GitHub Actions Runner
+        uses: step-security/harden-runner@951b48540b429070694bc8abd82fd6901eb123ca
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            nvd.nist.gov:443
+            osv-vulnerabilities.storage.googleapis.com:443
+            pipelines.actions.githubusercontent.com:443
+            pypi.org:443
+            registry.npmjs.org:443
+            docker.io:443
+            registry-1.docker.io:443
+            auth.docker.io:443
+            production.cloudflare.docker.com:443
+
+      - name: Checkout
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - name: Perform Scan
+        uses: ShiftLeftSecurity/scan-action@master
+
+        env:
+          WORKSPACE: https://github.com/${{ github.repository }}/blob/${{ github.sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCAN_ANNOTATE_PR: true
+
+      - uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+        with:
+          name: reports
+          path: reports
+
+  # -- PRE-RELEASE ------------------------------------------------------------
+  pre-release:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    needs:
+      - code-quality
+      - code-security
+    if: github.ref == 'refs/heads/master'
+
+    steps:
+      - name: Harden GitHub Actions Runner
+        uses: step-security/harden-runner@951b48540b429070694bc8abd82fd6901eb123ca
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@cb425203a562475bca039ba4dbf90c7f9ac790f4 # v4.1.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # -- BUILD ------------------------------------------------------------------
+  build:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    needs: pre-release
+    if: github.ref == 'refs/heads/master'
+
+    steps:
+      - name: Harden GitHub Actions Runner
+        uses: step-security/harden-runner@951b48540b429070694bc8abd82fd6901eb123ca
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@818d4b7b91585d195f67373fd9cb0332e31a7175 # v4.6.0
+        with:
+          images: ${{ github.repository }}
+          tags: |
+            type=schedule
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+            type=sha
+            type=raw,value=latest
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@2b82ce82d56a2a04d2637cd93a637ae1b359c0a7 # v2.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2.10.0
+
+      - name: Login to DockerHub
+        uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc # v2.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@1104d471370f9806843c095c1db02b5a90c5f8b6 # v3.3.1
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

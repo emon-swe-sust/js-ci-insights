@@ -1,0 +1,19 @@
+name: '[backend] Docker build Caddy (local)'
+
+on:
+  pull_request:
+    paths:
+      - 'install/local/caddy/*'
+      - '.github/workflows/docker-build-caddy.local.yaml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build image
+        run: docker build -f install/local/caddy/Dockerfile .
+        env:
+          DOCKER_BUILDKIT: 1

@@ -1,0 +1,118 @@
+name: Gatsby Publish
+
+on:
+  push:
+    branches:
+      [ main ]
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+  schedule: ## Do a run daily, to refresh website content
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+    working-directory: site
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+      - run: npm install
+      - run: npm run test
+        env:
+          CI: true
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+      - run: npm install
+      - run: npm run build
+        env:
+          NODE_ENV: production
+          GATSBY_ACTIVE_ENV: production
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREFIX_PATHS: true
+      - name: Disable AppArmor // Needed on ubunti 23+, see https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md
+        run: echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+      - run: npm run test:int
+        env:
+          CI: true
+      - name: Store PR id
+        run: echo ${{ github.event.number }} > ./public/pr-id.txt
+      - name: Publishing directory for PR preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: ./site/public
+          retention-days: 3
+  deploy:
+    # Only try and deploy on merged code
+    if: "github.repository == 'quarkiverse/quarkiverse' && github.ref_name == 'main' && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')"
+    needs: [ unit-test, build ]
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5 # not needed for the code, but needed for the git config
+      - name: Download Built site
+        uses: actions/download-artifact@v5
+        with:
+          name: site
+          path: _site
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  check-external-links:
+    # Only check external links on merged code
+    needs: [ build ]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      repository-projects: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '18'
+      - run: npm ci --prefer-offline
+      - name: Download Built Artifact
+        uses: actions/download-artifact@v5
+        with:
+          path: ./site/public/
+          name: site
+      - run: npm run test:links
+        continue-on-error: true # problems will be tracked by defects raised by the next job, not by build failures
+        env:
+          CI: true
+      - name: Raise defects if needed
+        uses: jbangdev/jbang-action@v0.129.0
+        if: "github.repository == 'quarkiverse/quarkiverse' && github.ref_name == 'main' && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')"
+        with:
+          script: site/site-validation/dead-link-issue.java
+          scriptargs: token=${{ secrets.GITHUB_TOKEN }} issueRepo=${{ github.repository }}  runId=${{ github.run_id }} siteUrl=https://hub.quarkus.io/

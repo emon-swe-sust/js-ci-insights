@@ -1,0 +1,251 @@
+name: Release
+# Credits: workflow inspired from
+# https://github.com/grain-lang/binaryen.ml/blob/master/.github/workflows/release.yml
+# then slightly adapted, using:
+# - https://github.com/googleapis/release-please#readme
+# - https://github.com/google-github-actions/release-please-action/blob/main/action.yml
+# - https://docs.github.com/en/actions/learn-github-actions/events-that-trigger-workflows#workflow_run
+# - https://docs.github.com/en/actions/advanced-guides/storing-workflow-data-as-artifacts
+# - https://github.com/dawidd6/action-download-artifact#readme
+# - https://hub.github.com/hub-release.1.html
+on:
+  workflow_run:
+    workflows: ["Generate static binaries"]
+    branches: ["master"]
+    types: ["completed"]
+  # TODO: dispatch?
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Create Release
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.repository == 'ocaml-sf/learn-ocaml'}}
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      upload_url: ${{ steps.release.outputs.upload_url }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      body: ${{ steps.release.outputs.body }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+
+  add-binaries:
+    needs: [release-please]
+    if: ${{ needs.release-please.outputs.release_created }}
+    name: Add archive and binaries to release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        # Mandatory step (otherwise, gh could raise "fatal: Not a git repository")
+        uses: actions/checkout@v4
+      - name: Download workflow artifacts
+        # cf. https://github.com/actions/download-artifact/issues/3
+        uses: dawidd6/action-download-artifact@v11
+        with:
+          workflow: static-builds.yml
+          workflow_conclusion: success
+          commit: ${{ github.sha }}
+          path: artifacts
+          skip_unpack: true
+      - name: Unpack workflow artifacts
+        run: |
+          cd artifacts
+          mkdir -v target
+          dist=(linux darwin)
+          artifact() { printf "learn-ocaml-%s-x86_64.zip" "$d"; }
+          for d in "${dist[@]}"; do
+            mkdir -v -- "$d"
+            ( cd "$d" && unzip "../$(artifact "$d")" )
+            bin=(./learn-ocaml-client ./learn-ocaml-server ./learn-ocaml)
+            for b in "${bin[@]}"; do
+              mv -v -- "$d/$b" "target/$b-$d-x86_64"
+            done
+          done
+          mv -v -- learn-ocaml-www.zip target/learn-ocaml-www.zip
+      - name: Add binaries to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run:
+          gh release -R ocaml-sf/learn-ocaml upload "${{ needs.release-please.outputs.tag_name }}" $(find artifacts/target -type f -printf "%p ")
+
+  call-opam-publish:
+    needs: [release-please]
+    if: ${{ needs.release-please.outputs.release_created }}
+    uses: ./.github/workflows/opam-publish.yml
+    with:
+      release: "true"
+      tag_name: ${{ needs.release-please.outputs.tag_name }}
+      body: |
+        Cc @erikmd @yurug @AltGr FYI
+        
+        ${{ needs.release-please.outputs.body }}
+    secrets:
+      OPAM_RELEASE: ${{ secrets.OPAM_RELEASE }}
+
+  # Note: you may want to update the jobs below and deploy-master.yml at once
+  push_server:
+    needs: [release-please]
+    if: ${{ needs.release-please.outputs.release_created }}
+    name: Push learn-ocaml image to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get tag name
+        run: tag="${{ needs.release-please.outputs.tag_name }}"; echo "tag=${tag#v}" >> $GITHUB_OUTPUT
+        id: tag
+      - name: Check out the repo
+        uses: actions/checkout@v4
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: "all"
+      - name: Set up Docker Buildx
+        # cf. https://docs.docker.com/reference/cli/docker/buildx/create/#docker-container-driver
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: "docker-container"
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Prepare
+        id: prep
+        run: |
+          echo "created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+      - name: Push to Docker Hub
+        # cf. https://github.com/docker/build-push-action#customizing
+        # and https://github.com/docker/build-push-action/pull/119
+        uses: docker/build-push-action@v6
+        with:
+          pull: true
+          push: true
+          cache-from: "type=gha"
+          cache-to: "type=gha,mode=max"
+          tags: |
+            ocamlsf/learn-ocaml:latest
+            ocamlsf/learn-ocaml:${{ steps.tag.outputs.tag }}
+          platforms: "linux/amd64,linux/arm64/v8"
+          labels: |
+            org.opencontainers.image.title=learn-ocaml
+            org.opencontainers.image.description=learn-ocaml app manager
+            org.opencontainers.image.url=https://ocaml-sf.org/
+            org.opencontainers.image.vendor=The OCaml Software Foundation
+            org.opencontainers.image.created=${{ steps.prep.outputs.created }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.tag.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+  push_client:
+    needs: [release-please]
+    if: ${{ needs.release-please.outputs.release_created }}
+    name: Push learn-ocaml-client image to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get tag name
+        run: tag="${{ needs.release-please.outputs.tag_name }}"; echo "tag=${tag#v}" >> $GITHUB_OUTPUT
+        id: tag
+      - name: Check out the repo
+        uses: actions/checkout@v4
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: "all"
+      - name: Set up Docker Buildx
+        # cf. https://docs.docker.com/reference/cli/docker/buildx/create/#docker-container-driver
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: "docker-container"
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Prepare
+        id: prep
+        run: |
+          echo "created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+      - name: Push to Docker Hub
+        # cf. https://github.com/docker/build-push-action#customizing
+        # and https://github.com/docker/build-push-action/pull/119
+        uses: docker/build-push-action@v6
+        with:
+          pull: true
+          # load: true # implied by "driver: docker"
+          push: true
+          cache-from: "type=gha"
+          cache-to: "type=gha,mode=max"
+          target: client
+          tags: |
+            ocamlsf/learn-ocaml-client:latest
+            ocamlsf/learn-ocaml-client:${{ steps.tag.outputs.tag }}
+          platforms: "linux/amd64,linux/arm64/v8"
+          labels: |
+            org.opencontainers.image.title=learn-ocaml-client
+            org.opencontainers.image.description=learn-ocaml command-line client
+            org.opencontainers.image.url=https://ocaml-sf.org/
+            org.opencontainers.image.vendor=The OCaml Software Foundation
+            org.opencontainers.image.created=${{ steps.prep.outputs.created }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.tag.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+  push_emacs_client:
+    needs:
+      - release-please
+      - push_client
+    if: ${{ needs.release-please.outputs.release_created }}
+    name: Push emacs-learn-ocaml-client image to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get tag name
+        run: tag="${{ needs.release-please.outputs.tag_name }}"; echo "tag=${tag#v}" >> $GITHUB_OUTPUT
+        id: tag
+      - name: Check out the repo
+        uses: actions/checkout@v4
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: "all"
+      - name: Set up Docker Buildx
+        # cf. https://docs.docker.com/reference/cli/docker/buildx/create/#docker-container-driver
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: "docker-container"
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Prepare
+        id: prep
+        run: |
+          echo "created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+      - name: Push to Docker Hub
+        # cf. https://github.com/docker/build-push-action#customizing
+        # and https://github.com/docker/build-push-action/pull/119
+        uses: docker/build-push-action@v6
+        with:
+          pull: false # because of the previous "load: true"
+          push: true
+          context: ci/docker-emacs-learn-ocaml-client
+          build-args: |
+            base=ocamlsf/learn-ocaml-client
+            version=${{ steps.tag.outputs.tag }}
+          tags: |
+            ocamlsf/emacs-learn-ocaml-client:latest
+            ocamlsf/emacs-learn-ocaml-client:${{ steps.tag.outputs.tag }}
+          platforms: "linux/amd64,linux/arm64/v8"
+          labels: |
+            org.opencontainers.image.title=learn-ocaml-client with emacs
+            org.opencontainers.image.description=learn-ocaml command-line client with emacs
+            org.opencontainers.image.url=https://ocaml-sf.org/
+            org.opencontainers.image.vendor=The OCaml Software Foundation
+            org.opencontainers.image.created=${{ steps.prep.outputs.created }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.tag.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}

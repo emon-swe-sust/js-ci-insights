@@ -1,0 +1,86 @@
+name: 'Crawl and deploy'
+
+on:
+  schedule:
+    # - cron: '0 0,4,8,12,16,20 * * *'
+    - cron: '0 10 1 * *'
+  push:
+    paths-ignore:
+      - 'json/version-position.json'
+    branches:
+      - master
+jobs:
+  crawler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - name: Install
+        run: npm install
+      - name: 'Get position by version'
+        run: node version-position-crawler.js
+      - name: 'Get position list'
+        run: node position-crawler.js
+      - name: 'Generate Finial JSON'
+        run: node ver-pos-os-generator.js
+      - uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          file_pattern: json/version-position.json
+          commit_message: 'feat: update JSON file'
+          commit_user_name: vikyd
+          commit_user_email: zwj_fhys@qq.com
+      - name: 'Push to JSON repo'
+        uses: crykn/copy_folder_to_another_repo_action@v1.0.6
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.ACCESS_TOKEN }}
+        with:
+          source_folder: 'json'
+          destination_repo: 'vikyd/chromium-history-version-position'
+          destination_folder: 'json'
+          user_email: 'zwj_fhys@qq.com'
+          user_name: 'vikyd'
+          commit_msg: 'feat: update JSON data'
+      - name: 'Push to frontend repo'
+        uses: crykn/copy_folder_to_another_repo_action@v1.0.6
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.ACCESS_TOKEN }}
+        with:
+          source_folder: 'json/ver-pos-os'
+          destination_repo: 'vikyd/download-chromium-history-version-src'
+          destination_folder: 'public/json/ver-pos-os'
+          user_email: 'zwj_fhys@qq.com'
+          user_name: 'vikyd'
+          commit_msg: 'feat: update JSON data'
+  frontend:
+    needs: crawler
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          repository: 'vikyd/download-chromium-history-version-src'
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - name: Install
+        run: npm install
+      - name: Build
+        run: npm run build
+      - name: 'Get not modify from github.io repo'
+        run: curl https://raw.githubusercontent.com/vikyd/download-chromium-history-version/master/README.md --output dist/README.md
+      - name: 'Push to github.io repo'
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.ACCESS_TOKEN }}
+        with:
+          source-directory: 'dist'
+          destination-repository-name: 'download-chromium-history-version'
+          target-branch: 'master'
+          destination-github-username: 'vikyd'
+          user-email: 'zwj_fhys@qq.com'
+          commit-message: 'feat: update JSON data'
+
+

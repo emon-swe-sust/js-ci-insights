@@ -1,0 +1,199 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - v*
+  pull_request: {}
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-library:
+    name: "Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint Addon
+        run: pnpm run lint
+        working-directory: addon
+
+      - name: Lint Test App
+        run: pnpm run lint
+        working-directory: test-app
+
+      - name: Run Tests
+        run: pnpm run test:ember
+        working-directory: test-app
+
+  test-library-floating:
+    name: "Library - Floating Dependencies"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --no-lockfile
+
+      - name: Run Tests
+        run: pnpm run test:ember
+        working-directory: test-app
+
+  test-docs:
+    name: "Docs"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+        working-directory: docs
+
+      - name: Run Tests
+        run: pnpm run test:ember
+        working-directory: docs
+
+  try-scenarios:
+    name: ${{ matrix.try-scenario }}
+    runs-on: ubuntu-latest
+    needs: 'test-library'
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        try-scenario:
+          - ember-lts-4.8
+          - ember-lts-4.12
+          - ember-lts-5.4
+          - ember-lts-5.8
+          - ember-lts-5.12
+          - ember-release
+          - ember-beta
+          - ember-canary
+          # - embroider-safe
+          # - embroider-optimized
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Tests
+        run: ./node_modules/.bin/ember try:one ${{ matrix.try-scenario }}
+        working-directory: test-app
+
+  typescript-compatibility:
+    name: Type checking - ${{ matrix.typescript-scenario }}
+    runs-on: ubuntu-latest
+    needs: 'test-library'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        typescript-scenario:
+          - typescript@4.9
+          - typescript@5.0
+          - typescript@5.1
+          - typescript@5.2
+          - typescript@5.3
+          - typescript@5.4
+          - typescript@5.5
+          - typescript@5.6
+          - typescript@5.7
+          - typescript@5.8
+          - typescript@next
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Update TS version
+        run: pnpm add --ignore-scripts --save-dev ${{ matrix.typescript-scenario }}
+        working-directory: addon
+
+      - name: Type checking
+        run: tsc --noEmit
+        working-directory: addon
+
+  publish-config:
+    name: Publish config
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Check workspaces property
+        run: |
+          if [ "$(npm pkg get workspaces | jq '. | length')" -eq 0 ]; then
+            echo "You removed "workspaces" key in root package.json that is used during publish process. Please bring it back." && \
+            exit 1
+          fi

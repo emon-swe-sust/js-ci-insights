@@ -1,0 +1,78 @@
+name: Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+    branches: [main, master]
+  pull_request_target:
+    types: [opened, synchronize, closed]
+    branches: [main, master]
+
+# Simulate a "restricted" org/enterprise policy of read-only GITHUB_TOKEN access.
+# Flowzone should run 99% of steps with only the below permissions.
+# Exceptions:
+# - AWS login via OIDC needs 'id-token: write'
+# - Publishing images to ghcr.io needs 'packages: write'
+# Exceptions need to be provided in the calling workflow with the permissions below + the noted permission increase.
+# https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#permissions-for-the-github_token
+# https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#permissions
+permissions:
+  actions: none
+  attestations: none
+  checks: none
+  contents: read
+  deployments: none
+  id-token: none # AWS GitHub OIDC provider
+  issues: none
+  discussions: none
+  # packages: read
+  packages: write # Allow Flowzone to publish to ghcr.io
+  pages: none
+  pull-requests: none
+  repository-projects: none
+  security-events: none
+  statuses: none
+
+jobs:
+  flowzone:
+    name: Flowzone
+    uses: ./.github/workflows/flowzone.yml
+    # prevent duplicate workflow executions for pull_request and pull_request_target
+    if: |
+      (
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event_name == 'pull_request'
+      ) || (
+        github.event.pull_request.head.repo.full_name != github.repository &&
+        github.event_name == 'pull_request_target'
+      )
+    secrets: inherit
+    with:
+      working_directory: ./tests
+      docker_images: |
+        ghcr.io/product-os/flowzone
+      balena_slugs: |
+        product_os/flowzone
+      cargo_targets: |
+        x86_64-unknown-linux-gnu,
+        armv7-unknown-linux-gnueabi,
+        aarch64-unknown-linux-gnu
+      cloudflare_website: "flowzone"
+      bake_targets: |
+        default,
+        multiarch
+      jobs_timeout_minutes: 30
+      docker_publish_platform_tags: true
+      custom_test_matrix: >
+        {
+          "value": ["foo", "bar"],
+          "os": [
+            ["ubuntu-latest"],
+            ["macos-latest"],
+            ["windows-latest"],
+            ["self-hosted"]
+          ],
+          "environment": ["test"]
+        }
+      release_notes: true
+      restrict_custom_actions: false

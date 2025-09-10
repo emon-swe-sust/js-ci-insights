@@ -1,0 +1,25 @@
+on:
+  workflow_dispatch:
+name: Update Sponsors
+jobs:
+  render:
+    name: Update Sponsors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+      - uses: actions/setup-node@main
+      - name: Update sponsors files
+        run: node .github/update-sponsors/index.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.CH_GITHUB_TOKEN }}
+      - name: Commit files
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git diff-index --quiet HEAD || git commit -m "Update sponsors" -a
+      - name: Push changes
+        uses: ad-m/github-push-action@v0.6.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}

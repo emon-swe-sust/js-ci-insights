@@ -1,0 +1,52 @@
+name: build
+
+on:
+  repository_dispatch:
+    types: [build]
+  workflow_dispatch:
+
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Checkout the repository to the GitHub Actions runner
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        ssh-key: ${{ secrets.DEPLOY_KEY }}
+        submodules: true
+
+    # Update references
+    - name: Git Submodule Update
+      run: |
+        git pull --recurse-submodules
+        git submodule update --remote --recursive
+
+    - name: Re-structure
+      run: |
+        bash scripts/move.sh
+
+    - name: Update Statistics
+      run: |
+        bash scripts/update.sh
+
+    - name: Commit update
+      run: |
+        git config --global user.email "bot@github.com"
+        git config --global user.name "Bot"
+        git commit -am "Auto updated submodule references" && git push || echo "No changes to commit"
+
+    - name: 'Building...'
+      uses: reuixiy/hugo-deploy@v1
+      env:
+        DEPLOY_REPO: LawRefBook/lawrefbook.github.io
+        DEPLOY_BRANCH: build
+        DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        TZ: Asia/Shanghai
+
+    - name: "Sending Notification"
+      uses: fjogeleit/http-request-action@master
+      with:
+        url: ${{ secrets.NOTICE_URL }}

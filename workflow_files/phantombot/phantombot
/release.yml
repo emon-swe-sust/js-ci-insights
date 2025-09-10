@@ -1,0 +1,578 @@
+name: Build/Upload Release
+on:
+  release:
+    types: [published]
+jobs:
+  buildtest:
+    name: Test Build on ubuntu-latest with JDK 17
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: 17
+    - name: Set up Ant
+      run: sudo apt-get install ant
+    - name: Build with Ant
+      run: ant -noinput -buildfile build.xml test
+  dockertest:
+    name: Docker test on ubuntu-latest with JDK 17
+    runs-on: ubuntu-latest
+    needs: buildtest
+    timeout-minutes: 5
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/amd64
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        version: latest
+        driver-opts: network=host
+    - name: Build Docker
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64
+        push: true
+        cache-from: type=gha,scope=master
+        cache-to: type=gha,mode=max,scope=master
+        build-args: |
+          PROJECT_VERSION=0.0.0
+          ANT_ARGS=-Dbuildtype=test -Dversion=0.0.0
+        tags: localhost:5000/tester/phantombot:test
+    - name: Test with Docker
+      run: docker run --rm --name phantombot localhost:5000/tester/phantombot:test launch-docker.sh --version
+  updateremotepanel:
+    name: Update Remote Panel (Stable)
+    if: github.repository == 'PhantomBot/PhantomBot'
+    runs-on: ubuntu-latest
+    needs: [buildtest, dockertest]
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+    - name: Copy Files
+      run: |
+        echo ::group::update docs/panel-stable/
+        rm -rf docs/panel-stable/
+        mkdir -p docs/panel-stable/
+        cp -rv resources/web/panel/. docs/panel-stable/
+        echo ::endgroup::
+        echo ::group::update docs/common/
+        rm -rf docs/common/
+        cp -rv resources/web/common docs
+        echo ::endgroup::
+    - name: Make Path File
+      run: |
+        echo docs/panel-stable/ >> paths.txt
+        echo docs/common/ >> paths.txt
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: docsremotepanel
+        path: |
+          docs/common/**
+          docs/panel-stable/**
+          paths.txt
+        if-no-files-found: error
+        retention-days: 1
+  updateguides:
+    name: Update Guides (Stable)
+    if: github.repository == 'PhantomBot/PhantomBot'
+    runs-on: ubuntu-latest
+    needs: [buildtest, dockertest]
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+    - name: Copy Files
+      run: |
+        echo ::group::update docs/guides/content-stable/
+        rm -rf docs/guides/content-stable/
+        mkdir -p docs/guides/content-stable/
+        cp -rv docs/guides/content/. docs/guides/content-stable/
+        echo ::endgroup::
+    - name: Make Path File
+      run: |
+        echo docs/guides/content-stable/ >> paths.txt
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: docsguides
+        path: |
+          docs/guides/content-stable/**
+          paths.txt
+        if-no-files-found: error
+        retention-days: 1
+  javadoc:
+    name: Update JavaDoc (Stable)
+    if: github.repository == 'PhantomBot/PhantomBot'
+    runs-on: ubuntu-latest
+    needs: [buildtest, dockertest]
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+    - name: Copy Files
+      run: |
+        echo ::group::update docs/javadoc-stable/
+        rm -rf docs/javadoc-stable/
+        mkdir -p docs/javadoc-stable/
+        cp -rv docs/javadoc/. docs/javadoc-stable/
+        echo ::endgroup::
+    - name: Make Path File
+      run: |
+        echo docs/javadoc-stable/ >> paths.txt
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: docsjavadoc
+        path: |
+          docs/javadoc-stable/**
+          paths.txt
+        if-no-files-found: error
+        retention-days: 1
+  commitdocs:
+    name: Commit Docs
+    runs-on: ubuntu-latest
+    needs: [updateremotepanel, updateguides, javadoc]
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GH_TOKEN }}
+        ref: 'master'
+    - name: Prep Artifact Dir
+      run: mkdir -p /tmp/docartifacts
+    - name: Download Artifacts
+      uses: actions/download-artifact@v5
+      with:
+        pattern: docs*
+        path: /tmp/docartifacts
+    - name: Copy Files
+      run: for d in /tmp/docartifacts/docs*; do while read p; do echo ::group::update $p; rm -rf $p; cp -rv $d/$p $p; echo ::endgroup::; done < $d/paths.txt; done
+    - name: Commit Changes
+      uses: EndBug/add-and-commit@v9
+      with:
+        message: Updated GitHub Pages (Stable)
+        default_author: github_actions
+  workflowvars:
+    name: Setup Workflow Vars
+    runs-on: ubuntu-latest
+    outputs:
+      dockermissing: ${{ steps.check_docker_credentials.outputs.missingsecrets }}
+      rollbarmissing: ${{ steps.check_rollbar_credentials.outputs.missingsecrets }}
+      servermissing: ${{ steps.check_server_credentials.outputs.missingsecrets }}
+      branch: ${{ steps.build_env.outputs.branch }}
+      version: ${{ steps.build_env.outputs.version }}
+      revision: ${{ steps.build_env.outputs.revision }}
+      ghcrrepo: ${{ steps.build_env.outputs.ghcrrepo }}
+    steps:
+    - name: Get Revision Variables
+      id: build_env
+      env:
+        REPONAME: ${{ github.repository }}
+      run: |
+        echo ${GITHUB_REF:10}
+        echo "branch=${GITHUB_REF:10}" >> $GITHUB_OUTPUT
+        echo ${GITHUB_REF:11}
+        echo "version=${GITHUB_REF:11}" >> $GITHUB_OUTPUT
+        echo ${GITHUB_SHA:0:7}
+        echo "revision=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+        echo ${REPONAME} | awk '{print tolower($0)}'
+        echo "ghcrrepo=$(echo ${REPONAME} | awk '{print tolower($0)}')" >> $GITHUB_OUTPUT
+    - name: Check Docker Credentials
+      id: check_docker_credentials
+      env:
+        DOCKER_USER: ${{ secrets.DOCKER_USER }}
+        DOCKER_CLITOKEN: ${{ secrets.DOCKER_CLITOKEN }}
+        DOCKER_REPO_STABLE: ${{ secrets.DOCKER_REPO_STABLE }}
+      run: |
+        if [ "${DOCKER_USER}" == "" ]; then
+          echo "Missing User"
+          echo "missingsecrets=yes" >> $GITHUB_OUTPUT
+        elif [ "${DOCKER_CLITOKEN}" == "" ]; then
+          echo "Missing Cli Token"
+          echo "missingsecrets=yes" >> $GITHUB_OUTPUT
+        elif [ "${DOCKER_REPO_STABLE}" == "" ]; then
+          echo "Missing Repo"
+          echo "missingsecrets=yes" >> $GITHUB_OUTPUT
+        else
+          echo "All secrets present"
+          echo "missingsecrets=no" >> $GITHUB_OUTPUT
+        fi
+    - name: Check Rollbar Credentials
+      id: check_rollbar_credentials
+      env:
+        ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_WRITE_TOKEN }}
+      run: |
+        if [ "${ROLLBAR_ACCESS_TOKEN}" == "" ]; then
+          echo "Missing Rollbar Access Token"
+          echo "missingsecrets=yes" >> $GITHUB_OUTPUT
+        else
+          echo "All secrets present"
+          echo "missingsecrets=no" >> $GITHUB_OUTPUT
+        fi
+    - name: Check Rollbar Passthrough Server Credentials
+      id: check_server_credentials
+      env:
+        ACCESS_TOKEN: ${{ secrets.SERVER_TOKEN }}
+        URL: ${{ secrets.SERVER_URL }}
+      run: |
+        if [ "${ACCESS_TOKEN}" == "" ]; then
+          echo "Missing Access Token"
+          echo "missingsecrets=yes" >> $GITHUB_OUTPUT
+        elif [ "${URL}" == "" ]; then
+          echo "Missing URL"
+          echo "missingsecrets=yes" >> $GITHUB_OUTPUT
+        else
+          echo "All secrets present"
+          echo "missingsecrets=no" >> $GITHUB_OUTPUT
+        fi
+  build:
+    name: Build and upload on ubuntu-latest with JDK 17
+    runs-on: ubuntu-latest
+    needs: [buildtest, dockertest, workflowvars]
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: 17
+    - name: Set up Ant
+      run: sudo apt-get install ant
+    - name: Notify Rollbar of Deploy Start
+      if: contains(needs.workflowvars.outputs.rollbarmissing, 'no')
+      id: rollbar_deploy
+      uses: rollbar/github-deploy-action@2.1.2
+      with:
+        environment: "stable"
+        version: ${{ needs.workflowvars.outputs.version }}
+        status: "started"
+      env:
+        ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_WRITE_TOKEN }}
+        ROLLBAR_USERNAME: ${{ github.actor }}
+    - name: Prep Ant script
+      env:
+        BRANCH: ${{ needs.workflowvars.outputs.branch }}
+        REVISION: ${{ needs.workflowvars.outputs.revision }}
+      run: |
+        sed -i -r 's/revision="[A-Za-z0-9._-]+"/revision="'$REVISION'"/;s/branch="[A-Za-z0-9._-]+"/branch="'$BRANCH'"/;s/status="[A-Za-z0-9._-]+"/status="release"/' ivy.xml
+        echo $?
+    - name: Build with Ant
+      env:
+        ROLLBAR_TOKEN: ${{ secrets.ROLLBAR_TOKEN }}
+        ROLLBAR_ENDPOINT: ${{ secrets.ROLLBAR_ENDPOINT }}
+        VERSION: ${{ needs.workflowvars.outputs.version }}
+      run: ant -noinput -Dbuildtype=stable -Dversion=$VERSION -Drollbar_token=$ROLLBAR_TOKEN -Drollbar_endpoint=$ROLLBAR_ENDPOINT -buildfile build.xml jar
+    - name: Prep Assets
+      env:
+        FOLDERBASE: ${{ format('PhantomBot-{0}', needs.workflowvars.outputs.version) }}
+        FOLDERFULL: ${{ format('PhantomBot-{0}-full', needs.workflowvars.outputs.version) }}
+        FOLDERLIN: ${{ format('PhantomBot-{0}-lin', needs.workflowvars.outputs.version) }}
+        FOLDERWIN: ${{ format('PhantomBot-{0}-win', needs.workflowvars.outputs.version) }}
+        FOLDERMAC: ${{ format('PhantomBot-{0}-mac', needs.workflowvars.outputs.version) }}
+        FOLDERARM64: ${{ format('PhantomBot-{0}-arm64-apple_silicon', needs.workflowvars.outputs.version) }}
+        FOLDERARM32: ${{ format('PhantomBot-{0}-arm32', needs.workflowvars.outputs.version) }}
+        FOLDERBOT: ${{ format('PhantomBot-{0}-bot_only', needs.workflowvars.outputs.version) }}
+      run: |
+        echo ::group::rsync $FOLDERFULL
+        mkdir dist/$FOLDERFULL
+        rsync -rav --progress dist/$FOLDERBASE dist/$FOLDERFULL
+        echo ::endgroup::
+        echo ::group::rsync $FOLDERLIN
+        mkdir dist/$FOLDERLIN
+        rsync -rav --progress dist/$FOLDERBASE dist/$FOLDERLIN --exclude java-runtime --exclude java-runtime-arm64 --exclude java-runtime-arm32 --exclude java-runtime-macos --exclude launch.bat --exclude launch.ps1 --exclude launch-bsd.sh --exclude launch-bsd-service.sh --exclude launch-docker.sh --exclude docker-entrypoint.sh --exclude restartbot-windows.bat --exclude restartbot-docker.sh
+        echo ::endgroup::
+        echo ::group::rsync $FOLDERWIN
+        mkdir dist/$FOLDERWIN
+        rsync -rav --progress dist/$FOLDERBASE dist/$FOLDERWIN --exclude java-runtime-linux --exclude java-runtime-arm64 --exclude java-runtime-arm32 --exclude java-runtime-macos --exclude launch.sh --exclude launch-service.sh --exclude launch-bsd.sh --exclude launch-bsd-service.sh --exclude launch-docker.sh --exclude docker-entrypoint.sh  --exclude restartbot-systemctl.sh --exclude restartbot-systemv.sh --exclude restartbot-docker.sh
+        echo ::endgroup::
+        echo ::group::rsync $FOLDERMAC
+        mkdir dist/$FOLDERMAC
+        rsync -rav --progress dist/$FOLDERBASE dist/$FOLDERMAC --exclude java-runtime --exclude java-runtime-arm64 --exclude java-runtime-arm32 --exclude java-runtime-linux --exclude launch.bat --exclude launch.ps1 --exclude launch-bsd.sh --exclude launch-bsd-service.sh --exclude launch-docker.sh --exclude docker-entrypoint.sh --exclude restartbot-windows.bat --exclude restartbot-docker.sh
+        echo ::endgroup::
+        echo ::group::rsync $FOLDERARM64
+        mkdir dist/$FOLDERARM64
+        rsync -rav --progress dist/$FOLDERBASE dist/$FOLDERARM64 --exclude java-runtime --exclude java-runtime-linux --exclude java-runtime-arm32 --exclude java-runtime-macos --exclude launch.bat --exclude launch.ps1 --exclude launch-bsd.sh --exclude launch-bsd-service.sh --exclude launch-docker.sh --exclude docker-entrypoint.sh --exclude restartbot-windows.bat --exclude restartbot-docker.sh
+        echo ::endgroup::
+        echo ::group::rsync $FOLDERARM32
+        mkdir dist/$FOLDERARM32
+        rsync -rav --progress dist/$FOLDERBASE dist/$FOLDERARM32 --exclude java-runtime --exclude java-runtime-linux --exclude java-runtime-arm64 --exclude java-runtime-macos --exclude launch.bat --exclude launch.ps1 --exclude launch-bsd.sh --exclude launch-bsd-service.sh --exclude launch-docker.sh --exclude docker-entrypoint.sh --exclude restartbot-windows.bat --exclude restartbot-docker.sh
+        echo ::endgroup::
+        echo ::group::rsync $FOLDERBOT
+        mkdir dist/$FOLDERBOT
+        rsync -rav --progress dist/$FOLDERBASE dist/$FOLDERBOT --exclude java-runtime --exclude java-runtime-linux --exclude java-runtime-arm64 --exclude java-runtime-arm32 --exclude java-runtime-macos --exclude launch-docker.sh --exclude docker-entrypoint.sh --exclude restartbot-docker.sh
+        echo ::endgroup::
+        cd dist
+        rm -rf $FOLDERBASE
+        echo ::group::zip $FOLDERFULL
+        mv -v $FOLDERFULL $FOLDERBASE
+        cd $FOLDERBASE
+        zip -m -9 -X -r $FOLDERFULL.zip $FOLDERBASE
+        cd ..
+        mv -v $FOLDERBASE/$FOLDERFULL.zip ./$FOLDERFULL.zip
+        rm -rf $FOLDERBASE
+        echo ::endgroup::
+        echo ::group::zip $FOLDERLIN
+        mv -v $FOLDERLIN $FOLDERBASE
+        cd $FOLDERBASE
+        zip -m -9 -X -r $FOLDERLIN.zip $FOLDERBASE
+        cd ..
+        mv -v $FOLDERBASE/$FOLDERLIN.zip ./$FOLDERLIN.zip
+        rm -rf $FOLDERBASE
+        echo ::endgroup::
+        echo ::group::zip $FOLDERWIN
+        mv -v $FOLDERWIN $FOLDERBASE
+        cd $FOLDERBASE
+        zip -m -9 -X -r $FOLDERWIN.zip $FOLDERBASE
+        cd ..
+        mv -v $FOLDERBASE/$FOLDERWIN.zip ./$FOLDERWIN.zip
+        rm -rf $FOLDERBASE
+        echo ::endgroup::
+        echo ::group::zip $FOLDERMAC
+        mv -v $FOLDERMAC $FOLDERBASE
+        cd $FOLDERBASE
+        zip -m -9 -X -r $FOLDERMAC.zip $FOLDERBASE
+        cd ..
+        mv -v $FOLDERBASE/$FOLDERMAC.zip ./$FOLDERMAC.zip
+        rm -rf $FOLDERBASE
+        echo ::endgroup::
+        echo ::group::zip $FOLDERARM64
+        mv -v $FOLDERARM64 $FOLDERBASE
+        cd $FOLDERBASE
+        zip -m -9 -X -r $FOLDERARM64.zip $FOLDERBASE
+        cd ..
+        mv -v $FOLDERBASE/$FOLDERARM64.zip ./$FOLDERARM64.zip
+        rm -rf $FOLDERBASE
+        echo ::endgroup::
+        echo ::group::zip $FOLDERARM32
+        mv -v $FOLDERARM32 $FOLDERBASE
+        cd $FOLDERBASE
+        zip -m -9 -X -r $FOLDERARM32.zip $FOLDERBASE
+        cd ..
+        mv -v $FOLDERBASE/$FOLDERARM32.zip ./$FOLDERARM32.zip
+        rm -rf $FOLDERBASE
+        echo ::endgroup::
+        echo ::group::zip $FOLDERBOT
+        mv -v $FOLDERBOT $FOLDERBASE
+        cd $FOLDERBASE
+        zip -m -9 -X -r $FOLDERBOT.zip $FOLDERBASE
+        cd ..
+        mv -v $FOLDERBASE/$FOLDERBOT.zip ./$FOLDERBOT.zip
+        rm -rf $FOLDERBASE
+        echo ::endgroup::
+    - name: Upload Assets
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          ${{ format('dist/PhantomBot-{0}-full.zip', needs.workflowvars.outputs.version) }}
+          ${{ format('dist/PhantomBot-{0}-lin.zip', needs.workflowvars.outputs.version) }}
+          ${{ format('dist/PhantomBot-{0}-win.zip', needs.workflowvars.outputs.version) }}
+          ${{ format('dist/PhantomBot-{0}-mac.zip', needs.workflowvars.outputs.version) }}
+          ${{ format('dist/PhantomBot-{0}-arm64-apple_silicon.zip', needs.workflowvars.outputs.version) }}
+          ${{ format('dist/PhantomBot-{0}-arm32.zip', needs.workflowvars.outputs.version) }}
+          ${{ format('dist/PhantomBot-{0}-bot_only.zip', needs.workflowvars.outputs.version) }}
+    - name: Notify Rollbar of Deploy Failure
+      if: ${{ contains(needs.workflowvars.outputs.rollbarmissing, 'no') && (failure() || cancelled()) }}
+      uses: rollbar/github-deploy-action@2.1.2
+      with:
+        environment: "stable"
+        version: ${{ needs.workflowvars.outputs.version }}
+        status: "failed"
+      env:
+        ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_WRITE_TOKEN }}
+        ROLLBAR_USERNAME: ${{ github.actor }}
+        DEPLOY_ID: ${{ steps.rollbar_deploy.outputs.deploy_id }}
+    - name: Notify Rollbar of Deploy Success
+      if: ${{ contains(needs.workflowvars.outputs.rollbarmissing, 'no') && success() }}
+      uses: rollbar/github-deploy-action@2.1.2
+      with:
+        environment: "stable"
+        version: ${{ needs.workflowvars.outputs.version }}
+        status: "succeeded"
+      env:
+        ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_WRITE_TOKEN }}
+        ROLLBAR_USERNAME: ${{ github.actor }}
+        DEPLOY_ID: ${{ steps.rollbar_deploy.outputs.deploy_id }}
+    - name: Update Allowed Rollbar Versions
+      if: ${{ contains(needs.workflowvars.outputs.servermissing, 'no') && success() }}
+      env:
+        ACCESS_TOKEN: ${{ secrets.SERVER_TOKEN }}
+        URL: ${{ secrets.SERVER_URL }}
+        VERSION: ${{ needs.workflowvars.outputs.version }}
+      run: |
+        curl -X POST $URL -H "x-access-token: $ACCESS_TOKEN" -H "Content-Type: application/json; charset=UTF-8" -d "{\"type\":\"stable\",\"version\":\"$VERSION\"}"
+  docker:
+    name: Docker build on ubuntu-latest with JDK 17
+    runs-on: ubuntu-latest
+    needs: [buildtest, dockertest, workflowvars]
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        version: latest
+    - name: Login to DockerHub Registry
+      if: contains(needs.workflowvars.outputs.dockermissing, 'no')
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USER }}
+        password: ${{ secrets.DOCKER_CLITOKEN }}
+        logout: true
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        logout: true
+    - name: Notify Rollbar of Deploy Start
+      if: contains(needs.workflowvars.outputs.rollbarmissing, 'no')
+      id: rollbar_deploy
+      uses: rollbar/github-deploy-action@2.1.2
+      with:
+        environment: "stable_docker"
+        version: ${{ needs.workflowvars.outputs.version }}
+        status: "started"
+      env:
+        ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_WRITE_TOKEN }}
+        ROLLBAR_USERNAME: ${{ github.actor }}
+    - name: Prep Ant script
+      env:
+        BRANCH: ${{ needs.workflowvars.outputs.branch }}
+        REVISION: ${{ needs.workflowvars.outputs.revision }}
+      run: |
+        sed -i -r 's/revision="[A-Za-z0-9._-]+"/revision="'$REVISION'"/;s/branch="[A-Za-z0-9._-]+"/branch="'$BRANCH'"/;s/status="[A-Za-z0-9._-]+"/status="release"/' ivy.xml
+        echo $?
+    - name: Build and Push DockerHub
+      if: contains(needs.workflowvars.outputs.dockermissing, 'no')
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+        push: true
+        cache-from: type=gha,scope=master
+        cache-to: type=gha,mode=max,scope=master
+        build-args: |
+          PROJECT_VERSION=${{ needs.workflowvars.outputs.version }}
+          ANT_ARGS=-Dbuildtype=stable -Dfallback.revision=${{ needs.workflowvars.outputs.revision }} -Dversion=${{ needs.workflowvars.outputs.version }} -Drollbar_token=${{ secrets.ROLLBAR_TOKEN }} -Drollbar_endpoint=${{ secrets.ROLLBAR_ENDPOINT }}
+        tags: |
+          ${{ secrets.DOCKER_USER }}/${{ secrets.DOCKER_REPO_STABLE }}:${{ needs.workflowvars.outputs.version }}
+          ${{ secrets.DOCKER_USER }}/${{ secrets.DOCKER_REPO_STABLE }}:latest
+    - name: Build and Push GitHub Containers
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+        push: true
+        cache-from: type=gha,scope=master
+        cache-to: type=gha,mode=max,scope=master
+        build-args: |
+          PROJECT_VERSION=${{ needs.workflowvars.outputs.version }}
+          ANT_ARGS=-Dbuildtype=stable -Dfallback.revision=${{ needs.workflowvars.outputs.revision }} -Dversion=${{ needs.workflowvars.outputs.version }} -Drollbar_token=${{ secrets.ROLLBAR_TOKEN }} -Drollbar_endpoint=${{ secrets.ROLLBAR_ENDPOINT }}
+        tags: |
+          ghcr.io/${{ needs.workflowvars.outputs.ghcrrepo }}:${{ needs.workflowvars.outputs.version }}
+          ghcr.io/${{ needs.workflowvars.outputs.ghcrrepo }}:latest
+    - name: Notify Rollbar of Deploy Failure
+      if: ${{ contains(needs.workflowvars.outputs.rollbarmissing, 'no') && (failure() || cancelled()) }}
+      uses: rollbar/github-deploy-action@2.1.2
+      with:
+        environment: "stable_docker"
+        version: ${{ needs.workflowvars.outputs.version }}
+        status: "failed"
+      env:
+        ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_WRITE_TOKEN }}
+        ROLLBAR_USERNAME: ${{ github.actor }}
+        DEPLOY_ID: ${{ steps.rollbar_deploy.outputs.deploy_id }}
+    - name: Notify Rollbar of Deploy Success
+      if: ${{ contains(needs.workflowvars.outputs.rollbarmissing, 'no') && success() }}
+      uses: rollbar/github-deploy-action@2.1.2
+      with:
+        environment: "stable_docker"
+        version: ${{ needs.workflowvars.outputs.version }}
+        status: "succeeded"
+      env:
+        ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_WRITE_TOKEN }}
+        ROLLBAR_USERNAME: ${{ github.actor }}
+        DEPLOY_ID: ${{ steps.rollbar_deploy.outputs.deploy_id }}
+    - name: Update Allowed Rollbar Versions
+      if: ${{ contains(needs.workflowvars.outputs.servermissing, 'no') && success() }}
+      env:
+        ACCESS_TOKEN: ${{ secrets.SERVER_TOKEN }}
+        URL: ${{ secrets.SERVER_URL }}
+        VERSION: ${{ needs.workflowvars.outputs.version }}
+      run: |
+        curl -X POST $URL -H "x-access-token: $ACCESS_TOKEN" -H "Content-Type: application/json; charset=UTF-8" -d "{\"type\":\"stable_docker\",\"version\":\"$VERSION\"}"
+  set_release:
+    name: Set Latest Release
+    runs-on: ubuntu-latest
+    needs: [build, docker]
+    steps:
+    - name: Set latest Release
+      uses: actions/github-script@v7
+      with:
+        script: |
+          let {status: getStatus, data} = await github.rest.repos.getReleaseByTag({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            tag: context.ref.substring(context.ref.lastIndexOf("/") + 1),
+          });
+
+          if (getStatus !== 200) {
+            core.error("Failed to get the release..." + getStatus);
+          } else {
+            let {status: updateStatus} = await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: data.id,
+              make_latest: 'true'
+            });
+
+            if (updateStatus !== 200) {
+              core.error("Failed to update the release..." + updateStatus);
+            }
+          }
+  cleanup:
+    name: Cleanup Cache
+    runs-on: ubuntu-latest
+    needs: [dockertest, docker, set_release]
+    if: always()
+    steps:
+    - name: Cleanup Cache
+      run: |
+        gh extension install actions/gh-actions-cache
+        REPO="${{ github.repository }}"
+        BRANCH="${{ github.ref }}"
+        cacheKeys=$(gh actions-cache list -R $REPO -B $BRANCH | cut -f 1)
+        ## Setting this to not fail the workflow while deleting cache keys.
+        set +e
+        while [ ${#cacheKeys[@]} -gt 0 ] && [ ${#cacheKeys[0]} -gt 0 ]
+        do
+          for cacheKey in $cacheKeys
+          do
+              gh actions-cache delete $cacheKey -R $REPO -B $BRANCH --confirm
+          done
+          cacheKeys=$(gh actions-cache list -R $REPO -B $BRANCH | cut -f 1)
+        done
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

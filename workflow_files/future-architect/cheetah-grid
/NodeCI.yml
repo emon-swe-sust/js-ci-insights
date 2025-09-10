@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v2
+    - name: Install Packages
+      run: |+
+        npm ci
+        npm run ci:all
+    - name: Lint
+      run: |+
+        npm run lint
+        npm run check
+  test:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v2
+    - name: Install Packages
+      run: |+
+        npm ci
+        npm run ci:all
+    - name: Build
+      run: npm run build:ci
+    - name: Test
+      run: npm test -- --mrpm-max-workers=1

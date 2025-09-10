@@ -1,0 +1,65 @@
+name: WordPress Tests
+
+on:
+  pull_request:
+
+jobs:
+  leia-tests:
+    runs-on: ${{ matrix.os }}
+    env:
+      TERM: xterm
+    strategy:
+      fail-fast: false
+      matrix:
+        leia-test:
+          - examples/wordpress-custom
+          - examples/wordpress-defaults
+          - examples/wordpress-downstreamer-1
+          - examples/wordpress-downstreamer-2
+          - examples/wordpress-export
+          - examples/wordpress-import
+          - examples/wordpress-init
+          - examples/wordpress-mariadb
+          - examples/wordpress-mariadb-mysql
+          - examples/wordpress-mysql8
+          - examples/wordpress-nginx
+        lando-version:
+          - 3-edge
+          - 3-stable
+        os:
+          - ubuntu-24.04
+        node-version:
+          - '20'
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - name: Install NPM dependencies
+        run: npm clean-install --production --prefer-offline --frozen-lockfile
+      - name: Bundle Deps
+        uses: lando/prepare-release-action@v3
+        with:
+          lando-plugin: true
+          version: dev
+          sync: false
+      - name: Setup lando ${{ matrix.lando-version }}
+        uses: lando/setup-lando@v3
+        with:
+          lando-version: ${{ matrix.lando-version }}
+          config: |
+            setup.skipCommonPlugins=true
+            setup.plugins.@lando/wordpress=/home/runner/work/wordpress/wordpress
+          telemetry: false
+      - name: Run Leia Tests
+        uses: lando/run-leia-action@v2
+        with:
+          leia-test: "./${{ matrix.leia-test }}/README.md"
+          cleanup-header: "Destroy tests"
+          shell: bash
+          stdin: true

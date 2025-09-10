@@ -1,0 +1,61 @@
+name: CD
+on:
+  workflow_run:
+    workflows:
+    - CI
+    branches:
+    - master
+    types:
+    - completed
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create v`node -p "require('./package.json').version"` --notes ''
+
+
+  upload-binary-ubuntu:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '21.7.2'
+      - run: yarn install
+      - run: yarn make
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload v`node -p "require('./package.json').version"` out/make/*/*/*.deb
+
+
+  upload-binary-macos:
+    needs: create-release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '21.7.2'
+      - run: yarn install
+      - env:
+          CERTIFICATE_MACOS: ${{ secrets.CERTIFICATE_MACOS }}
+        run: echo $CERTIFICATE_MACOS | base64 --decode > certificate.p12
+      - run: security create-keychain -p actions build.keychain
+      - run: security default-keychain -s build.keychain
+      - run: security unlock-keychain -p actions build.keychain
+      - run: security import certificate.p12 -P '' -k build.keychain -T /usr/bin/codesign;
+      - run: 'security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain'
+      - run: rm -fr *.p12
+      - env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: yarn make
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload v`node -p "require('./package.json').version"` out/make/*.dmg

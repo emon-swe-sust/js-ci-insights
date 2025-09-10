@@ -1,0 +1,79 @@
+name: 'Refresh WordPress Major&Beta'
+
+on:
+    workflow_dispatch:
+        inputs:
+            force_rebuild:
+                description: 'Force rebuild of WordPress (true/false)'
+                required: false
+                default: 'false'
+    # Every 20 minutes
+    schedule:
+        - cron: '*/20 * * * *'
+
+jobs:
+    build_wordpress_major_and_beta_push_to_github_and_deploy_website:
+        # Only run this workflow from the trunk branch and when it's triggered by a Playground maintainer
+        if: >
+            github.ref == 'refs/heads/trunk' && (
+                github.actor == 'adamziel' ||
+                github.actor == 'dmsnell' ||
+                github.actor == 'bgrgicak' ||
+                github.actor == 'brandonpayton' ||
+                github.actor == 'zaerl' ||
+                github.actor == 'janjakes'
+            )
+
+        runs-on: ubuntu-latest
+        environment:
+            name: wordpress-assets
+        concurrency:
+            group: check-version-and-run-build
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  clean: true
+                  persist-credentials: false
+                  submodules: true
+            - uses: ./.github/actions/prepare-playground
+              with:
+                  node-version: 23
+            - name: 'Recompile WordPress'
+              id: build
+              shell: bash
+              env:
+                  FORCE_REBUILD: ${{ github.event.inputs.force_rebuild }}
+              run: npx nx bundle-wordpress:major-and-beta playground-wordpress-builds
+            - name: Check for uncommitted changes
+              id: changes
+              run: |
+                  if [ -z "$(git status --porcelain)" ]; then
+                      echo "No changes"
+                      echo 'COMMIT_CHANGES=0' >> $GITHUB_OUTPUT
+                  else
+                      echo "Changes detected"
+                      echo 'COMMIT_CHANGES=1' >> $GITHUB_OUTPUT
+                  fi
+            - name: Push rebuilt WordPress to GitHub
+              if: steps.changes.outputs.COMMIT_CHANGES == '1'
+              run: |
+                  # This appears to be necessary because we encountered the build output being owned by root,
+                  # and there are some subdirectories that the runner user cannot access.
+                  sudo chown -R "$(whoami):$(id -gn)" packages/playground/wordpress-builds/public
+                  git config --global user.name "deployment_bot"
+                  git config --global user.email "deployment_bot@users.noreply.github.com"
+                  git remote set-url origin https://${{ secrets.GH_ACTOR }}:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}
+                  git add -A
+                  git commit -a -m "Recompile WordPress major and beta versions"
+                  git pull --rebase
+                  # Push if the pull did not result in a conflict
+                  if [ $? -eq 0 ]; then
+                      git push
+                  fi;
+            - name: Deploy website
+              if: steps.changes.outputs.COMMIT_CHANGES == '1'
+              uses: benc-uk/workflow-dispatch@v1
+              with:
+                  workflow: build-website.yml
+                  token: ${{ secrets.GITHUB_TOKEN }}

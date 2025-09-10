@@ -1,0 +1,59 @@
+# This is a basic workflow to help you get started with Actions
+
+name: bicep-CI
+
+# Controls when the action will run. 
+on:
+  # Triggers the workflow on push or pull request events but only for the main branch
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+
+      # Runs a set of commands using the runners shell
+      - name: Run a multi-line script
+        run: |
+          echo Add other actions to build,
+          echo test, and deploy your project.
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run node app - generate bicep file
+        run: npm run start
+      
+      # Build and validate bicep files
+      - name: Bicep build naming module with Azure CLI
+        uses: azure/CLI@v1
+        with:
+          azcliversion: 2.57.0
+          inlineScript: |
+            az bicep build --file ./dist/naming.module.bicep
+      
+      # Build and validate bicep files
+      - name: Bicep build example module with Azure CLI
+        uses: azure/CLI@v1
+        with:
+          azcliversion: 2.57.0
+          inlineScript: |
+            az bicep build --file ./examples/example.sub.bicep

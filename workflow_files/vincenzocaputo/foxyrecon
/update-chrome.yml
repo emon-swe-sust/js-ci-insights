@@ -1,0 +1,42 @@
+# This workflow automatically updates the 'chrome' branch with changes from the 'develop' branch
+name: Update Chrome
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  update-chrome:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0 # Fetch all branches
+        
+    - name: Configure Git
+      run: |
+        git config --global user.name "GitHub Actions Bot"
+        git config --global user.email "<>"
+
+    - name: Update Chrome branch with changes from develop
+      run: |
+        git fetch origin
+        git checkout chrome-dev
+        cp manifest.json manifest.json.v3
+        git reset --hard origin/develop
+        mv manifest.json.v3 manifest.json
+        
+    - name: Run porting script
+      run: bash tools/chromeify.sh
+
+    - name: Push updates to Chrome branch
+      run: |
+        git add src/ assets/ manifest.json
+        git commit -m "Update Chrome version"
+        git push origin chrome-dev --force

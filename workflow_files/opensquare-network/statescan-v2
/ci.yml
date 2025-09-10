@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "release-*"]
+    paths: ["backend/**"]
+  pull_request:
+    branches: ["main", "release-*"]
+    paths: ["backend/**"]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          check-latest: true
+
+      - name: Run backend install
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: install
+          dir: "backend" # will run `yarn install` in `backend` sub folder
+
+      - name: Run backend lint
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: lint
+          dir: "backend"
+
+      - name: Run backend test
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: test
+          dir: "backend"

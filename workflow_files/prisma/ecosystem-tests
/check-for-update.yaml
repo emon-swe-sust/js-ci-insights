@@ -1,0 +1,115 @@
+name: check-for-update
+on:
+  # Manual UI in GitHub https://github.blog/changelog/2020-07-06-github-actions-manual-triggers-with-workflow_dispatch/
+  workflow_dispatch:
+  schedule:
+    # Run every five minutes
+    - cron: '*/5 * * * *'
+
+concurrency: check-for-update
+
+env:
+  PRISMA_TELEMETRY_INFORMATION: 'ecosystem-tests check-for-update.yaml'
+  # To hide "Update available x.y.z -> x.y.z"
+  PRISMA_HIDE_UPDATE_MESSAGE: true
+
+jobs:
+  check-for-latest-update:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4.0.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+          cache-dependency-path: '**/pnpm-lock.yaml'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: check latest update
+        run: pnpm run update-ci latest
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+
+  check-for-dev-update:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4.0.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+          cache-dependency-path: '**/pnpm-lock.yaml'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: check dev update
+        run: pnpm run update-ci dev
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+
+  check-for-patch-dev-update:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4.0.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+          cache-dependency-path: '**/pnpm-lock.yaml'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: check patch-dev update
+        run: pnpm run update-ci patch-dev
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+
+  check-for-integration-update:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4.0.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+          cache-dependency-path: '**/pnpm-lock.yaml'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: check integration update
+        run: pnpm run update-ci integration
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}

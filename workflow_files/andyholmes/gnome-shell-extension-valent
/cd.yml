@@ -1,0 +1,35 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+      - gnome-47
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    name: Extension
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}:${{ github.ref_name}}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build
+        env:
+          DESTDIR: ${{ github.workspace }}
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          ./build-aux/misc/ego.sh
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: valent@andyholmes.ca
+          path: ${{ github.workspace }}/valent@andyholmes.ca/*

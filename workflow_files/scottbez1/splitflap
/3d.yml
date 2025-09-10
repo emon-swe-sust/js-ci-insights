@@ -1,0 +1,143 @@
+name: Render 3D Designs
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  render-3d:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up outputs directory
+        run: mkdir -p 3d/build/outputs
+
+      - name: Install dependencies
+        run: ./3d/scripts/dependencies.sh
+
+      - name: 'Generate front panel example :: 52 flap :: 6x1 :: Elecrow acrylic kerf'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_combined_front_panel.py --kerf-preset elecrow-3mm-acrylic --rows 1 --cols 6 --spacing-x 0 --spacing-y 0 --frame-margin-x 0 --frame-margin-y 0 --center-mode module --num-flaps 52 --render-raster
+          cp 3d/build/front_panel/combined.svg 3d/build/outputs/3d_front_panel-52-elecrow-3mm-acrylic-6x1.svg
+          cp 3d/build/front_panel/raster.png 3d/build/outputs/3d_front_panel_raster-52-elecrow-3mm-acrylic-6x1.png
+          ./scripts/annotate_image.sh 3d/build/outputs/3d_front_panel_raster-52-elecrow-3mm-acrylic-6x1.png
+
+      - name: 'Generate front panel example :: 52 flap :: 12x2 :: 1/8 in tool diameter :: frame margin=20mm, 4mm'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_combined_front_panel.py --tool-diameter 3.175 --rows 2 --cols 12 --spacing-x 0 --spacing-y 0 --frame-margin-x 20 --frame-margin-y 4 --center-mode module --num-flaps 52 --render-raster
+          cp 3d/build/front_panel/combined.svg 3d/build/outputs/3d_front_panel-52-3.175-20x4margin-12x2.svg
+          cp 3d/build/front_panel/raster.png 3d/build/outputs/3d_front_panel_raster-52-3.175-20x4margin-12x2.png
+          ./scripts/annotate_image.sh 3d/build/outputs/3d_front_panel_raster-52-3.175-20x4margin-12x2.png
+
+      - name: 'Generate font example :: 52 flap :: Epilogue :: 1mm bleed'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_fonts.py --mode side-by-side --font Epilogue --columns 4 --bleed 1 --fill --render-raster
+          cp 3d/build/fonts/combined.svg 3d/build/outputs/font_example-Epilogue-1mmBleed.svg
+          cp 3d/build/fonts/raster.png 3d/build/outputs/font_example-Epilogue-1mmBleed.png
+          ./scripts/annotate_image.sh 3d/build/outputs/font_example-Epilogue-1mmBleed.png
+
+      - name: 'Generate 2d output :: 52 flap :: generic'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python -u 3d/scripts/generate_2d.py --calculate-dimensions --render-raster
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-52.svg
+          cp 3d/build/laser_parts/raster.png 3d/build/outputs/3d_laser_raster-52.png
+          ./scripts/annotate_image.sh 3d/build/outputs/3d_laser_raster-52.png
+          cp 3d/build/laser_parts/combined_module_dimensions.svg 3d/build/outputs/3d_laser_vector-52-module_dimensions.svg
+
+      - name: 'Generate 2d output :: 52 flap :: Ponoko 3mm MDF'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_2d.py --calculate-dimensions --kerf-preset ponoko-3mm-mdf
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-52-ponoko-3mm-mdf_1x.svg
+          cp 3d/build/laser_parts/combined_panel_dimensions.svg 3d/build/outputs/3d_laser_vector-52-ponoko-3mm-mdf_1x_dimensions.svg
+
+      - name: 'Generate 2d output :: 52 flap :: Ponoko 3mm Acrylic'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_2d.py --calculate-dimensions --kerf-preset ponoko-3mm-acrylic
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-52-ponoko-3mm-acrylic_1x.svg
+          cp 3d/build/laser_parts/combined_panel_dimensions.svg 3d/build/outputs/3d_laser_vector-52-ponoko-3mm-acrylic_1x_dimensions.svg
+
+      - name: 'Generate 2d output :: 52 flap :: Elecrow 3mm Wood'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_2d.py --kerf-preset elecrow-3mm-wood --render-elecrow
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-52-elecrow-3mm-wood_1x.svg
+          cp 3d/build/laser_parts/combined_panel_dimensions.svg 3d/build/outputs/3d_laser_vector-52-elecrow-3mm-wood_1x_dimensions.svg
+          cp 3d/build/laser_parts/elecrow.zip 3d/build/outputs/3d_laser_vector-52-elecrow-3mm-wood_1x.zip
+
+      - name: 'Generate 2d output :: 52 flap :: Elecrow 3mm Acrylic'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_2d.py --kerf-preset elecrow-3mm-acrylic --render-elecrow
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-52-elecrow-3mm-acrylic_1x.svg
+          cp 3d/build/laser_parts/combined_panel_dimensions.svg 3d/build/outputs/3d_laser_vector-52-elecrow-3mm-acrylic_1x_dimensions.svg
+          cp 3d/build/laser_parts/elecrow.zip 3d/build/outputs/3d_laser_vector-52-elecrow-3mm-acrylic_1x.zip
+
+
+      - name: 'Generate 2d output :: 40 flap :: generic'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python -u 3d/scripts/generate_2d.py --calculate-dimensions --render-raster --num-flaps 40
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-40.svg
+          cp 3d/build/laser_parts/raster.png 3d/build/outputs/3d_laser_raster-40.png
+          ./scripts/annotate_image.sh 3d/build/outputs/3d_laser_raster-40.png
+          cp 3d/build/laser_parts/combined_module_dimensions.svg 3d/build/outputs/3d_laser_vector-40-module_dimensions.svg
+
+      - name: 'Generate 2d output :: 40 flap :: Ponoko 3mm MDF)'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_2d.py --calculate-dimensions --kerf-preset ponoko-3mm-mdf --num-flaps 40
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-40-ponoko-3mm-mdf_1x.svg
+          cp 3d/build/laser_parts/combined_panel_dimensions.svg 3d/build/outputs/3d_laser_vector-40-ponoko-3mm-mdf_1x_dimensions.svg
+
+      - name: 'Generate 2d output :: 40 flap :: Ponoko 3mm Acrylic'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_2d.py --calculate-dimensions --kerf-preset ponoko-3mm-acrylic --num-flaps 40
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-40-ponoko-3mm-acrylic_1x.svg
+          cp 3d/build/laser_parts/combined_panel_dimensions.svg 3d/build/outputs/3d_laser_vector-40-ponoko-3mm-acrylic_1x_dimensions.svg
+
+      - name: 'Generate 2d output :: 40 flap :: Elecrow 3mm Wood'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_2d.py --kerf-preset elecrow-3mm-wood --render-elecrow --num-flaps 40
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-40-elecrow-3mm-wood_1x.svg
+          cp 3d/build/laser_parts/combined_panel_dimensions.svg 3d/build/outputs/3d_laser_vector-40-elecrow-3mm-wood_1x_dimensions.svg
+          cp 3d/build/laser_parts/elecrow.zip 3d/build/outputs/3d_laser_vector-40-elecrow-3mm-wood_1x.zip
+
+      - name: 'Generate 2d output :: 40 flap :: Elecrow 3mm Acrylic'
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_2d.py --kerf-preset elecrow-3mm-acrylic --render-elecrow --num-flaps 40
+          cp 3d/build/laser_parts/combined.svg 3d/build/outputs/3d_laser_vector-40-elecrow-3mm-acrylic_1x.svg
+          cp 3d/build/laser_parts/combined_panel_dimensions.svg 3d/build/outputs/3d_laser_vector-40-elecrow-3mm-acrylic_1x_dimensions.svg
+          cp 3d/build/laser_parts/elecrow.zip 3d/build/outputs/3d_laser_vector-40-elecrow-3mm-acrylic_1x.zip
+
+      - name: Generate animated gif
+        run: |
+          xvfb-run --auto-servernum --server-args "-screen 0 1024x768x24" python3 -u 3d/scripts/generate_gif.py
+          cp 3d/build/animation/animation.gif 3d/build/outputs/3d_animation.gif
+          cp 3d/build/animation/all_flaps.gif 3d/build/outputs/all_flaps.gif
+
+      - name: Generate STLs for web viewer
+        run: |
+          python -u 3d/scripts/generate_stl.py
+          cp -r 3d/build/colored_stl 3d/build/outputs/3d_colored_stl
+          gzip 3d/build/outputs/3d_colored_stl/*.stl
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 3d
+          path: |
+            3d/build
+
+      - name: Configure AWS Credentials
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Sync artifacts to S3
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        run: |
+          aws s3 sync 3d/build/outputs s3://splitflap-artifacts/${GITHUB_REF#refs/heads/}/3d --exclude '3d_colored_stl/*.stl.gz' --delete --acl public-read --cache-control max-age=0,no-cache
+          aws s3 sync 3d/build/outputs s3://splitflap-artifacts/${GITHUB_REF#refs/heads/}/3d --exclude '*' --include '3d_colored_stl/*.stl.gz' --delete --content-encoding gzip --acl public-read --cache-control max-age=0,no-cache

@@ -1,0 +1,48 @@
+name: example-subfolders
+on: [push, pull_request]
+jobs:
+  separate-actions:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macOS-latest]
+    name: Test on ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # typically we would use a SHA or branch name
+      # of an action like
+      # - uses: bahmutov/npm-install@v1
+      # but for internal testing, let's use the local action
+      - uses: ./
+        with:
+          # server use NPM package lock file
+          working-directory: examples/subfolders/server
+      - uses: ./
+        with:
+          # client uses yarn lock
+          working-directory: examples/subfolders/client
+      # run tests
+      - run: npm t
+        working-directory: examples/subfolders/server
+      - run: npm t
+        working-directory: examples/subfolders/client
+
+  separate-lines:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macOS-latest]
+    name: Test on ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          # specify a directory per line
+          working-directory: |
+            examples/subfolders/server
+            examples/subfolders/client
+      # run tests
+      - run: npm t
+        working-directory: examples/subfolders/server
+      - run: npm t
+        working-directory: examples/subfolders/client

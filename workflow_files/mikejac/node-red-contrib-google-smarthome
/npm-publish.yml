@@ -1,0 +1,27 @@
+---
+name: NPM Publish
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  publish-npm:
+    name: Publish Node-RED package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: latest
+          cache: npm
+      - uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{secrets.NPM_TOKEN}}
+      - name: Publish to Node-RED Library
+        uses: Hacksore/node-red-flow@v2
+        with:
+          repo: node-red-contrib-google-smarthome

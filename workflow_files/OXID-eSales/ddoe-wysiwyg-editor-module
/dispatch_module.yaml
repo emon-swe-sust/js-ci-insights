@@ -1,0 +1,62 @@
+name: Manual trigger
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        type: choice
+        options:
+          - 'no'
+          - 'PHP8.2/MySQL5.7'
+          - 'PHP8.2/MySQL8.0'
+          - 'PHP8.2/MariaDb11'
+          - 'PHP8.3/MySQL5.7'
+          - 'PHP8.3/MySQL8.0'
+          - 'PHP8.3/MariaDb11'
+          - 'PHP8.4/MySQL8.0'
+          - 'PHP8.4/MariaDb11'
+        default: 'PHP8.3/MySQL8.0'
+        description: 'Limit to one PHP/MySQL combination'
+
+jobs:
+  build_testplan:
+    runs-on: ubuntu-latest
+    outputs:
+      testplan: '${{ steps.build_testplan.outputs.testplan }}'
+    steps:
+      - name: Build testplan construct
+        id: build_testplan
+        run: |
+          # shellcheck disable=SC2088
+          case "${{ inputs.limit }}" in
+            "no") LIMIT='';;
+            "PHP8.2/MySQL5.7") LIMIT='~/defaults/php8.2_mysql5.7_only.yaml,' ;;
+            "PHP8.2/MySQL8.0") LIMIT='~/defaults/php8.2_mysql8.0_only.yaml,' ;;
+            "PHP8.2/MariaDb11") LIMIT='~/defaults/php8.2_mariadb11_only.yaml,' ;;
+            "PHP8.3/MySQL5.7") LIMIT='~/defaults/php8.3_mysql5.7_only.yaml,' ;;
+            "PHP8.3/MySQL8.0") LIMIT='~/defaults/php8.3_mysql8.0_only.yaml,' ;;
+            "PHP8.3/MariaDb11") LIMIT='~/defaults/php8.3_mariadb11_only.yaml,' ;;
+            "PHP8.4/MySQL8.0") LIMIT='~/defaults/php8.4_mysql8.0_only.yaml,' ;;
+            "PHP8.4/MariaDb11") LIMIT='~/defaults/php8.4_mariadb11_only.yaml,' ;;
+          esac
+
+          # shellcheck disable=SC2088
+          TESTPLAN="~/defaults/7.4.x.yaml,${LIMIT}~/module-wysiwyg.yaml,~/_custom.yaml"
+          echo "testplan=${TESTPLAN}" | tee -a "${GITHUB_OUTPUT}"
+
+  dispatch_stable:
+    needs: build_testplan
+    uses: OXID-eSales/github-actions/.github/workflows/universal_workflow_light.yaml@v4
+    with:
+      testplan: ${{ needs.build_testplan.outputs.testplan }}
+      runs_on: '"ubuntu-latest"'
+      defaults: 'v4'
+      plan_folder: '.github/oxid-esales'
+    secrets:
+      DOCKER_HUB_USER: ${{ secrets.DOCKER_HUB_USER }}
+      DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+      CACHE_ENDPOINT: ${{ secrets.CACHE_ENDPOINT }}
+      CACHE_ACCESS_KEY: ${{ secrets.CACHE_ACCESS_KEY }}
+      CACHE_SECRET_KEY: ${{ secrets.CACHE_SECRET_KEY }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

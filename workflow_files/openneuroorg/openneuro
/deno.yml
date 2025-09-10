@@ -1,0 +1,37 @@
+---
+name: Deno build
+
+on:
+  push:
+    branches: [master]
+    tags: ["*"]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+      fail-fast: false
+    defaults:
+      run:
+        working-directory: ./cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Collect coverage
+        run: deno task coverage
+        if: ${{ always() }}
+      - uses: codecov/codecov-action@v5
+        if: ${{ always() }}
+        with:
+          files: coverage.lcov

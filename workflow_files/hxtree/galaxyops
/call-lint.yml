@@ -1,0 +1,54 @@
+name: Lint
+
+on:
+  workflow_call:
+    secrets:
+      IMPACTED_BY_SHA:
+        required: true
+
+jobs:
+  lint:
+    name: lint
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - name: check out code base
+        if: github.event_name == 'push'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: check out code base
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ secrets.IMPACTED_BY_SHA }}
+
+      - name: install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '8.13.1'
+
+      - name: setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.18.0'
+          cache: 'pnpm'
+
+      - name: cache nx
+        id: cache
+        uses: actions/cache@v3.2.2
+        with:
+          path: common/temp
+          key: ${{ runner.os }}-build-branch-${{ hashFiles('.nx/lockfile.hash') }}
+          restore-keys: |
+            ${{ runner.os }}-build-pr-
+            ${{ runner.os }}-build-
+            ${{ runner.os }}-
+
+      - name: pnpm install
+        # if: steps.cache.outputs.cache-hit != 'true'
+        run: pnpm install
+
+      - name: lint
+        run: pnpm nx run-many -t lint:ci --all

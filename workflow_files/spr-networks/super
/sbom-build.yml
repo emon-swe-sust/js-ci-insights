@@ -1,0 +1,33 @@
+# NOTE move this to docker build yml
+name: SBOM Artifact
+
+on:
+  push:
+    branches: [ main, dev ]
+#  workflow_run:
+#    workflows: [Bump version]
+#    branches: [ main, dev ]
+#    types:
+#      - completed
+
+jobs:
+  on-success:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: '0'
+
+    - name: Set env
+      run: echo "RELEASE_VERSION=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
+    - name: Test release tag version
+      run: echo "Release == $RELEASE_VERSION =="
+
+    - uses: anchore/sbom-action@v0
+      with:
+        path: ./
+
+    - uses: anchore/sbom-action/publish-sbom@v0
+      with:
+        sbom-artifact-match: ".*\\.spdx\\.json$"
+        artifact-name: spr-sbom.spdx.json

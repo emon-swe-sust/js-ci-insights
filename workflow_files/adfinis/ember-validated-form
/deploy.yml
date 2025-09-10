@@ -1,0 +1,29 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  release:
+    types: [published]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: wyvox/action-setup-pnpm@v3
+        with:
+          node-version: 18
+
+      - name: Deploy to Github Pages
+        run: pnpm ember deploy production
+        env:
+          CI: true
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          ADDON_DOCS_UPDATE_LATEST: true

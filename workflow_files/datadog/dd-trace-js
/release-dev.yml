@@ -1,0 +1,29 @@
+name: Release dev release line
+
+on: workflow_dispatch
+
+jobs:
+  dev_release:
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://npmjs.com/package/dd-trace
+    permissions:
+      id-token: write
+      contents: write
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/node
+      - uses: ./.github/actions/install
+      - id: pkg
+        run: |
+          content=`cat ./package.json | tr '\n' ' '`
+          echo "json=$content" >> $GITHUB_OUTPUT
+      - run: npm version --no-git-tag-version ${{ fromJson(steps.pkg.outputs.json).version }}-$(git rev-parse --short HEAD)+${{ github.run_id }}.${{ github.run_attempt }}
+      - run: npm publish --tag dev --provenance
+      - run: |
+          git tag --force dev
+          git push origin :refs/tags/dev
+          git push origin --tags

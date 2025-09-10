@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request: {}
+  workflow_dispatch: {}
+
+concurrency:
+   group: ci-${{ github.head_ref || github.ref }}
+   cancel-in-progress: true
+
+env:
+  TURBO_API: http://127.0.0.1:9080
+  TURBO_TOKEN: this-is-not-a-secret
+  TURBO_TEAM: myself
+
+jobs:
+  setup:
+    name: 'Setup'
+    runs-on: ubuntu-latest
+    outputs:
+      pending: ${{ steps.set-pending.outputs.pend }}
+    steps:
+      - uses: wyvox/action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm build
+      # This is insufficient / would be very verbose
+      # need to create a tool that knows what all the scenarios are,
+      # and iterates over them to create JSON
+      - id: tasks
+        run: |
+          function isPendingTask() {
+            local taskName=$1
+            local packageName=$2
+
+            local result=$( \
+             pnpm turbo run --summarize --dry-run json $taskName \
+             | jq '.tasks[] | select(.package == "$packageName")' \
+             | jq '.cache.status' \
+            )
+
+            if [ "$result" == "MISS" ]; then
+              true
+            else
+              false
+            fi
+          }
+
+          # echo "try.classic=$(isPendingTask 'test:scenario' 'test-app')"
+
+  # TODO: pre-configure all the tasks that need running:
+  #
+  #  pnpm turbo run --summarize --dry-run json $TASK_NAME\
+  #  | jq '.tasks[] | select(.package == "$PACKAGE_NAME")' \
+  #  | jq '.cache.status'
+  #
+  #  (Don't forget to include ENV variables specified in turbo.json)
+
+  # debug_pending_tasks:
+  #   runs-on: ubuntu-latest
+  #   needs: [setup]
+  #   steps:
+  #     - run: echo ${{  needs.setup.outputs.pending }}
+  #     - run: echo '${{  needs.setup.outputs.pending }}' | jq
+  #     - run: echo '${{  fromJSON(needs.setup.outputs.pending).atAll.lint }}'
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: [setup]
+    # if: ${{ fromJSON(needs.setup.outputs.pending).atAll.lint }}
+    steps:
+      - uses: wyvox/action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm build
+      - run: pnpm i -f # injected deps
+      - run: pnpm lint
+
+
+  test:
+    name: "Default Tests"
+    runs-on: ubuntu-latest
+    needs: [setup]
+    # if: ${{ fromJSON(needs.setup.outputs.pending).atAll.test }}
+    steps:
+      - uses: wyvox/action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm build
+      - run: pnpm i -f # injected deps
+      - run: pnpm turbo test:ember --filter test-app
+
+  floating:
+    name: "Floating Dependencies"
+    runs-on: ubuntu-latest
+    needs: [test]
+    # if: ${{ fromJSON(needs.setup.outputs.pending).atAll.test }}
+    steps:
+      - uses: wyvox/action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          pnpm-args: --no-lockfile
+      - run: pnpm build
+      - run: pnpm i -f # injected deps
+      - run: pnpm turbo test:ember --filter test-app
+
+  try-scenarios:
+    name: "${{ matrix.try-scenario }} ${{ matrix.test-app == 'test-app' && '(Classic)' || '(Embroider)' }}"
+    runs-on: ubuntu-latest
+    needs: [test]
+    # if: ${{ fromJSON(needs.setup.outputs.pending).atAll.test }}
+    strategy:
+      fail-fast: false
+      matrix:
+        allow-failure: [false]
+        try-scenario:
+          - ember-resources-5.3
+          - ember-resources-7
+          - ember-lts-3.28
+          - ember-lts-4.4
+          # - ember-lts-4.8
+          # - ember-data @ 4.8 has incorrect peers, so we can't test it
+          - ember-lts-4.12
+          - ember-5.0
+          - ember-lts-5.4
+
+          - ember-release
+          - ember-beta
+          - ember-canary
+        test-app:
+          - test-app
+          - test-embroider-app
+
+    steps:
+      - uses: wyvox/action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm build
+      - run: pnpm i -f # injected deps
+      - name: Run Tests
+        run: pnpm turbo test:scenario --filter ${{ matrix.test-app }} --log-prefix none -- --skip-cleanup
+        env:
+          SCENARIO: ${{ matrix.try-scenario }}
+
+  typecheck_v5:
+    name: '5.* ${{ matrix.typescript-scenario }}'
+    runs-on: ubuntu-latest
+    # if: ${{ fromJSON(needs.setup.outputs.pending).atAll.typecheck }}
+    timeout-minutes: 2
+    needs: [test]
+    continue-on-error: true
+    strategy:
+      fail-fast: true
+      matrix:
+        typescript-scenario:
+          - typescript@5.0
+          - typescript@5.1
+          - typescript@5.2
+          - typescript@5.3
+          - typescript@rc
+          - typescript@next
+
+    steps:
+      - uses: wyvox/action@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: pnpm build
+      - run: pnpm i -f # injected deps
+      - name: 'Change TS to ${{ matrix.typescript-scenario }}'
+        run: 'pnpm add --save-dev ${{ matrix.typescript-scenario}}'
+        working-directory: ./test-app
+      - name: 'Type checking'
+        run: pnpm turbo --filter 'test-app' lint:types
+

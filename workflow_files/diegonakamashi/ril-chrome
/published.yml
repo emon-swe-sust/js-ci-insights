@@ -1,0 +1,42 @@
+name: Publish chrome extension
+run-name: Publishing 🚀
+on:
+  release:
+    types: [published]
+jobs:
+  Publishing-New-Version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16.13.x
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          CONSUMER_KEY: ${{ secrets.POCKET_CONSUMER_KEY }}
+
+      - name: Archive Release
+        uses: thedoctor0/zip-release@main
+        with:
+          type: "zip"
+          filename: "new_extension_version.zip"
+          directory: "extension"
+
+      - name: Upload to Chrome Web Store
+        uses: Passiverecords/chrome-extension-upload-action@1.4.1
+        with:
+          refresh-token: ${{ secrets.REFRESH_TOKEN }}
+          client-id: ${{ secrets.CLIENT_ID }}
+          client-secret: ${{ secrets.CLIENT_SECRET }}
+          file-name: "./extension/new_extension_version.zip"
+          app-id: ${{ secrets.EXTENSION_ID }}
+          publish: false

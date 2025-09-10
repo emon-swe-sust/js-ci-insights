@@ -1,0 +1,51 @@
+name: Encryption Tests 
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/encryption-tests.yml"
+      - "package.json"
+      - "index.js"
+      - "lib/**"
+      - "test/encryption/**.js"
+      - "scripts/setup-encryption-tests.js"
+  push:
+    paths:
+      - ".github/workflows/encryption-tests.yml"
+      - "package.json"
+      - "index.js"
+      - "lib/**"
+      - "test/encryption/**.js"
+      - "scripts/setup-encryption-tests.js"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  run-tests:
+    permissions:
+      # required for all workflows
+      security-events: write
+      id-token: write
+      contents: write
+    runs-on: ubuntu-latest
+    name: Encryption tests
+    env:
+      FORCE_COLOR: true
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Setup node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Install Dependencies
+        run: npm install
+      - name: Install mongodb-client-encryption
+        run: npm install mongodb-client-encryption
+      - name: Setup Tests
+        run: npm run setup-test-encryption
+      - name: Run Tests
+        run: npm run test-encryption

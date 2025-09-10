@@ -1,0 +1,94 @@
+name: build and push
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'webapp/**'
+      - 'backend/**'
+      - 'docker/**'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # https://github.com/docker/metadata-action#typesha
+          tags: |
+            type=sha,priority=100,format=short,prefix=sha-
+            type=raw,priority=200,prefix=sha-,value=${{ github.sha }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # - name: update image tags in k8s manifests
+      #   uses: fjogeleit/yaml-update-action@v0.9.0
+      #   with:
+      #     valueFile: 'kubernetes/base/deployment.yaml'
+      #     propertyPath: 'spec.template.spec.containers[0].image'
+      #     value: ghcr.io/robalb/morsechat:sha-${{ github.sha }}
+      #     updateFile: true
+      #     commitChange: false
+
+      - name: update image tags in compose-prod
+        uses: fjogeleit/yaml-update-action@v0.9.0
+        with:
+          valueFile: 'compose-prod/morsechat-go/docker-compose.yml'
+          propertyPath: 'services.morse.image'
+          value: ghcr.io/robalb/morsechat:sha-${{ github.sha }}
+          updateFile: true
+          commitChange: false
+
+      - name: update image tags in compose-staging
+        uses: fjogeleit/yaml-update-action@v0.9.0
+        with:
+          valueFile: 'compose-staging/morsechat-go-staging/docker-compose.yml'
+          propertyPath: 'services.morse.image'
+          value: ghcr.io/robalb/morsechat:sha-${{ github.sha }}
+          updateFile: true
+          commitChange: false
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -am "Updated image tags in the app manifests"
+
+      - name: Push changes
+        uses: ad-m/github-push-action@v0.6.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}

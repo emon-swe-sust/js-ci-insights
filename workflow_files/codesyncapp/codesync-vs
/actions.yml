@@ -1,0 +1,47 @@
+name: CodeSync VSCode Plugin Tests
+run-name: ${{ github.actor }} is testing CodeSync VSCode Plugin 🚀
+on: [push]
+jobs:
+  Posix:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "token => ${{ github.token }}, GITHUB_TOKEN => ${{ secrets.GITHUB_TOKEN }}"
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20.11.0'
+      - name: Find PR number 
+        uses: jwalton/gh-find-current-pr@v1.3.2
+        id: findPr
+      - name: Code Coverage Report
+        uses: ArtiomTr/jest-coverage-report-action@v2.2.4
+        id: coverage
+        with:
+            package-manager: yarn
+            output: comment
+            prnumber: ${{ steps.findPr.outputs.number }}
+            test-script: yarn test
+      - name: Pre Publish
+        run: yarn vscode:prepublish
+  Windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20.11.0'
+      - name: Install dependencies
+        run: yarn install
+      - name: Run Tests
+        run: yarn test
+  MacOS:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20.11.0'
+      - name: Install dependencies
+        run: yarn install
+      - name: Run Tests
+        run: yarn test

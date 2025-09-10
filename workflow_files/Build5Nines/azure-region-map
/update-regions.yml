@@ -1,0 +1,61 @@
+on:
+  workflow_dispatch:
+  schedule:
+  - cron: 0 4 * * 0 # Every Sunday at 4am
+
+name: Update Azure Regions JSON
+jobs:
+  update-azure-region-json:
+    runs-on: ubuntu-latest
+    steps:
+    # Checkout code
+    - uses: actions/checkout@v4
+      with:
+        path: .
+
+      # Log into Azure
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+        # {
+        #   "clientId": "12345678-1234-1234-1234-123456789012",
+        #   "clientSecret": "your-client-secret",
+        #   "subscriptionId": "12345678-1234-1234-1234-123456789012",
+        #   "tenantId": "12345678-1234-1234-1234-123456789012"
+        # }
+
+    # add action that calls an Azure CLI command
+    - name: Get Azure Regions
+      uses: azure/CLI@v2
+      with:
+        azcliversion: latest
+        inlineScript: |
+          az account list-locations --query "[].{id:id, displayName:displayName, name:name, latitude:metadata.latitude, longitude:metadata.longitude, pairedRegion:metadata.pairedRegion }" --include-extended-locations y --output json > ./azure-regions/azure_regions.json
+
+    - name: Scrub Subscription Id
+      run: |
+        sed -i 's/[0-9a-fA-F]\{8\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{12\}/00000000-0000-0000-0000-000000000000/g' ./azure-regions/azure_regions.json
+
+    - name: Check for Changes
+      id: check_changes
+      run: |
+        if [[ -n "$(git diff --exit-code)" ]]; then
+          echo "Changes detected."
+          echo "::set-output name=has_changes::true"
+        else
+          echo "No changes detected."
+          echo "::set-output name=has_changes::false"
+        fi
+
+    - name: Commit and Push Changes
+      if: steps.check_changes.outputs.has_changes == 'true'
+      run: |
+        git config --global user.name "${{ github.actor }}"
+        git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+
+        git add ./azure-regions/azure_regions.json
+        git commit -m 'Update Azure regions json'
+
+        git push

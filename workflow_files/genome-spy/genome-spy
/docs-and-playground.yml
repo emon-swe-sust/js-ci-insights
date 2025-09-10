@@ -1,0 +1,80 @@
+name: Build and deploy docs and Playground
+
+on:
+    release:
+        types: [released]
+    workflow_dispatch:
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+            - uses: awalsh128/cache-apt-pkgs-action@latest
+              with:
+                  packages: libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev zlib1g-dev
+                  version: 1.0
+
+            - name: Set up Python 3.x
+              uses: actions/setup-python@v2
+              with:
+                  python-version: "3.x"
+
+            - name: Install Python dependencies
+              run: |
+                  python -m pip install --upgrade pip
+                  pip install markdown mkdocs-material cairosvg pillow setuptools mkdocs-git-revision-date-localized-plugin mdx_truly_sane_lists
+                  pushd utils/markdown_extension/
+                  python setup.py build
+                  python setup.py install
+                  popd
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: "npm"
+
+            - name: Install npm dependencies
+              run: npm ci
+
+            - name: Build JSON schema
+              run: npm -w @genome-spy/core run build:schema
+
+            - name: Build packages
+              run: |
+                  npm -w @genome-spy/core run build
+                  npm -w @genome-spy/doc-embed run build
+                  npm -w @genome-spy/playground run build
+
+            - name: Build docs
+              run: npm run build:docs
+
+            - name: Deploy docs
+              uses: peaceiris/actions-gh-pages@v3
+              with:
+                  external_repository: genome-spy/genome-spy.github.io
+                  publish_branch: master
+                  deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+                  publish_dir: ./site
+                  destination_dir: docs
+                  user_name: "github-actions[bot]"
+                  user_email: "github-actions[bot]@users.noreply.github.com"
+                  commit_message: ${{ github.event.head_commit.message }} (docs)
+
+            - name: Kill ssh-agent (otherwise the following deploy fails)
+              run: pkill ssh-agent || true
+
+            - name: Deploy Playground
+              uses: peaceiris/actions-gh-pages@v3
+              with:
+                  external_repository: genome-spy/genome-spy.github.io
+                  publish_branch: master
+                  deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+                  publish_dir: ./packages/playground/dist
+                  destination_dir: playground
+                  user_name: "github-actions[bot]"
+                  user_email: "github-actions[bot]@users.noreply.github.com"
+                  commit_message: ${{ github.event.head_commit.message }} (playground)

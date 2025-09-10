@@ -1,0 +1,31 @@
+name: Check rpm builds
+
+on: [pull_request]
+
+jobs:
+  build-rpm:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:36
+    steps:
+      - name: Install dependencies
+        run: |
+          dnf install -y make rpm-build jq git libappstream-glib
+
+      - name: Clone repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Install npm
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16.x'
+
+      # HACK: NPM doesn't like to run in the mounted $HOME volume
+      - name: Build release
+        run: |
+          mkdir -p /tmp/checkout
+          cp -r . /tmp/checkout
+          cd /tmp/checkout
+          make rpm srpm

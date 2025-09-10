@@ -1,0 +1,87 @@
+name: Build https://elcri.men
+on:
+  #  (repo scope token) curl -H "Accept: application/vnd.github+json" -H "Authorization: token <TOKEN>" --request POST --data '{"event_type": "deploy-website"}' https://api.github.com/repos/diegovalle/new.crimenmexico/dispatches 
+  repository_dispatch:
+    types: deploy-website
+  # Trigger the workflow on push or pull request,
+  # but only for the master branch
+  push:
+    branches:
+      - master
+
+jobs:
+  Build-Elcrimen:
+    runs-on: ubuntu-latest
+    container:
+      image: diegovalle/elcrimen-docker
+      options:  --workdir /home/rstudio/new.crimenmexico --user rstudio
+      credentials:
+        username: diegovalle
+        password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      env:
+        ANSIBLE_PASSWORD: ${{ secrets.ANSIBLE_PASSWORD }}
+        DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+        GH_EMAIL: ${{ secrets.GH_EMAIL }}
+        GH_PAT: ${{ secrets.GH_PAT }}
+        # For installing mxmortalitydb
+        GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+        IPADDRESS: ${{ secrets.IPADDRESS }}
+        NETLIFYAPIKEY: ${{ secrets.NETLIFYAPIKEY }}
+        SEMAPHORE_API_TOKEN: ${{ secrets.SEMAPHORE_API_TOKEN }}
+        SEMAPHORE_PROJECT_ID: ${{ secrets.SEMAPHORE_PROJECT_ID }}
+        SEMAPHORE_REF: ${{ secrets.SEMAPHORE_REF }}
+        B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        B2_APPKEY_ID: ${{ secrets.B2_APPKEY_ID }}
+        B2_APPKEY: ${{ secrets.B2_APPKEY }}
+        CACHE_INVALIDATE_HEADER: ${{ secrets.CACHE_INVALIDATE_HEADER }}
+    steps:
+      - name: Build the website (https://elcri.men)
+        run: |
+          bash -c "export HOME=/home/rstudio && cd ~/new.crimenmexico/ansible/ && echo $ANSIBLE_PASSWORD > password.txt && ansible-playbook -c local ssh.yml --vault-password-file=~/new.crimenmexico/ansible/password.txt --extra-vars 'secrets=true' && cd ~/new.crimenmexico && git config --global url.'https://github.com/'.insteadOf git@github.com: && git config --global url.'https://'.insteadOf git:// && git pull && make"
+      - name: Invalidate stale cache
+        run: |
+          curl --retry 15 -o /dev/null -v https://data.diegovalle.net/elcrimen/nm-estatal-victimas.csv.gz -H "$CACHE_INVALIDATE_HEADER:true"
+          curl --retry 15 -o /dev/null -v https://data.diegovalle.net/elcrimen/nm-fuero-comun-estados.csv.gz -H "$CACHE_INVALIDATE_HEADER:true"
+          curl --retry 15 -o /dev/null -v https://data.diegovalle.net/elcrimen/nm-estatal-victimas.csv.gz -H "$CACHE_INVALIDATE_HEADER:true"
+      - name: Create the json for the state trends webpage
+        run: >
+          curl  --retry 15 -i -H "Authorization: Token $SEMAPHORE_API_TOKEN"
+          -d "project_id=$SEMAPHORE_PROJECT_ID&reference=$SEMAPHORE_REF"
+          -X POST  "https://diegovalle.semaphoreci.com/api/v1alpha/plumber-workflows"
+      - name: Change permissions
+        run: |
+          id -a 
+          cp -r /home/rstudio/new.crimenmexico/ /tmp
+      - name: Upload build artifacts
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: "warn"
+          name: elcrimen-sqlite-db
+          path: |
+            /tmp/new.crimenmexico/db/crimenmexico.db
+            /tmp/new.crimenmexico/R/graphs/*.png
+            /tmp/new.crimenmexico/elcrimen/static/smooth-latest.png 
+          retention-days: 2
+      - name: Upload crime data artifacts
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: warn
+          name: data-files
+          path: |
+            /tmp/new.crimenmexico/data/*.gz
+          retention-days: 5
+      - name: Upload website html
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: warn
+          name: elcrimen_html
+          path: |
+            /tmp/new.crimenmexico/elcri.men/public
+          retention-days: 7
+      - run: echo "🍏 This job's status is ${{ job.status }}."

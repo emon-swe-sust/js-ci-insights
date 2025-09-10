@@ -1,0 +1,48 @@
+jobs:
+  canary:
+    name: canary / ${{matrix.package}}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: node
+      - run: npm install
+      - run: npm run build
+      - uses: actions/checkout@v4
+        with:
+          path: canary/${{matrix.package}}
+          repository: ${{matrix.package}}
+      - run: npm install && npx rimraf "node_modules/**/unified" && npm test
+        working-directory: canary/${{matrix.package}}
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - rehypejs/rehype
+          - remarkjs/remark
+          - retextjs/retext
+          - unifiedjs/unified-engine
+  main:
+    name: ${{matrix.node}} on ${{matrix.os}}
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{matrix.node}}
+      - run: npm install
+      - run: npm test
+      - uses: codecov/codecov-action@v4
+    strategy:
+      matrix:
+        node:
+          - lts/hydrogen
+          - node
+        os:
+          - ubuntu-latest
+          - windows-latest
+name: main
+on:
+  - pull_request
+  - push

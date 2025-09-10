@@ -1,0 +1,23 @@
+name: "integration-test"
+on:
+  push:
+    branches:
+      - main
+      - 'v*'
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    env:
+        OUTPUT_VALUE: overloaded output value
+    steps:
+    - uses: actions/checkout@v5
+    - name: Capture triggering branch name
+      run: echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+    - uses: ./
+      with:
+        project-slug: ${{ github.repository }}
+        user-token: ${{ secrets.CIRCLECI_TOKEN }}
+        branch: ${{ env.BRANCH_NAME }}
+        definition-id: ${{ secrets.CIRCLECI_DEFINITION_ID }}
+        payload: '{"run_output_workflow": true, "output_value": "${{ env.OUTPUT_VALUE }}"}'

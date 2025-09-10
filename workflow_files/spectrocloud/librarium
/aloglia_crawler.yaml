@@ -1,0 +1,50 @@
+# This workflow is triggered when the "Release to Production" workflow is completed OR manually triggered.
+# It triggers the Algolia DocSearch v3 crawler to reindex the documentation.
+# This workflow could be removed as the Algolia Crawler is also triggered automatically through it's UI admin panel.
+# However, in the event we have to stop using the Algolia DocSearch v3 crawler. We can revert to our own custom crawler and index by uncommenting the code below.
+# We just need to make sure we update the GitHub Secrets with the Algolia App ID and Admin Key.
+# The Algolia App ID and Admin Key can be found in the Algolia dashboard. 
+# Refer to the internal team documentation https://spectrocloud.atlassian.net/wiki/spaces/DE/pages/2203516932/Algolia for more information.
+# This workflow supports on-demand execution using the workflow_dispatch event.
+
+name: Algolia Crawler
+
+on:
+  workflow_run:
+    workflows: ["Release to Production"]
+    types: [completed]
+  workflow_dispatch:
+
+env:
+  ALGOLIA_CRAWLER_USER_ID: ${{ secrets.ALGOLIA_CRAWLER_V3_USER_ID }}
+  ALGOLIA_CRAWLER_API_KEY: ${{ secrets.ALGOLIA_CRAWLER_V3_API_KEY }}
+  CRAWLER_ID: ${{ secrets.ALGOLIA_CRAWLER_V3_ID }}
+
+jobs:
+  docsearch:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # - name: Run scraper
+      #   env:
+      #     APPLICATION_ID: ${{ secrets.ALGOLIA_APP_ID }}
+      #     API_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+      #   run: docker run  -e APPLICATION_ID=$APPLICATION_ID  -e API_KEY=$API_KEY  -e "CONFIG=$(cat ./docsearch.config.json | jq -r tostring)" algolia/docsearch-scraper
+
+      - name: Trigger DocSearch v3 Crawler
+        run: |
+          curl -H "Content-Type: application/json" -X POST --user ${ALGOLIA_CRAWLER_USER_ID}:${ALGOLIA_CRAWLER_API_KEY} "https://crawler.algolia.com/api/1/crawlers/${CRAWLER_ID}/reindex"
+
+
+      - name: Slack Notification
+        if: ${{ failure() }}
+        uses: rtCamp/action-slack-notify@v2.3.3
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_PRIVATE_TEAM_WEBHOOK }}
+          SLACK_USERNAME: "spectromate"
+          SLACK_ICON_EMOJI: ":robot_panic:"
+          SLACK_COLOR: ${{ job.status }}
+          SLACK_MESSAGE: 'The Docs Algolia crawler job failed. Please check the GitHub Actions logs for more details.'

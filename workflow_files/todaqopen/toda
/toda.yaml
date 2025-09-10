@@ -1,0 +1,38 @@
+name: toda
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-20.04
+    timeout-minutes: 5
+
+    permissions:
+      id-token: write
+      contents: read
+
+    strategy:
+      matrix:
+        version: [16, 18]
+
+    steps:
+      - name: Use Node.JS ${{ matrix.version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.version }}
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Build toda
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Lint
+        run: npm run lint

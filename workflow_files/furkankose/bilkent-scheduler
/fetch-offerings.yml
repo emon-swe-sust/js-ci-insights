@@ -1,0 +1,31 @@
+name: Fetch Offerings
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  fetch-offerings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Install Dependencies
+        run: yarn install
+      - name: Run Build Script
+        run: yarn fetch-offerings
+      - name: Commit results
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          git add --all
+          git commit --allow-empty -m "chore: sync application data"
+          git push origin main

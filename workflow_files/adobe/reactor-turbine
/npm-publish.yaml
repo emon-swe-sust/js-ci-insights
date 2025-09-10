@@ -1,0 +1,50 @@
+# This workflow will run tests using node and then publish a package to GitHub Packages when a release is created
+# For more information see: https://help.github.com/actions/language-and-framework-guides/publishing-nodejs-packages
+
+name: Node.js Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag to publish to: latest | next'
+        required: false
+        default: 'latest'
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Tag Name
+        if: ${{ github.event.inputs.tag != 'latest' && github.event.inputs.tag != 'next' }}
+        run: |
+          echo 'Only the tags "latest" or "next" are supported. You entered "${{ github.event.inputs.tag }}"'
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - uses: actions/cache@v4
+        id: npm-cache
+        with:
+          path: '**/node_modules'
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/package-lock.json') }}
+      - name: Install dependencies
+        if: steps.npm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+      - uses: saucelabs/sauce-connect-action@v1
+        with:
+          username: ${{ secrets.SAUCE_USERNAME }}
+          accessKey: ${{ secrets.SAUCE_ACCESS_KEY }}
+          noSSLBumpDomains: all
+          noProxyCaching: true
+          tunnelIdentifier: github-action-tunnel
+      - run: npm test
+        env:
+          SAUCE_USERNAME: ${{secrets.SAUCE_USERNAME}}
+          SAUCE_ACCESS_KEY: ${{secrets.SAUCE_ACCESS_KEY}}
+      - uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.ADOBE_BOT_NPM_TOKEN }}
+          tag: ${{ github.event.inputs.tag }}
+          access: 'public'

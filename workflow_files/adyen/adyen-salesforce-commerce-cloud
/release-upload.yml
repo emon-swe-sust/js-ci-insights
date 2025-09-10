@@ -1,0 +1,111 @@
+name: Release upload
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  upload-004:
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(github.head_ref, 'release') &&
+      github.event.pull_request.base.ref == 'main'
+    uses: ./.github/workflows/release-upload-template.yml
+    with:
+      sfra_version: 'v6.1.0'
+      node_version: '14'
+    secrets:
+      SFCC_HOSTNAME: ${{ secrets.SFCC_STOREFRONT_URL_004 }}
+      CODE_VERSION: ${{ secrets.SFCC_CODE_VERSION_COMMON }}
+      SFCC_USERNAME: ${{ secrets.SFCC_USERNAME }}
+      SFCC_PASSWORD: ${{ secrets.SFCC_PASSWORD }}
+      SFCC_CLIENT_ID: ${{ secrets.SFCC_CLIENT_ID }}
+      SFCC_CLIENT_SECRET: ${{ secrets.SFCC_CLIENT_SECRET }}
+      SERVICE_ACCOUNT_SSH_KEY: ${{ secrets.SERVICE_ACCOUNT_SSH_KEY }}
+  upload-006:
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(github.head_ref, 'release') &&
+      github.event.pull_request.base.ref == 'main'
+    uses: ./.github/workflows/release-upload-template.yml
+    with:
+      sfra_version: 'v6.1.0'
+      node_version: '14'
+    secrets:
+      SFCC_HOSTNAME: ${{ secrets.SFCC_STOREFRONT_URL_006 }}
+      CODE_VERSION: ${{ secrets.SFCC_CODE_VERSION_COMMON }}
+      SFCC_USERNAME: ${{ secrets.SFCC_USERNAME }}
+      SFCC_PASSWORD: ${{ secrets.SFCC_PASSWORD }}
+      SFCC_CLIENT_ID: ${{ secrets.SFCC_CLIENT_ID }}
+      SFCC_CLIENT_SECRET: ${{ secrets.SFCC_CLIENT_SECRET }}
+      SERVICE_ACCOUNT_SSH_KEY: ${{ secrets.SERVICE_ACCOUNT_SSH_KEY }}
+  upload-007:
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(github.head_ref, 'release') &&
+      github.event.pull_request.base.ref == 'main'
+    uses: ./.github/workflows/release-upload-template.yml
+    with:
+      sfra_version: 'v6.1.0'
+      node_version: '14'
+    secrets:
+      SFCC_HOSTNAME: ${{ secrets.SFCC_STOREFRONT_URL_007 }}
+      CODE_VERSION: ${{ secrets.SFCC_CODE_VERSION_COMMON }}
+      SFCC_USERNAME: ${{ secrets.SFCC_USERNAME }}
+      SFCC_PASSWORD: ${{ secrets.SFCC_PASSWORD }}
+      SFCC_CLIENT_ID: ${{ secrets.SFCC_CLIENT_ID }}
+      SFCC_CLIENT_SECRET: ${{ secrets.SFCC_CLIENT_SECRET }}
+      SERVICE_ACCOUNT_SSH_KEY: ${{ secrets.SERVICE_ACCOUNT_SSH_KEY }}
+  upload-019:
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(github.head_ref, 'release') &&
+      github.event.pull_request.base.ref == 'main'
+    uses: ./.github/workflows/release-upload-template.yml
+    with:
+      sfra_version: 'v6.1.0'
+      node_version: '14'
+    secrets:
+      SFCC_HOSTNAME: ${{ secrets.SFCC_STOREFRONT_URL_019 }}
+      CODE_VERSION: ${{ secrets.SFCC_CODE_VERSION_COMMON }}
+      SFCC_USERNAME: ${{ secrets.SFCC_USERNAME }}
+      SFCC_PASSWORD: ${{ secrets.SFCC_PASSWORD }}
+      SFCC_CLIENT_ID: ${{ secrets.SFCC_CLIENT_ID }}
+      SFCC_CLIENT_SECRET: ${{ secrets.SFCC_CLIENT_SECRET }}
+      SERVICE_ACCOUNT_SSH_KEY: ${{ secrets.SERVICE_ACCOUNT_SSH_KEY }}
+  upload-020:
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(github.head_ref, 'release') &&
+      github.event.pull_request.base.ref == 'main'
+    uses: ./.github/workflows/release-upload-template.yml
+    with:
+      sfra_version: 'v6.1.0'
+      node_version: '14'
+    secrets:
+      SFCC_HOSTNAME: ${{ secrets.SFCC_STOREFRONT_URL_020 }}
+      CODE_VERSION: ${{ secrets.SFCC_CODE_VERSION_COMMON }}
+      SFCC_USERNAME: ${{ secrets.SFCC_USERNAME }}
+      SFCC_PASSWORD: ${{ secrets.SFCC_PASSWORD }}
+      SFCC_CLIENT_ID: ${{ secrets.SFCC_CLIENT_ID }}
+      SFCC_CLIENT_SECRET: ${{ secrets.SFCC_CLIENT_SECRET }}
+      SERVICE_ACCOUNT_SSH_KEY: ${{ secrets.SERVICE_ACCOUNT_SSH_KEY }}
+  upload-022:
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(github.head_ref, 'release') &&
+      github.event.pull_request.base.ref == 'main'
+    uses: ./.github/workflows/release-upload-template.yml
+    with:
+      sfra_version: 'v6.1.0'
+      node_version: '14'
+    secrets:
+      SFCC_HOSTNAME: ${{ secrets.SFCC_STOREFRONT_URL_022 }}
+      CODE_VERSION: ${{ secrets.SFCC_CODE_VERSION_COMMON }}
+      SFCC_USERNAME: ${{ secrets.SFCC_USERNAME }}
+      SFCC_PASSWORD: ${{ secrets.SFCC_PASSWORD }}
+      SFCC_CLIENT_ID: ${{ secrets.SFCC_CLIENT_ID }}
+      SFCC_CLIENT_SECRET: ${{ secrets.SFCC_CLIENT_SECRET }}
+      SERVICE_ACCOUNT_SSH_KEY: ${{ secrets.SERVICE_ACCOUNT_SSH_KEY }}

@@ -1,0 +1,43 @@
+name: Lint
+on:
+  pull_request:
+    branches:
+      - master
+      - rc-updates
+      - rc-staged
+      
+jobs:
+  run-linters:
+    name: Run linters
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install
+        run: npm ci --prefer-offline
+
+      - name: Build project
+        run: npm run build
+
+      - name: Run stylelint
+        run: npm run stylelint:dist
+
+      - name: Download W3C Validator (vnu.jar)
+        run: wget https://github.com/validator/validator/releases/download/latest/vnu.jar
+
+      - name: Validate CSS
+        run: |
+          # Find all CSS files in dist directory and run validation
+          find ./dist -name "*.css" -print0 | xargs -0 java -jar vnu.jar --css
+
+      - name: Validate JSON
+        run: |
+          # Find all JSON files in dist directory and run validation
+          npx jsonlint ./dist/**/*.json --no-duplicate-keys

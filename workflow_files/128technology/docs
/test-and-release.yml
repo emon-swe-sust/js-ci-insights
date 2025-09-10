@@ -1,0 +1,197 @@
+# This is a composition of lint and test scripts
+# Make sure to update this file along with the others
+
+name: Test and Release
+
+# Run this job on all pushes and pull requests
+# as well as tags with a semantic version
+on:
+  push:
+    branches:
+      - '*'
+    tags:
+      # normal versions
+      - "v?[0-9]+.[0-9]+.[0-9]+"
+      # pre-releases
+      - "v?[0-9]+.[0-9]+.[0-9]+-**"
+  pull_request: {}
+
+# Cancel previous PR/branch runs when a new commit is pushed
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Performs quick checks before the expensive test runs
+  check-and-lint:
+    if: contains(github.event.head_commit.message, '[skip ci]') == false
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install mbus Library
+        run: npm run prepare
+
+      - name: Install Dependencies
+        run: npm ci
+
+#      - name: Perform a type check
+#        run: npm run check:ts
+#        env:
+#          CI: true
+      # - name: Lint TypeScript code
+      #   run: npm run lint
+#      - name: Test package files
+#        run: npm run test:package
+
+  # Runs lib tests on all supported node versions and OSes
+  lib-tests:
+    if: contains(github.event.head_commit.message, '[skip ci]') == false
+
+    needs: [check-and-lint]
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x, 22.x, 24.x]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Python 3.11
+        if: ${{ matrix.os == 'macos-latest' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install socat (macos)
+        if: startsWith(runner.OS, 'macOS')
+        run: brew install socat
+
+      - name: Install socat (Linux)
+        if: startsWith(runner.OS, 'linux')
+        run: sudo apt-get install -y socat
+
+      - name: Install com2tcp (Windows)
+        if: startsWith(runner.OS, 'Windows')
+        shell: pwsh
+        #          choco install --no-progress com2tcp
+        run: |
+          $wc = New-Object System.Net.WebClient
+          $wc.DownloadFile("https://github.com/Apollon77/SupportingFiles/raw/master/appveyor/serial/com0com.cer", "com0com.cer")
+          & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/CertMgr.exe' /add com0com.cer /s /r localMachine root
+          & 'C:/Program Files (x86)/Windows Kits/10/bin/10.0.17763.0/x86/CertMgr.exe' /add com0com.cer /s /r localMachine trustedpublisher
+          $wc.DownloadFile("https://github.com/Apollon77/SupportingFiles/raw/master/appveyor/serial/setup_com0com_W7_x64_signed.exe", "setup_com0com_W7_x64_signed.exe")
+          $env:CNC_INSTALL_CNCA0_CNCB0_PORTS="YES"
+          .\setup_com0com_W7_x64_signed.exe /S
+          sleep 60
+          $wc.DownloadFile("https://github.com/Apollon77/SupportingFiles/raw/master/appveyor/serial/com2tcp.exe", "com2tcp.exe")
+
+      - name: Install mbus Library
+        run: npm run prepare
+
+      - name: patch node gyp on windows to support Visual Studio 2019
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          npm install --global node-gyp@latest
+          npm prefix -g | % {npm config set node_gyp "$_\node_modules\node-gyp\bin\node-gyp.js"}
+
+      - name: get IPv6 address
+        if: startsWith(runner.OS, 'Windows')
+        shell: powershell
+        run: |
+          Get-NetIPAddress -AddressFamily IPV6     
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run local tests
+#        if: startsWith(runner.OS, 'macOS') || startsWith(runner.OS, 'linux')
+        run: npm test
+
+#      - name: Run unit tests
+#        run: npm run test:unit
+#      - name: Run integration tests # (linux/osx)
+#        if: startsWith(runner.OS, 'windows') == false
+#        run: DEBUG=testing:* npm run test:integration
+#      - name: Run integration tests # (windows)
+#        if: startsWith(runner.OS, 'windows')
+#        run: set DEBUG=testing:* & npm run test:integration
+
+  # Deploys the final package to NPM
+  deploy:
+    needs: [lib-tests]
+
+    # Trigger this step only when a commit on master is tagged with a version number
+    if: |
+      contains(github.event.head_commit.message, '[skip ci]') == false &&
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Extract the version and commit body from the tag
+        id: extract_release
+        # The body may be multiline, therefore we need to escape some characters
+        run: |
+          VERSION="${{ github.ref }}"
+          VERSION=${VERSION##*/}
+          VERSION=${VERSION##*v}
+          echo "::set-output name=VERSION::$VERSION"
+          BODY=$(git show -s --format=%b)
+          BODY="${BODY//'%'/'%25'}"
+          BODY="${BODY//$'\n'/'%0A'}"
+          BODY="${BODY//$'\r'/'%0D'}"
+          echo "::set-output name=BODY::$BODY"
+
+      - name: Install mbus Library
+        run: npm run prepare
+
+      - name: Install Dependencies
+        run: npm ci
+
+#      - name: Create a clean build
+#        run: npm run build
+      - name: Publish package to npm
+        run: |
+          npm config set //registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}
+          npm whoami
+          npm publish
+
+      - name: Create Github Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release v${{ steps.extract_release.outputs.VERSION }}
+          draft: false
+          # Prerelease versions create prereleases on Github
+          prerelease: ${{ contains(steps.extract_release.outputs.VERSION, '-') }}
+          body: ${{ steps.extract_release.outputs.BODY }}

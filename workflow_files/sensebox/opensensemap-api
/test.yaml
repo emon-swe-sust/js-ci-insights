@@ -1,0 +1,53 @@
+name: 👷🏼 Test and build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  lint:
+    name: 🔬 Lint code
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ⬣ Install Node.js
+        uses: actions/setup-node@v4.1.0
+        with:
+          node-version: 18
+
+      - name: 📁 Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: |
+          echo "##[set-output name=dir;]$(yarn cache dir)"
+
+      - name: 🔧 Restore yarn cache
+        uses: actions/cache@v4.2.0
+        id: yarn-cache
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: ⬇️ Install project dependencies
+        run: |
+          yarn --prefer-offline --pure-lockfile
+
+      - name: 🔬 Run eslint
+        run: |
+          yarn run lint:ci
+
+  test:
+    name: ⚡ Run tests
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ⚡ Execute tests
+        run: |
+          yarn test

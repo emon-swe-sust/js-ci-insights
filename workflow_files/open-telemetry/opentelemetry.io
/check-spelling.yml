@@ -1,0 +1,49 @@
+name: Spelling
+
+on:
+  merge_group:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  spelling-check:
+    name: SPELLING check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+      - run: npm run _install:dict --ignore-scripts
+      - uses: streetsidesoftware/cspell-action@v7
+        with:
+          # Files should be consistent with check:spelling files
+          files: |
+            content
+            data
+            layouts/**/*.md
+          config: .cspell.yml
+          incremental_files_only: false
+          suggestions: true
+
+  dict-check:
+    name: CSPELL page-local word list check
+    runs-on: ubuntu-latest
+    env:
+      FIX_CMD: fix:dict
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm run ${{ env.FIX_CMD }}
+      - name: Any changed files?
+        run: |
+          CHANGES=`git status --porcelain`
+          if [[ $CHANGES ]]; then
+            echo "Add comment '/${{ env.FIX_CMD }}' to your PR in GitHub,"
+            echo "or locally run 'npm run ${{ env.FIX_CMD }}' and commit the changes:"
+            echo "$CHANGES"
+            exit 1
+          else
+            echo "All page-local dictionaries are well formatted."
+          fi

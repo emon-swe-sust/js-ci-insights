@@ -1,0 +1,52 @@
+name: Update writea
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the fork
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/prplwtf/writea.git
+          git fetch upstream
+
+      - name: Merge upstream changes
+        run: |
+          git checkout main
+          git merge upstream/main --no-edit || true
+
+      - name: Restore specific files and directories
+        run: |
+          [ -f configuration/Posts.yml ] && git checkout HEAD -- configuration/Posts.yml
+          [ -f configuration/Configuration.yml ] && git checkout HEAD -- configuration/Configuration.yml
+          [ -d posts/ ] && git checkout HEAD -- posts/
+          [ -d images/ ] && git checkout HEAD -- images/
+          [ -d themes/ ] && git checkout HEAD -- themes/
+          [ -f CNAME ] && git checkout HEAD -- CNAME
+          [ -f README.md ] && git checkout HEAD -- README.md
+          git rm --cached themes/Default.css || true
+
+      - name: Commit changes
+        run: |
+          git add -A
+          git commit -m "Sync with upstream repository" || echo "No changes to commit"
+
+      - name: Push changes
+        run: |
+          git push origin main
+
+permissions:
+  contents: write

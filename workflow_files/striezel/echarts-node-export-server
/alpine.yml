@@ -1,0 +1,25 @@
+name: Alpine Linux
+
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+          persist-credentials: false
+    - name: Install Node.js + NPM
+      run: |
+        apk update
+        apk add nodejs npm
+    - name: Install build dependencies for Node.js canvas
+      run: |
+        apk add g++ make pkgconf
+        apk add cairo-dev giflib-dev jpeg-dev pango-dev
+    - name: Install Node.js packages
+      run: |
+        cd export-server
+        npm install

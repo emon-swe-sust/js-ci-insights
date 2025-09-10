@@ -1,0 +1,39 @@
+name: 'PR / Opened'
+
+on:
+  pull_request:
+    types: [opened]
+  workflow_dispatch:
+
+jobs:
+  Codegen:
+    uses: ./.github/workflows/call-codegen.yml
+    with:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    secrets:
+      USER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  detect-branch:
+    name: 'detect ticket'
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Branch
+        id: check-branch
+        run: |
+          if [[ ${{ github.head_ref }} =~ ^[A-Za-z]+-[0-9]+.*$ ]]; then
+              echo ::set-output name=match::true
+          fi
+      # Upstream: github.com/tzkhan/pr-update-action
+      - uses: tzkhan/pr-update-action@v2
+        if: steps.check-branch.outputs.match == 'true'
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          base-branch-regex: '[A-Za-z\d-_.\\/]+'
+          head-branch-regex: '^([A-Za-z])+-\d+'
+          title-template: '[%headbranch%] '
+          body-template: |
+            Issue: %headbranch%
+            ---
+          body-update-action: 'prefix'
+          body-uppercase-base-match: false

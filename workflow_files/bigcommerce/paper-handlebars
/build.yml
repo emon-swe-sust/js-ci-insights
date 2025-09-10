@@ -1,0 +1,40 @@
+name: Build
+
+on:
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+        matrix:
+            node: [20.x, 22.x]
+            os: ['ubuntu-latest', 'windows-latest', 'macos-latest']
+    env:
+      TITLE: ${{ github.event.pull_request.title }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Use Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install Dependencies
+        run: npm i
+
+      - name: Verify Github PR Title
+        shell: bash
+        run: echo $TITLE | npx commitlint
+
+      - name: Verify Git Commit Name 
+        run: git log -1 --pretty=format:"%s" |  npx commitlint
+
+      - name: Lint the code
+        run: npm run lint
+
+      - name: Run test
+        run: npm run test

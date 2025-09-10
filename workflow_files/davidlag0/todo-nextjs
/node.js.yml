@@ -1,0 +1,63 @@
+# This workflow will do a clean install of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Node.js CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    environment:
+      name: Production
+    env:
+      DATABASE_URL: "postgresql://testuser:testpassword@127.0.0.1:15432/testdb"
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.4.x]
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    - name: Install dependencies
+      run: npm ci
+    - name: Test for lint issues
+      run: npm run lint
+    - name: Test for prettier formatting issues
+      run: npm run prettier-check
+    - name: Build the Docker PostgreSQL image
+      run: docker build ./postgresql --file ./postgresql/Containerfile --tag postgresdb:latest
+    - name: Start the PostgreSQL container
+      run: docker run -d --rm --name postgres -p 15432:5432/tcp postgresdb:latest
+    - name: Wait until PostgreSQL container is available
+      run: until pg_isready -h 127.0.0.1 -p 15432; do sleep 1; done
+    - name: Initialize database with Prisma
+      run: npx prisma db push
+    - name: Seed database with Prisma
+      run: npx prisma db seed
+    - name: Run tests (unit and integration)
+      uses: cypress-io/github-action@v6
+      env:
+        CORS_ALLOWED_ORIGIN: "*"
+        NEXTAUTH_URL: "http://127.0.0.1:3000/api/auth"
+        NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+        API_BASE_URL: "http://127.0.0.1:3000"
+      with:
+        build: npm run build
+        start: npm run start
+        command: npm run test:coverage
+    - uses: actions/upload-artifact@v4
+      with:
+        name: coverage-${{ matrix.node-version }}
+        path: coverage

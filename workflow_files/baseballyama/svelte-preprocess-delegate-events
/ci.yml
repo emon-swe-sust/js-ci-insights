@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    timeout-minutes: 10
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        node: [16, 17, 18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'pnpm'
+
+      - name: prebuild
+        run: pnpm install --frozen-lockfile
+
+      - name: test project
+        run: pnpm type:gen && pnpm test:all
+
+      - name: install Svelte3
+        run: pnpm i svelte@3 && pnpm i svelte-check@3.4.5
+
+      - name: test project with Svelte3
+        run: pnpm type:gen && pnpm test:all

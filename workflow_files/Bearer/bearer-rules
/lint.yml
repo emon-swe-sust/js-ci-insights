@@ -1,0 +1,32 @@
+name: Linting
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint Rules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+          cache-dependency-path: "**/.github/workflows/*.yml"
+      - name: Lint YML
+        run: npx prettier -c "./rules/**/*.yml"
+      - name: Validate Schema
+        run: scripts/validate.sh

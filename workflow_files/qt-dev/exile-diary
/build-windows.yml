@@ -1,0 +1,41 @@
+name: build-windows
+run-name: Building version v${{ inputs.version }} by @${{ github.actor }} for Windows
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: true
+
+jobs:
+  win-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ inputs.version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install  
+      - name: Build app
+        run: npm run build
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: |
+            dist/exile-diary-reborn-setup-${{ inputs.version }}.exe
+            dist/exile-diary-reborn-setup-${{ inputs.version }}.exe.blockmap
+            dist/latest.yml
+      - name: Update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/exile-diary-reborn-setup-${{ inputs.version }}.exe
+            dist/exile-diary-reborn-setup-${{ inputs.version }}.exe.blockmap
+            dist/latest.yml

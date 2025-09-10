@@ -1,0 +1,35 @@
+# Uses a derivative of https://github.com/vaggeliskls/docusaurus-to-pdf?tab=readme-ov-file#example-workflow
+name: "Generate PDF from Docusaurus"
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+
+jobs:
+  generate-pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sleep for 180 seconds
+        run: sleep 180s
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Docusaurus to PDF Action
+        uses: vaggeliskls/docusaurus-to-pdf@v1
+        with:
+          DOCS_URL: "https://www.oramainteractive.com/Pixelorama-Docs"
+          OUTPUT_PDF_FILENAME: "Pixelorama-Docs.pdf"
+          COVER_TITLE: "Pixelorama Documentation"
+          EXTRA_ARGS: --coverImage="https://www.oramainteractive.com/Pixelorama-Docs/img/favicon.ico" --pdfMargin="10,20,30,40" --paperFormat="A4"
+
+      - name: Upload PDF Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pixelorama Documentation
+          path: "./Pixelorama-Docs.pdf"

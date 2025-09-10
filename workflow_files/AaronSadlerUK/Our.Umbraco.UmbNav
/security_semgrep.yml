@@ -1,0 +1,31 @@
+name: Semgrep
+on:
+  workflow_call:
+
+jobs:
+  semgrep:
+    permissions:
+      security-events: write
+    name: Semgrep Analyze
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep@sha256:62aaded52737fc401299d994f29fcd3d4049bd90bbb77407eca2e29e51ab0d98 # 1.47.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      # We've changed the behavior a little, instead of forcing a fail on `semgrep scan` step
+      # we force the upload, and manage any results in the sencondary CodeQL Analysis of the
+      # uploaded files. Configuration is handled in Settings --> Security --> CodeQL
+      - name: Semgrep Scan
+        run: |
+          echo "SEMGREP_TO_UPLOAD=semgrep.sarif" >> $GITHUB_ENV
+          semgrep scan --sarif --output=semgrep.sarif --exclude="frontend/src/uswds" --metrics=off
+        env:
+          SEMGREP_RULES: "p/default"
+
+      - name: Upload SARIF file for GitHub Advanced Security Dashboard
+        uses: github/codeql-action/upload-sarif@d3678e237b9c32a6c9bffb3315c335f976f3549f # v3
+        with:
+          sarif_file: ${{ env.SEMGREP_TO_UPLOAD }}
+        if: always()

@@ -1,0 +1,39 @@
+name: scheduled-test-stats
+
+on:
+  schedule:
+    - cron: '0 7 * * 1' # every first monday of a month at 07:00 AM UTC
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+        
+      - name: Execute stats
+        run: |
+          stats_cases=$(node bin/gather-test-stats.js)
+          echo $stats_cases
+          echo "instana_stats_test_cases=$stats_cases" >> $GITHUB_ENV
+
+      - name: Send slack message
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "Team Node.js Test Stats",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  {
+                    "title": "Number of Test Cases:",
+                    "value": "${{ env.instana_stats_test_cases }}"
+                  }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BREWERY_NODE_CHANNEL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

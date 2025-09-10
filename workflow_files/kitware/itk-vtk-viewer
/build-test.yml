@@ -1,0 +1,39 @@
+name: Build and Test
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-13, windows-2022]
+        node: [20, 22]
+    name: ${{ matrix.os }} and node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download testing data
+        shell: bash
+        run: |
+          curl -OL https://github.com/Kitware/itk-vtk-viewer/releases/download/v14.35.1/itk-vtk-viewer-testing-data.tar.gz
+          tar xvzf ./itk-vtk-viewer-testing-data.tar.gz -C test/
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          npm run test:downloadData
+          # Allow writing test/output.html
+          sudo chmod -R 777 test
+          # To debug, run `./test/run.sh -d`
+          npm run test:headless

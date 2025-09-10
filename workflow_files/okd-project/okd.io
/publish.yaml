@@ -1,0 +1,32 @@
+name: Publish
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  TITLE: OKD.io
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+      - name: Install dependencies (Python)
+        run: pip install -r requirements.txt --break-system-packages
+      - name: Install dependencies (Node)
+        run: npm ci
+      - name: Spellcheck
+        run: ./node_modules/.bin/cspell "docs/**/*.md"
+      - name: Build the site
+        run: mkdocs gh-deploy --strict --force --clean --verbose -d public
+      - name: Upload built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: okd.io
+          path: public/
+          if-no-files-found: error
+      - name: Log any discovered broken links
+        run: linkchecker -f linkcheckerrc public || true

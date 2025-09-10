@@ -1,0 +1,321 @@
+name: Prebuild Binaries
+
+# Allow manual triggering
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to upload prebuilds to (leave empty to use package.json version)'
+        required: false
+        type: string
+        default: ''
+      create_release:
+        description: "Create new release if it doesn't exist"
+        required: false
+        type: boolean
+        default: true
+
+#  push:
+ #   branches: [n_api, master]
+#  tags:
+#      - 'v*'
+#  pull_request:
+#    branches: [n_api, master]
+
+jobs:
+  prebuild-node:
+    name: Prebuild Node ${{ matrix.node }} on ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-latest]
+        node: [20, 22, 23, 24]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node }}
+
+    # Linux specific setup
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        # Add Microsoft repository
+        curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+        curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+
+        # Install dependencies
+        sudo apt-get update
+        sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18 unixodbc-dev gcc-10 g++-10
+
+        # Set compiler
+        echo "CC=gcc-10" >> $GITHUB_ENV
+        echo "CXX=g++-10" >> $GITHUB_ENV
+
+    # Windows specific setup
+    - name: Install Windows dependencies
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # ODBC Driver 18 for SQL Server should already be installed on Windows runners
+        # Just verify it exists
+        Get-OdbcDriver -Name "*SQL Server*"
+
+    # macOS specific setup
+    - name: Install macOS dependencies
+      if: runner.os == 'macOS'
+      run: |
+        brew install unixodbc
+        # Download and install ODBC Driver
+        brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
+        brew update
+        HOMEBREW_ACCEPT_EULA=Y brew install msodbcsql18 mssql-tools18
+
+    - name: Install npm dependencies
+      run: npm install
+
+    - name: Prebuild binaries
+      run: npx prebuild --strip
+
+    - name: List generated prebuilds (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "=== Generated prebuilds ==="
+        find prebuilds -type f -name "*.tar.gz" 2>/dev/null || echo "No tar.gz files found"
+        ls -la prebuilds/ || echo "prebuilds directory not found"
+
+    - name: List generated prebuilds (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        Write-Host "=== Generated prebuilds ==="
+        if (Test-Path prebuilds) {
+          Get-ChildItem -Path prebuilds -Filter "*.tar.gz" -Recurse | ForEach-Object { $_.FullName }
+          Get-ChildItem -Path prebuilds
+        } else {
+          Write-Host "prebuilds directory not found"
+        }
+
+    - name: Debug GitHub ref
+      run: |
+        echo "GitHub ref: ${{ github.ref }}"
+        echo "Is tag: ${{ startsWith(github.ref, 'refs/tags/') }}"
+        echo "GitHub event name: ${{ github.event_name }}"
+
+    # Skip individual uploads - we do centralized upload in the test-prebuilds job
+    - name: Skip Upload (Done Centrally)
+      run: |
+        echo "Skipping individual upload - uploads are done centrally in test-prebuilds job"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: prebuilds-node-${{ matrix.node }}-${{ matrix.os }}
+        path: prebuilds/
+
+  prebuild-electron:
+    name: Prebuild Electron ${{ matrix.electron }} on ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-latest]
+        electron: [30, 31, 32, 33, 34, 35, 36, 37]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20  # Use a stable Node version for Electron builds
+
+    # Linux specific setup (same as above)
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+        curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+        sudo apt-get update
+        sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18 unixodbc-dev gcc-10 g++-10
+        echo "CC=gcc-10" >> $GITHUB_ENV
+        echo "CXX=g++-10" >> $GITHUB_ENV
+
+    - name: Install Windows dependencies
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        Get-OdbcDriver -Name "*SQL Server*"
+
+    - name: Install macOS dependencies
+      if: runner.os == 'macOS'
+      run: |
+        brew install unixodbc
+        brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
+        brew update
+        HOMEBREW_ACCEPT_EULA=Y brew install msodbcsql18 mssql-tools18
+
+    - name: Install npm dependencies
+      run: npm install
+
+    - name: Prebuild Electron binaries
+      run: npx prebuild -r electron -t ${{ matrix.electron }}.0.0 --strip
+
+    - name: List generated Electron prebuilds (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "=== Generated Electron prebuilds ==="
+        find prebuilds -type f -name "*.tar.gz" 2>/dev/null || echo "No tar.gz files found"
+        ls -la prebuilds/ || echo "prebuilds directory not found"
+
+    - name: List generated Electron prebuilds (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        Write-Host "=== Generated Electron prebuilds ==="
+        if (Test-Path prebuilds) {
+          Get-ChildItem -Path prebuilds -Filter "*.tar.gz" -Recurse | ForEach-Object { $_.FullName }
+          Get-ChildItem -Path prebuilds
+        } else {
+          Write-Host "prebuilds directory not found"
+        }
+
+    - name: Debug GitHub ref (Electron)
+      run: |
+        echo "GitHub ref: ${{ github.ref }}"
+        echo "Is tag: ${{ startsWith(github.ref, 'refs/tags/') }}"
+        echo "GitHub event name: ${{ github.event_name }}"
+
+    # Skip individual uploads - we do centralized upload in the test-prebuilds job
+    - name: Skip Upload (Done Centrally)
+      run: |
+        echo "Skipping individual upload - uploads are done centrally in test-prebuilds job"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: prebuilds-electron-${{ matrix.electron }}-${{ matrix.os }}
+        path: prebuilds/
+
+  test-prebuilds:
+    name: Test prebuilds
+    needs: [prebuild-node, prebuild-electron]
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: prebuilds-artifacts/
+
+    - name: List all prebuilds
+      run: |
+        echo "=== All prebuild artifacts ==="
+        find prebuilds-artifacts -name "*.node" -o -name "*.tar.gz" | sort
+
+    - name: Count prebuilds
+      run: |
+        TOTAL=$(find prebuilds-artifacts -name "*.node" -o -name "*.tar.gz" | wc -l)
+        echo "Total prebuilds created: $TOTAL"
+
+    # Show input parameters
+    - name: Show Workflow Inputs
+      run: |
+        echo "=== Workflow dispatch inputs ==="
+        echo "Event name: ${{ github.event_name }}"
+        echo "Release tag input: '${{ github.event.inputs.release_tag }}'"
+
+    # Determine release tag (from input or package.json)
+    - name: Determine Release Tag
+      id: release_tag
+      run: |
+        if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+          RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+          echo "Using provided release tag: $RELEASE_TAG"
+        else
+          # Extract version from package.json and add 'v' prefix
+          VERSION=$(node -p "require('./package.json').version")
+          RELEASE_TAG="v${VERSION}"
+          echo "Using package.json version: $RELEASE_TAG"
+        fi
+        echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+        echo "Final release tag: $RELEASE_TAG"
+
+    # Upload to existing release when manually triggered
+    - name: Upload to Release
+      if: github.event_name == 'workflow_dispatch'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        RELEASE_TAG="${{ steps.release_tag.outputs.release_tag }}"
+        echo "Uploading prebuilds to release: $RELEASE_TAG"
+        
+        # Check if release exists
+        echo "Checking if release exists..."
+        if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+          echo "Release $RELEASE_TAG exists"
+          RELEASE_EXISTS=true
+        else
+          echo "Release $RELEASE_TAG not found"
+          RELEASE_EXISTS=false
+        fi
+        
+        # List all releases for debugging
+        echo "Available releases:"
+        gh release list --limit 10
+        
+        # Create a temporary directory and copy all tar.gz files
+        mkdir -p upload-staging
+        find prebuilds-artifacts -name "*.tar.gz" -exec cp {} upload-staging/ \;
+        
+        # List files to upload
+        echo "Files to upload:"
+        ls -la upload-staging/
+        FILE_COUNT=$(ls upload-staging/*.tar.gz 2>/dev/null | wc -l)
+        echo "Total files to upload: $FILE_COUNT"
+        
+        if [ "$RELEASE_EXISTS" = "true" ]; then
+          # Upload to existing release
+          cd upload-staging
+          for file in *.tar.gz; do
+            echo "Uploading $file..."
+            gh release upload "$RELEASE_TAG" "$file" --clobber
+          done
+          
+          # Note: Auto-generated notes only work when creating new releases
+          echo "Prebuilds uploaded to existing release (release notes unchanged)"
+          
+        else
+          # Create new release with auto-generated notes and upload files
+          echo "Creating new release with auto-generated notes..."
+          cd upload-staging
+          if gh release create "$RELEASE_TAG" \
+            --title "Release $RELEASE_TAG" \
+            --generate-notes \
+            *.tar.gz 2>/dev/null; then
+            echo "Release created with auto-generated notes"
+          else
+            echo "Auto-generated notes not supported, creating release without notes..."
+            gh release create "$RELEASE_TAG" \
+              --title "Release $RELEASE_TAG" \
+              --notes "Release $RELEASE_TAG" \
+              *.tar.gz
+          fi
+        fi
+        
+        echo "Upload complete! Uploaded $FILE_COUNT prebuilds."
+        echo ""
+        echo "📋 Automated prebuilds uploaded for:"
+        echo "   • Windows (win32-x64)"
+        echo "   • Linux glibc 2.35+ (linux-x64, built on Ubuntu 22.04)" 
+        echo "   • macOS Apple Silicon (darwin-arm64)"
+        echo "   • Node.js versions: 20, 22, 23, 24"
+        echo "   • Electron versions: 32, 33, 34, 35, 36"
+        echo ""
+        echo "ℹ️  Alpine Linux (musl) prebuilds must be built manually:"
+        echo "   npx prebuild --target alpine"
+        echo "   gh release upload $RELEASE_TAG *.tar.gz"

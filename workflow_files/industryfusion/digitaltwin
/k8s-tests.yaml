@@ -1,0 +1,56 @@
+name: K8s tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_call:
+
+env:
+  SELF_HOSTED_RUNNER: true
+
+jobs:
+  build:
+    runs-on: private
+    steps:
+    - uses: actions/checkout@v2
+    - name: Prepare K3d cluster
+      run: |
+        if [ -z "${SELF_HOSTED_RUNNER}" ]; then
+          ( cd ./test && bash ./prepare-platform.sh )
+        else
+          ( cd ./test && bash ./prepare-platform-for-self-hosted-runner.sh )
+        fi
+    - name: Prepare Bats framework
+      run: |
+        cd ./test/bats
+        bash ./prepare-test.sh
+        bats linting.bats
+        shellcheck *.sh *.bats test-*/*.bats
+    - name: Prepare airgap deployment
+      run: |
+        cd helm/airgap-deployment && REGISTRY=k3d-iff.localhost:12345 bash prepare-airgap.bash
+    - name: Build Platform locally
+      run: |
+        cd test && bash build-local-platform.sh
+    - name: Install from local registry
+      run: cd test && bash ./install-platform.sh -lo -c all
+    - name: Run all e2e tests
+      run: |
+        echo sleep 60s to let the system settle
+        sleep 60
+        source ./miniconda3/etc/profile.d/conda.sh
+        conda activate e2etest
+        (exec kubefwd -n iff svc) &
+        sleep 10
+        cd ./test/bats
+        DEBUG=true bats */*.bats
+        killall kubefwd
+    - name: Build and test shacl2flink
+      run: |
+        source ./miniconda3/etc/profile.d/conda.sh
+        conda activate py310
+        ( cd semantic-model/shacl2flink && make setup && make lint test test-kms )
+        ( cd semantic-model/shacl2flink && make test-full-flink-deployment )
+

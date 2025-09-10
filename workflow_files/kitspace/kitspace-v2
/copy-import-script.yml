@@ -1,0 +1,64 @@
+name: Copy import script
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/importBoardsTxt.ts'
+      - '.github/workflows/copy-import-script.yml'
+    branches: [abdo-dev, kaspar-dev, review, master, pre-release, production]
+
+jobs:
+  get_env:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-22.04
+    name: Get staging/production
+    outputs:
+      env: ${{ steps.set_env.outputs.env }}
+    steps:
+      - name: Set the env
+        id: set_env
+        shell: bash
+        run: |
+          if [ "${{ github.ref_name }}" == "production" ] || [ "${{ github.ref_name }}" == "pre-release" ]; then
+            echo "env=production" >> $GITHUB_OUTPUT
+          else
+            echo "env=staging" >> $GITHUB_OUTPUT
+          fi
+
+
+  copy_import_script:
+    runs-on: ubuntu-22.04
+    environment:
+      name: ${{ needs.get_env.outputs.env }}
+    needs:
+      - get_env
+    steps:
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - run: mkdir target
+
+      - uses: actions/checkout@v4
+      - name: Compile the script
+        run: deno compile --allow-env --allow-net --allow-run --allow-read --target x86_64-unknown-linux-gnu --output target/importBoardsTxt scripts/importBoardsTxt.ts --githubToken ${{ secrets.IMPORT_SCRIPT_ACCESS_TOKEN }}
+
+      - name: 'Set domain'
+        id: set_domain
+        run: |
+          if [ "${{ github.ref_name }}" == "production" ]; then
+            echo 'domain=kitspace.org' >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref_name }}" == "pre-release" ]; then
+            echo 'domain=kitspace.dev' >> $GITHUB_OUTPUT
+          else
+            echo 'domain=${{ github.ref_name }}.staging.kitspace.dev' >> $GITHUB_OUTPUT
+          fi
+
+      - name: Copy the script to ${{ steps.set_domain.outputs.domain }}
+        run: |
+          echo -e '${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}' > key-file
+          chmod 600 key-file
+          scp -i key-file -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no target/importBoardsTxt 'deploy@${{ steps.set_domain.outputs.domain }}:'
+          rm -f key-file

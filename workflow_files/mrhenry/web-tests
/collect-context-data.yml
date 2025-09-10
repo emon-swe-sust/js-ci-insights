@@ -1,0 +1,49 @@
+name: 'Collect Context Data'
+on:
+  schedule:
+    - cron: '0 20 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: 
+  group: browserstack
+
+jobs:
+  build:
+    name: 'Collect Context Data'
+    runs-on: ubuntu-latest
+    steps:
+      - name: check out
+        uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 1
+        
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '^1.20'
+
+      - name: make
+        run: make scripts -j 2
+
+      - name: collect
+        run: |
+          web-tests-collect-ua-strings
+          web-tests-reset-priority
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+
+      - name: pages
+        run: web-tests-pages
+
+      - name: save
+        run: |
+          # Git config
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .
+          git commit --allow-empty -m "collect context data"
+          git push --set-upstream origin main
+

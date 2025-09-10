@@ -1,0 +1,52 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-check:
+    runs-on: ubuntu-latest
+    outputs: # set outputs for use in downstream jobs
+      continue: ${{ steps.deployment-check.outputs.continue }}
+      sha: ${{ steps.deployment-check.outputs.sha }}
+
+    steps:
+      # https://github.com/github/branch-deploy/blob/d3c24bd92505e623615b75ffdfac5ed5259adbdb/docs/merge-commit-strategy.md
+      - name: deployment check
+        uses: github/branch-deploy@v10
+        id: deployment-check
+        with:
+          merge_deploy_mode: "true"
+          environment: production
+
+  deploy:
+    if: ${{ needs.deployment-check.outputs.continue == 'true' }}
+    needs: deployment-check
+    environment: production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.deployment-check.outputs.sha }}
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: install dependencies
+        run: npm ci
+
+      - name: Publish - Production
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # pin@3.14.1
+        with:
+          wranglerVersion: '2.17.0'
+          apiToken: ${{ secrets.CF_API_TOKEN }}

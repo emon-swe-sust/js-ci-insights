@@ -1,0 +1,58 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  Test:
+    strategy:
+        matrix:
+          os: [ubuntu-22.04, ubuntu-22.04-arm, windows-2022, macos-14]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+
+      - name: Fetch Repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          cache: 'npm'
+
+      - name: Install Modules
+        run: npm ci
+
+      - name: Tests - Linux
+        if: matrix.os == 'ubuntu-22.04' || matrix.os == 'ubuntu-22.04-arm'
+        run: xvfb-run --auto-servernum npm run test-ci
+
+      - uses: ssciwr/setup-mesa-dist-win@v2
+        if: matrix.os == 'windows-2022'
+
+      - name: Test - Windows
+        shell: bash
+        if: matrix.os == 'windows-2022'
+        run: npm run test-ci
+
+      # - name: Test - MacOS
+      #   if: matrix.os == 'macos-14'
+      #   run: npm run test-ci
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.os != 'macos-14'
+        with:
+          name: __diff__
+          path: test/__diff__
+          retention-days: 1
+          compression-level: 0
+          overwrite: true

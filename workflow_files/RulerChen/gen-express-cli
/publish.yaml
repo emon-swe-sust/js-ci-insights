@@ -1,0 +1,88 @@
+name: Publish package to NPM
+
+on:
+  push:
+    tags:
+      - '*-beta.*' # ex : 1.0.0-beta.1
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Determine publish type
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+            echo "Detected release tag: $TAG_NAME"
+            if [[ "$TAG_NAME" == *"-beta"* ]]; then
+              echo "Detected beta tag: $TAG_NAME"
+              echo "PUBLISH_TYPE=beta" >> $GITHUB_ENV
+              echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+            else
+              echo "Detected non-beta tag: $TAG_NAME"
+              echo "Skipping publish for non-beta tag."
+              exit 0
+            fi
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "Detected push to main branch."
+            echo "PUBLISH_TYPE=latest" >> $GITHUB_ENV
+          else
+            echo "Detected push to non-main branch or non-tag push. Exiting."
+            exit 0
+          fi
+
+      - name: Publish package
+        run: |
+          if [ "$PUBLISH_TYPE" = "latest" ]; then
+            npm publish
+          elif [ "$PUBLISH_TYPE" = "beta" ]; then
+            echo "Updating package.json version to $TAG_NAME"
+            npm version "$TAG_NAME" --no-git-tag-version
+            npm publish --tag beta
+          else
+            echo "Unknown publish type: $PUBLISH_TYPE"
+            exit 1
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  release:
+    runs-on: ubuntu-latest
+    needs: publish
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version from package.json
+        id: pkg
+        run: |
+          echo "VERSION=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: 'v${{ steps.pkg.outputs.VERSION }}'
+          tag_name: 'v${{ steps.pkg.outputs.VERSION }}'
+          body_path: ${{ github.workspace }}/CHANGELOG.md
+          draft: false
+          prerelease: false

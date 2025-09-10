@@ -1,0 +1,33 @@
+name: publish doc
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: dev
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          registry-url: 'https://registry.npmjs.org'
+      - uses: pnpm/action-setup@v2.4.0
+        with:
+          version: 7.5.2
+          run_install: true
+      - name: Build
+        run: pnpm run docs:build
+      - name: GitHub Pages
+        uses: crazy-max/ghaction-github-pages@v3.2.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          target_branch: gh-pages
+          build_dir: docs/.vitepress/dist
+          jekyll: false

@@ -1,0 +1,84 @@
+# 1.setup node env
+# 2.build
+# 3.release
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Setup node env and build
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16.13
+          cache: 'yarn'
+          cache-dependency-path: yarn.lock
+
+      - name: Get tag or branch
+        id: extract_branch
+        shell: bash
+        run: |
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null)
+          branch=${GITHUB_REF#refs/heads/}
+          if [[ "$branch" == "master" || "$branch" == "main" ]]; then
+            ref_name=$branch
+          elif [[ -n "$latest_tag" ]]; then
+            ref_name=$latest_tag
+          else
+            ref_name=$branch
+          fi
+          echo "The ref name is $ref_name"
+          echo "##[set-output name=branch;]${ref_name}"
+
+      - name: Build
+        run: |
+          yarn cache clean
+          yarn config set strict-ssl false
+          rm -rf yarn.lock
+          yarn install
+          yarn run build-with-args true
+
+      - name: Compress
+        run: |
+          pushd dist
+          curl -O https://oss.kubeclipper.io/kube-console/master/kube-console.tar.gz
+          mkdir kube
+          tar -C kube/ -xvzf kube-console.tar.gz
+          rm -rf kube-console.tar.gz
+          ls -F | xargs tar -zcvf kc-console.tar.gz
+          popd
+
+      - name: Setup ossutil
+        uses: manyuanrong/setup-ossutil@v2.0
+        with:
+          endpoint:  ${{ secrets.OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_SECRET }}
+      - name: Upload to oss
+        run: |
+          ossutil cp -rf dist/kc-console.tar.gz oss://${{ secrets.OSS_BUCKET }}/kc-console/${{ steps.extract_tag.outputs.version }}/
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(steps.extract_tag.outputs.version, 'v')
+        with:
+          files: |
+            dist/kc-console.tar.gz
+          # note you'll typically need to create a personal access token
+          # with permissions to create releases in the other repo
+          token: ${{ secrets.GH_TOKEN }}

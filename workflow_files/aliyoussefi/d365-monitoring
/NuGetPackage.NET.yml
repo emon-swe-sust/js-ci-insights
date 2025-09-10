@@ -1,0 +1,44 @@
+name: Publish NuGet Package for .NET Framework DLL
+ 
+on:
+  milestone:
+    types: [closed]
+ 
+jobs:
+  build:
+ 
+    runs-on: windows-latest
+ 
+    steps:
+    - name: Dump GitHub context
+      env:
+        GITHUB_CONTEXT: ${{ toJson(github.event) }}
+        MILESTONE_NAME: ${{ github.event.milestone.title }}
+      run: echo "$MILESTONE_NAME"
+
+    - uses: actions/checkout@v1
+      name: Checkout Code
+     
+    - name: Setup MSBuild Path
+      uses: warrenbuckley/Setup-MSBuild@v1
+       
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v1.0.2
+      with:
+        nuget-version: '5.x'
+     
+    - name: Restore NuGet Packages
+      run: nuget restore Dynamics365.Monitoring.sln
+ 
+    - name: Build and Publish Web App
+      run: msbuild Dynamics365.Monitoring.sln /p:Configuration=Release /p:DeployOnBuild=true /p:PublishProfile=FolderProfile
+ 
+    - name: Pack .NET Assembly as nuspec package
+      run: nuget pack nuspec\D365.Monitoring.nuspec -Version ${{ github.event.milestone.title }} -prop configuration=debug -BasePath Dynamics365.Monitoring.Plugins\
+ 
+    # - name: Push generated package to GitHub registry
+    #   run: dotnet nuget push *.nupkg --skip-duplicate --no-symbols true --api-key NUGET_API_TOKEN --source https://api.nuget.org/v3/index.json 
+    - name: Push generated package to GitHub registry
+      run: nuget push *.nupkg -ApiKey ${{ secrets.NUGET_API_TOKEN }} -Source https://api.nuget.org/v3/index.json 
+
+

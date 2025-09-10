@@ -1,0 +1,16 @@
+---
+name: Trivy
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  trivy:
+    name: Run trivy scanner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy
+        uses: ConsenSys/github-actions/trivy@main

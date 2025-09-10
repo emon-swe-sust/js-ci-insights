@@ -1,0 +1,37 @@
+name: Check changed adapters
+
+#
+# WARNING: 
+#    ** Do NOT run untrusted code when using pull_request_target **
+# pull_request_target is needed as pull_request does not provide secrets and so no 
+# commenting of PR is possible.
+#
+on:
+  pull_request_target:
+    types: [opened, edited, ready_for_review, reopened]
+  issue_comment:
+    types: [created]
+
+# concurrent runs are required if more then one PR get commented with RE-CHECK! at same time
+# concurrency:
+#  group: check-${{ github.head_ref }}
+#  cancel-in-progress: true
+
+jobs:
+  check:
+    if: |
+      github.repository == 'ioBroker/ioBroker.repositories'
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - run: npm i
+      - run: npm run check
+        env:
+          OWN_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IOBBOT_GITHUB_TOKEN: ${{ secrets.IOBBOT_GITHUB_TOKEN }}
+          GITHUB_REF: ${{ env.GITHUB_REF }}
+          GITHUB_EVENT_PATH: ${{ env.GITHUB_EVENT_PATH }}

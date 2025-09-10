@@ -1,0 +1,70 @@
+---
+#################################
+#################################
+## Super Linter GitHub Actions ##
+#################################
+#################################
+name: Lint Code Base
+
+#
+# Documentation:
+# https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions
+#
+
+#############################
+# Start the job on all push #
+#############################
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+###############
+# Set the Job #
+###############
+jobs:
+  build:
+    # Name the Job
+    name: Lint Code Base
+    # Set the agent to run on
+    runs-on: ubuntu-latest
+
+    ##################
+    # Load all steps #
+    ##################
+    steps:
+      ##########################
+      # Checkout the code base #
+      ##########################
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          # Full git history is needed to get a proper list of changed files within `super-linter`
+          fetch-depth: 0
+
+      ##################################################
+      # For PRs we only lint changed files for speed.  #
+      # For others we want to lint the whole codebase. #
+      ##################################################
+      - name: Set VALIDATE_ALL_CODEBASE variable to false
+        # Only run the full workflow for manual runs or if upgrading the super linter
+        if: |
+            github.event_name != 'workflow_dispatch' &&
+            startsWith(github.event.pull_request.title,'Bump github/super-linter') != true
+        run: |
+          echo "VALIDATE_ALL_CODEBASE=false" >> $GITHUB_ENV
+
+      ################################
+      # Run Linter against code base #
+      ################################
+      - name: Lint Code Base
+        uses: super-linter/super-linter/slim@v7
+        env:
+          DEFAULT_BRANCH: main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VALIDATE_JAVASCRIPT_ES: true
+          VALIDATE_EDITORCONFIG: true
+          VALIDATE_MARKDOWN: true
+          VALIDATE_YAML: true

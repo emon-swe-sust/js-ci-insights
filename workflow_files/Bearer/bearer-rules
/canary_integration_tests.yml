@@ -1,0 +1,52 @@
+name: Canary Integration Tests
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["canary-amd64"]
+        group:
+          [
+            "javascript/express",
+            "javascript/hapi",
+            "javascript/lang",
+            "javascript/node",
+            "javascript/react",
+            "javascript/third_parties",
+            "ruby/lang",
+            "ruby/rails",
+            "ruby/third_parties",
+            "java/lang",
+            "java/spring",
+            "java/android",
+            "java/third_parties",
+            "php/lang",
+            "php/symfony",
+            "php/third_parties",
+            "python/django",
+            "python/lang",
+            "python/third_parties",
+            "go/gorilla",
+            "go/gosec",
+            "go/lang",
+            "go/third_parties",
+          ]
+    steps:
+      - uses: actions/checkout@v4
+      - run: yarn install --frozen-lockfile
+      - name: Test ${{ matrix.group }}
+        run: BEARER_VERSION=${{matrix.version}} yarn test tests/${{ matrix.group }}
+        shell: bash

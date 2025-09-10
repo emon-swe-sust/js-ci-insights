@@ -1,0 +1,13 @@
+# Copyright the Hyperledger Fabric contributors. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Scheduled build
+
+on:
+  schedule:
+    - cron: "5 2 * * 6"
+  workflow_dispatch:
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yaml

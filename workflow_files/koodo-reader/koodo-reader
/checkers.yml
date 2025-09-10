@@ -1,0 +1,30 @@
+name: Checkers
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - 'dependabot/**'
+  schedule:
+  - cron: '30 12 * * *'
+  workflow_dispatch:
+
+jobs:
+
+  linkcheck:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - uses: JustinBeckwith/linkinator-action@v1.11.0
+      with:
+        paths: '*.md'
+        timeout: 60000
+
+  spellcheck:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - uses: tbroadley/spellchecker-cli-action@v1
+      with:
+        dictionaries: '.github/dictionary.txt'
+        files: '*.md'

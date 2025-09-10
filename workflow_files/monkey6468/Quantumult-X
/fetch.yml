@@ -1,0 +1,44 @@
+name: Fetch
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 表达式生成  https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule
+    - cron: '0 0,*/1,* * * *'
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 迁出代码
+      uses: actions/checkout@v2
+    - name: 安装Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9.x'
+    - name: 设置时区
+      run: sudo timedatectl set-timezone 'Asia/Shanghai'
+
+    - name: 安装依赖
+      run: |
+        pip install requests
+        pip install beautifulsoup4
+        pip3 install ssr-utils
+    - name: 执行任务
+      run: |
+        python ./Free/1.xxby.py
+        python ./Free/2.scope.py
+        python ./Free/4.incn.py
+        
+      
+    - name: 提交更改
+      run: |
+        git config --local user.name "actions@github.com"
+        git config --local user.email "GitHub Actions"
+        git add .
+        git commit --allow-empty -m "$(date '+%Y-%m-%d %H:%M:%S')抓取节点"
+
+    - name: 推送远程
+      run:     
+        git push

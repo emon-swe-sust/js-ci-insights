@@ -1,0 +1,92 @@
+name: Build LaTeX document
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "public/resume/resume.tex"
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "public/resume/resume.tex"
+      - ".github/workflows/**"
+jobs:
+  build_latex:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compile LaTeX document
+        uses: xu-cheng/latex-action@v2
+        with:
+          root_file: public/resume/resume.tex
+      - name: Uploading artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Resume PDF
+          path: public/resume/resume.pdf
+      - name: Install ImageMagick & ghostscript
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick ghostscript
+      - name: Change ImageMagick security policy
+        run: |
+          for policy in /etc/ImageMagick-6/policy.xml /etc/ImageMagick/policy.xml; do
+            if [ -f "$policy" ]; then
+              DQT='"'
+              SRC="rights=${DQT}none${DQT} pattern=${DQT}PDF${DQT}"
+              RPL="rights=${DQT}read|write${DQT} pattern=${DQT}PDF${DQT}"
+              HGT="name=${DQT}height${DQT} value=${DQT}10KP${DQT}"
+              HGTR="name=${DQT}height${DQT} value=${DQT}128Kp${DQT}"
+              WDT="name=${DQT}width${DQT} value=${DQT}10KP${DQT}"
+              WDTR="name=${DQT}width${DQT} value=${DQT}128Kp${DQT}"
+              MAP="name=${DQT}map${DQT} value=${DQT}512MiB${DQT}"
+              MAPR="name=${DQT}map${DQT} value=${DQT}4GiB${DQT}"
+              MEM="name=${DQT}memory${DQT} value=${DQT}256MiB${DQT}"
+              MEMR="name=${DQT}memory${DQT} value=${DQT}2GiB${DQT}"
+              sudo sed -i "s/$SRC/$RPL/" "$policy" || true
+              sudo sed -i "s/$HGT/$HGTR/" "$policy" || true
+              sudo sed -i "s/$WDT/$WDTR/" "$policy" || true
+              sudo sed -i "s/$MAP/$MAPR/" "$policy" || true
+              sudo sed -i "s/$MEM/$MEMR/" "$policy" || true
+            fi
+          done
+      - name: Convert PDF to PNG
+        run: convert -density 900 -background white -alpha off public/resume/resume.pdf -resize 25% -quality 90 -colorspace RGB resume.png
+
+      - name: Post Processing
+        run: |
+          cp resume.pdf public/resume/
+          # cp resume.png public/resume/
+
+      - name: Get Time
+        id: time
+        uses: nanzm/get-time-action@v2.0
+        with:
+          timeZone: -7
+          format: "YYYY-MM-DD"
+      - name: Create Release and Upload Assets
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Resume compiled on ${{ steps.time.outputs.time }}
+          tag_name: ${{ steps.time.outputs.time }}
+          files: |
+            resume.pdf
+            resume.png
+      - name: Commit PNG and PDF
+        run: |
+          git config --local user.email "action[bot]@github.com"
+          git config --local user.name "github-actions[bot]"
+          git pull origin main --rebase || true
+          git add public/resume/resume.pdf public/resume/resume.png
+          git diff --cached --quiet || git commit -m "[bot] updated png and pdf"
+      - name: Push changes
+        uses: ad-m/github-push-action@v0.6.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+          force: false

@@ -1,0 +1,64 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [Test]
+    branches: ["main", "lexical-demo"]
+    types: [ completed ]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    env:
+      VITE_TENOR_API_KEY: ${{ secrets.TENOR_API_KEY }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4
+
+      - uses: ahmadnassri/action-workflow-run-wait@v1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: yarn
+
+      - name: Setup monorepo + build packages
+        run: yarn setup
+
+      - name: Copy CNAME to build
+        run: cp ./.github/workflows/CNAME ./packages/koenig-lexical/public/CNAME
+
+      - name: Build Demo project
+        run: yarn workspace @tryghost/koenig-lexical build:demo
+
+      - name: Upload production-ready build files
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-files
+          path: ./packages/koenig-lexical/dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: production-files
+          path: ./packages/koenig-lexical/dist
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./packages/koenig-lexical/dist

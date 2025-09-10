@@ -1,0 +1,16 @@
+name: Translate - Production
+description: Workflow for automated translation of Production reports and incidents using Google Translate API
+
+on:
+  schedule:
+    - cron: "0 5 * * *" # Run every day at 5 AM GMT
+  
+  workflow_dispatch:
+
+jobs:
+  call-translate:
+    uses: ./.github/workflows/translate.yml
+    secrets: inherit
+    with:
+      environment: production
+

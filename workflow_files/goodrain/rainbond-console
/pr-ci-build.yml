@@ -1,0 +1,22 @@
+name: pr-ci-build
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, labeled, unlabeled]
+
+jobs:
+  rainbond-allinone:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: |
+            rainbond/rainbond:dev-allinone

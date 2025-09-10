@@ -1,0 +1,32 @@
+name: update_version_api
+
+on:
+  workflow_dispatch:
+  release:
+
+jobs:
+  update_version_api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          show-progress: false
+
+      - name: Update Version API
+        run: |
+          python ./MaaAssistantArknights/update_version.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit & Push changes
+        uses: actions-js/push@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          message: 'chore: auto update version API'
+
+      - name: Deploy API Server
+        run: |
+          gh workflow run deploy_api_server
+        env:
+          GH_TOKEN: ${{ secrets.MISTEOWORKFLOW }}

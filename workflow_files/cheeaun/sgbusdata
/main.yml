@@ -1,0 +1,45 @@
+name: Update latest bus data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 1 * *'
+
+jobs:
+  scheduled:
+    runs-on: buildjet-4vcpu-ubuntu-2204
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+      - env:
+          DatamallAccountKey: ${{ secrets.DATAMALLACCOUNTKEY }}
+        run: |-
+          npm ci
+          npm run build
+      - id: vars
+        run: |-
+          git config user.name "Automated"
+          git config user.email "actions@users.noreply.github.com"
+          timestamp=$(date -u)
+          # Set title and body for PR
+          echo ::set-output name=pr_title::"Latest data: ${timestamp}"
+          # https://trstringer.com/github-actions-multiline-strings/
+          CHANGES=$(node scripts/changes)
+          CHANGES="${CHANGES//'%'/'%25'}"
+          CHANGES="${CHANGES//$'\n'/'%0A'}"
+          CHANGES="${CHANGES//$'\r'/'%0D'}"
+          echo "::set-output name=pr_body::$CHANGES"
+          git diff --name-status
+          git add -A
+          git commit -m "Latest data: ${timestamp}" || exit 0
+          # git push
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v3
+        with:
+          title: ${{ steps.vars.outputs.pr_title }}
+          body: ${{ steps.vars.outputs.pr_body }}
+          branch: latest-data
+          delete-branch: true
+          labels: data

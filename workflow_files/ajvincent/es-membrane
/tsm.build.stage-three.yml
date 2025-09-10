@@ -1,0 +1,28 @@
+name: build-stage-three
+on:
+  push:
+    paths:
+      - '.github/workflows/tsm.build.*'
+      - 'projects/build-utilities/**'
+      - 'projects/mixin-decorators/*'
+      - 'projects/mixin-decorators/dist/source/**'
+      - 'projects/ts-morph-structures/*'
+      - 'projects/ts-morph-structures/gulp-utilities/**'
+      - 'projects/ts-morph-structures/stage_2_snapshot/snapshot/**'
+      - 'projects/ts-morph-structures/stage_3_**'
+      - 'projects/ts-morph-structures/utilities/**'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: './projects/ts-morph-structures'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '^22.13'
+      - run: npm ci
+      - run: npm run build-stage-three
+        timeout-minutes: 5
+      - run: npm run is-repo-clean

@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  release:
+    types: [created]
+
+permissions:
+    contents: write
+    packages: write
+
+jobs:
+  build_linux:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Copy File
+        run: cp ./target/release/nako-blog ./nako-blog && cp ./assert/config/conf.ini ./conf.ini
+
+      - name: Get Tar.gz
+        run: tar -czvf nako-blog-x86_64-linux.tar.gz nako-blog conf.ini LICENSE README.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with: 
+          files: nako-blog-x86_64-linux.tar.gz

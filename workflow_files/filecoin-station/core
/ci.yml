@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        node: ['18', '20', '21', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci --omit=dev
+      - run: npm ci
+      - run: npm run test:unit
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - run: npm run test:types
+      - run: npm run lint
+
+  test-locales:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lang:
+          - en_GB.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - run: npm run test:unit
+        env:
+          LANG: ${{ matrix.lang }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Build and test Docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      REGISTRY: ghcr.io
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: 'arm64'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and load Docker image
+        id: docker_build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: core-test
+          cache-from: type=registry,ref=ghcr.io/CheckerNetwork/node
+          cache-to: type=inline
+
+      - name: Build Docker image for other platforms
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          cache-from: type=registry,ref=ghcr.io/CheckerNetwork/node
+          cache-to: type=inline
+
+      - name: Start Checker Node container with PASSPHRASE
+        run: |
+          docker run \
+            --name checker \
+            --detach \
+            --env FIL_WALLET_ADDRESS=0x000000000000000000000000000000000000dEaD \
+            --env PASSPHRASE=secret \
+            $IMAGEID
+        env:
+          IMAGEID: ${{ steps.docker_build.outputs.imageid }}
+
+      - name: Print checker activity
+        run: |
+          sleep 10 # Wait for Checker subnets to start
+          docker logs checker
+
+      - name: Check | Spark started
+        run: docker logs checker | grep "Spark started"
+
+      - name: Start Checker Node container without PASSPHRASE
+        run: |
+          docker run \
+            --name checker_unsecure \
+            --detach \
+            --env FIL_WALLET_ADDRESS=0x000000000000000000000000000000000000dEaD \
+            $IMAGEID
+        env:
+          IMAGEID: ${{ steps.docker_build.outputs.imageid }}
+
+      - name: Print checker activity
+        run: |
+          sleep 10 # Wait for Checker subnets to start
+          docker logs checker_unsecure
+
+      - name: Check | Spark started
+        run: docker logs checker_unsecure | grep "Spark started"

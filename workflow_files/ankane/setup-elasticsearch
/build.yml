@@ -1,0 +1,25 @@
+name: build
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-14, macos-13, windows-2025, windows-2022]
+        elasticsearch-version: [9, 8]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.
+        with:
+          elasticsearch-version: ${{ matrix.elasticsearch-version }}
+          plugins: |
+            analysis-kuromoji
+            analysis-smartcn
+          config: |
+            cluster.name: my-cluster
+            http.port: 9201
+      - run: curl -s localhost:9201
+      - run: curl -s localhost:9201 | grep my-cluster
+      - run: which elasticsearch
+      - run: elasticsearch-plugin list

@@ -1,0 +1,49 @@
+name: Continuous Integration
+on: [push]
+
+jobs:
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint CSS
+        run: npm run lint:css
+      - name: Lint JS
+        run: npm run lint:js
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [16, 18]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install dependencies
+        run: npm ci
+      - name: Test unit
+        run: npm run test:unit
+      - name: Test build
+        run: |
+          cd test/project
+          npm run build
+      - name: Test inspect
+        run: |
+          cd test/project
+          npm run inspect -- build
+          npm run inspect -- dev

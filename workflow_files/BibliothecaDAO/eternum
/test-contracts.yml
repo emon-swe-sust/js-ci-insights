@@ -1,0 +1,51 @@
+name: test-contracts
+
+on:
+  pull_request:
+    paths:
+      - "contracts/game/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup-environment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl
+
+  test-various:
+    needs: [setup-environment]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test: [models, troop_management, test_troop_movement, test_troop_battle, quest]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v3
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "nightly-2025-05-08"
+      - name: Download Dojo release artifact
+        run: |
+          curl -L -o dojo-linux-x86_64.tar.gz https://github.com/dojoengine/dojo/releases/download/v1.5.0/dojo_v1.5.0_linux_amd64.tar.gz
+          tar -xzf dojo-linux-x86_64.tar.gz
+          sudo mv sozo /usr/local/bin/
+      - name: Run Dojo Test for ${{ matrix.test }}
+        run: |
+          cd contracts/game && sozo test -f ${{ matrix.test }}
+
+  test-scarb-fmt:
+    needs: [setup-environment]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "2.11.4"
+      - name: Run scarb fmt check
+        run: cd contracts/game && scarb fmt --check

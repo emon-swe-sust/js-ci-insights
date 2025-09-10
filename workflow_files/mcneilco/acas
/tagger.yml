@@ -1,0 +1,53 @@
+name: Tag ACAS Repos
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      branch-name:
+        description: "Release branch to apply tag to (must exist in all repos)"
+        required: true
+        type: string
+      tag-name:
+       description: "Git tag name, i.e. 2022.1.0.dev5"
+       required: true
+       type: string
+
+jobs:
+  apply-tags:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        acas-repo: [ acas, acasclient, racas, acas-roo-server ]
+    steps:
+      - name: Set ACAS_REF to the current to input branch or github.ref
+        run: |
+          INPUT_BRANCH_NAME=${{ github.event.inputs.branch-name }}
+          NAME=${INPUT_BRANCH_NAME:-"${{ github.ref }}"}
+          if [ -z "${{ github.event.inputs.branch-name }}" ]; then
+            echo "ACAS_REF=$(echo ${{ github.ref }} | sed 's/refs\/heads\///g')" >> $GITHUB_ENV
+          else
+            echo "ACAS_REF=$(echo $INPUT_BRANCH_NAME)" >> $GITHUB_ENV
+          fi 
+      - name: Modify master to main if this is acasclient
+        if: ${{ matrix.acas-repo == 'acasclient' }}
+        run: |
+          if [ "${{ env.ACAS_REF }}" == "master" ]; then
+            echo "ACAS_REF=main" >> $GITHUB_ENV
+          fi
+      - name: Get the latest commit of ${{ env.ACAS_REF }} and apply tag ${{ github.event.inputs.tag-name }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ACAS_WORKFLOWS_TOKEN }}
+          script: |
+            releaseBranchRef = await github.rest.git.getRef({
+                owner: "mcneilco",
+                repo: "${{ matrix.acas-repo }}",
+                ref: "/heads/${{ env.ACAS_REF }}"
+              })
+            github.rest.git.createRef({
+              owner: "mcneilco",
+              repo: "${{ matrix.acas-repo }}",
+              ref: "refs/tags/${{ github.event.inputs.tag-name }}",
+              sha: releaseBranchRef.data.object.sha
+            })

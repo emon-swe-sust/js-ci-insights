@@ -1,0 +1,22 @@
+name: "smoke-test"
+on:
+  push:
+    branches:
+      - main
+      - 'v*'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+        OUTPUT_VALUE: overloaded output value
+    steps:
+    - name: Capture triggering branch name
+      run: echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+    - uses: promiseofcake/circleci-trigger-action@v2
+      with:
+        user-token: ${{ secrets.CIRCLECI_TOKEN }}
+        project-slug: ${{ github.repository }}
+        branch: ${{ env.BRANCH_NAME }}
+        definition-id: ${{ secrets.CIRCLECI_DEFINITION_ID }}
+        payload: '{"run_output_workflow": true, "output_value": "${{ env.OUTPUT_VALUE }}"}'

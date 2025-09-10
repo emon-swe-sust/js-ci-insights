@@ -1,0 +1,37 @@
+name: Workflow Dispatcher
+on: [repository_dispatch]
+
+jobs:
+  build-ui-and-server:
+    if: github.event.action == 'dispatch-pr-test'
+    uses: layer5labs/meshery-extensions-packages/.github/workflows/extension-test-reusable.yml@master
+    with:
+      checkout_ref: ${{ github.event.client_payload.branch_name }}
+      pr_number: ${{ github.event.client_payload.pr_number }}
+    secrets:
+      PROVIDER_TOKEN: ${{ secrets.PROVIDER_TOKEN }}
+      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+      CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
+      LAYER5_CLOUD_USERNAME: ${{ secrets.LAYER5_CLOUD_USERNAME }}
+      LAYER5_CLOUD_PASSWORD: ${{ secrets.LAYER5_CLOUD_PASSWORD }}
+      LAYER5_CLOUD_TESTING_BOT_EMAIL: ${{ secrets.LAYER5_CLOUD_TESTING_BOT_EMAIL }}
+      LAYER5_CLOUD_TESTING_BOT_PASSWORD: ${{ secrets.LAYER5_CLOUD_TESTING_BOT_PASSWORD }}
+  meshery-cloud-deploy:
+    if: github.event.action == 'meshery-cloud-deploy'
+    uses: layer5labs/meshery-extensions-packages/.github/workflows/meshery-cloud-release.yml@master
+    with:
+      release-environment: ${{ github.event.client_payload.release_environment }}
+      release-version: ${{ github.event.client_payload.release_version}}
+      branch: ${{ github.event.client_payload.branch || 'master' }}
+    secrets:
+      GH_ACCESS_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+      MESHERY_CLOUD_AWS_PROD_HOST: ${{ secrets.MESHERY_CLOUD_AWS_PROD_HOST }}
+      MESHERY_CLOUD_AWS_PROD_USERNAME: ${{ secrets.MESHERY_CLOUD_AWS_PROD_USERNAME }}
+      MESHERY_CLOUD_AWS_PROD_KEY: ${{ secrets.MESHERY_CLOUD_AWS_PROD_KEY }}
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      MESHERY_CLOUD_AWS_STG_HOST: ${{ secrets.MESHERY_CLOUD_AWS_STG_HOST }}
+      GLOBAL_TOKEN: ${{ secrets.GLOBAL_TOKEN }}
+      METAL04_HOST: ${{ secrets.METAL04_HOST }}
+      METAL_KEY: ${{ secrets.METAL_KEY }}
+      METAL_USERNAME: ${{ secrets.METAL_USERNAME }}

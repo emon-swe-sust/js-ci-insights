@@ -1,0 +1,53 @@
+name: Staged Deployment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  Build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Build app
+      run: echo "Building..."
+      
+  Test:
+    runs-on: ubuntu-latest
+    environment: Test
+    needs: Build
+    steps:
+    - name: Test app
+      run: echo "Testing..."  
+      
+  Load-Test:
+    runs-on: ubuntu-latest
+    environment: Load-Test
+    needs: Build
+    steps:
+    - name: Test app
+      run: |
+        echo "Testing..." 
+        sleep 15
+      
+  Staging:
+    runs-on: ubuntu-latest
+    needs: [Test, Load-Test]
+    environment: 
+      name: Staging
+      url: https://pre.writeabout.net
+    steps:
+    - name: Deploy app
+      run: echo "Deploying..."
+
+  Production:
+    runs-on: ubuntu-latest
+    environment: 
+      name: prod
+      url: https://writeabout.net
+    needs: Staging
+    steps:
+    - run: echo "Step 1..."
+    - run: echo "Step 2..."
+    - run: sleep 30
+    - run: echo "Step 4..."
+    - run: echo "Step 5..."
+    

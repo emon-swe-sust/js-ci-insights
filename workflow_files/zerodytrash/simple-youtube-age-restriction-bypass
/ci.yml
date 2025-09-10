@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/**/*.js
+  pull_request:
+    paths:
+      - src/**/*.js
+  workflow_dispatch:
+
+# Prevent all permissions from being set, just use the ones we need.
+permissions:
+  contents: read
+
+# Cancel in-progress runs on new commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    # Prevent running this in forks
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 5
+
+      - name: Check format
+        uses: dprint/check@v2.2

@@ -1,0 +1,142 @@
+name: Docker Image CI
+
+# Controls when the action will run.
+on:
+  # Triggers for workflow
+  push:
+    branches: [ master ]
+
+    tags:
+      - 'v*.*.*'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Test Code
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set version of node to use
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+
+      # This command is similar to npm install, except it's meant to be used in
+      # automated environments such as test platforms, continuous integration,
+      # and deployment -- or any situation where you want to make sure you're
+      # doing a clean install of your dependencies.
+      - run: npm ci
+
+      # Run build script.  If it doesn't exist, don't error
+      - run: npm run build --if-present
+
+      # Run tests
+      - run: npm test
+
+  docker:
+    name: Build Docker Container
+
+    # Run only if build completes successfully
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set tag to release version tag if one is present (in format v.1.0.0)
+      # otherwise consider this a dev build
+      - name: Set Tag Output
+        id: vars
+        run: if [[ ${GITHUB_REF#refs/*/}  == v* ]]; then echo "tag=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT; else echo "tag=dev" >> $GITHUB_OUTPUT; fi
+
+      # Setup QEMU for building various versions of container
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # Setup Buildx before building container
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Login to DockerHub
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Set variable for current date used in container label
+      - name: Get Current Date
+        id: date
+        run: echo "date=$(date --utc +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+      # If release tag in format (v1.0.0) tag container with
+      # git tag and also tag with latest
+      - name: Build & Push Container for Release Version & Latest Tag
+        uses: docker/build-push-action@v6
+        if: ${{ startsWith(steps.vars.outputs.tag, 'v') }}
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64/v8
+          tags: |
+            sjmayotte/route53-dynamic-dns:${{ steps.vars.outputs.tag }}
+            sjmayotte/route53-dynamic-dns:latest
+          build-args: |
+            GIT_SHA=$GITHUB_SHA
+            BUILD_DATE=${{ steps.date.outputs.date }}
+            DOCKER_TAG=${{ steps.vars.outputs.tag }}
+
+      # Tag container for non release versions
+      - name: Build & Push Container for Dev Tag
+        uses: docker/build-push-action@v6
+        if: ${{ startsWith(steps.vars.outputs.tag, 'v') == false }}
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64/v8
+          tags: sjmayotte/route53-dynamic-dns:${{ steps.vars.outputs.tag }}
+          build-args: |
+            GIT_SHA=$GITHUB_SHA
+            BUILD_DATE=${{ steps.date.outputs.date }}
+            DOCKER_TAG=${{ steps.vars.outputs.tag }}
+
+      # Show image digest
+      - name: Image Digest
+        run: echo ${{ steps.docker_build.outputs.digest }}
+
+  publish-docs:
+    name: Create & Publish Docs
+
+    # Run only if build & docker completes successfully
+    #needs: docker
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout code
+      - name: Checkout
+        uses: actions/checkout@v4
+        # Number of commits to fetch. 0 indicates all history for all branches and tags.
+        # Required for https://timvink.github.io/mkdocs-git-revision-date-localized-plugin/index.html
+        with:
+          fetch-depth: 0
+
+      # Build docs using mkdocs material theme
+      - name: Deploy docs
+        uses: mhausenblas/mkdocs-deploy-gh-pages@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUIREMENTS: mkdocs/requirements.txt

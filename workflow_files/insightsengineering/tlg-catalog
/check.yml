@@ -1,0 +1,114 @@
+---
+name: Check 🛠
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  audit:
+    if: github.event_name != 'push'
+    name: Audit Dependencies 🕵️‍♂️
+    uses: insightsengineering/r.pkg.template/.github/workflows/audit.yaml@main
+  r-cmd-dev:
+    if: github.event_name != 'push'
+    name: R CMD Check (development) 🧬
+    uses: insightsengineering/r.pkg.template/.github/workflows/build-check-install.yaml@main
+    secrets:
+      REPO_GITHUB_TOKEN: ${{ secrets.REPO_GITHUB_TOKEN }}
+    with:
+      package-subdirectory: package
+      additional-env-vars: |
+        NOT_CRAN=true
+        QUARTO_PROFILE=development
+        TLG_CATALOG_PKG_BUILD_RENDER=TRUE
+      concurrency-group: development
+      deps-installation-method: setup-r-dependencies
+      lookup-refs: |
+        insightsengineering/random.cdisc.data
+        insightsengineering/formatters
+        insightsengineering/rlistings
+        insightsengineering/rtables
+        insightsengineering/tern
+        insightsengineering/tern.mmrm
+        insightsengineering/tern.rbmi
+        insightsengineering/teal.data
+        insightsengineering/teal.code
+        insightsengineering/teal.logger
+        insightsengineering/teal.reporter
+        insightsengineering/teal.slice
+        insightsengineering/teal.transform
+        insightsengineering/teal.widgets
+        insightsengineering/teal
+        insightsengineering/teal.modules.general
+        insightsengineering/teal.modules.clinical
+      skip-desc-dev: true
+      repository-list: "r-universe-dev=https://pharmaverse.r-universe.dev/, PPM=PPM@latest"
+      cache-version: "dev"
+      disable-package-rebuild-and-upload: true
+  r-cmd-stable:
+    if: github.event_name != 'push'
+    name: R CMD Check (stable) 🧬
+    uses: insightsengineering/r.pkg.template/.github/workflows/build-check-install.yaml@main
+    secrets:
+      REPO_GITHUB_TOKEN: ${{ secrets.REPO_GITHUB_TOKEN }}
+    with:
+      package-subdirectory: package
+      additional-env-vars: |
+        NOT_CRAN=true
+        QUARTO_PROFILE=stable
+        TLG_CATALOG_PKG_BUILD_RENDER=TRUE
+      concurrency-group: stable
+      deps-installation-method: setup-r-dependencies
+      skip-desc-dev: true
+      skip-desc-branch: true
+      repository-list: "r-universe-stable=https://insightsengineering.r-universe.dev/, PPM=PPM@latest"
+      cache-version: "stable"
+      disable-package-rebuild-and-upload: true
+  linter:
+    if: github.event_name != 'push'
+    name: SuperLinter 🦸‍♀️
+    uses: insightsengineering/r.pkg.template/.github/workflows/linter.yaml@main
+  links:
+    if: github.event_name != 'push'
+    name: Check URLs 🌐
+    uses: insightsengineering/r.pkg.template/.github/workflows/links.yaml@main
+    with:
+      package-subdirectory: package
+  vbump:
+    name: Version Bump 🤜🤛
+    if: github.event_name == 'push'
+    uses: insightsengineering/r.pkg.template/.github/workflows/version-bump.yaml@main
+    secrets:
+      REPO_GITHUB_TOKEN: ${{ secrets.REPO_GITHUB_TOKEN }}
+    with:
+      package-subdirectory: package
+  version:
+    name: Version Check 🏁
+    uses: insightsengineering/r.pkg.template/.github/workflows/version.yaml@main
+    with:
+      package-subdirectory: package
+  licenses:
+    if: github.event_name != 'push'
+    name: License Check 🃏
+    uses: insightsengineering/r.pkg.template/.github/workflows/licenses.yaml@main
+  style:
+    if: github.event_name != 'push'
+    name: Style Check 👗
+    uses: insightsengineering/r.pkg.template/.github/workflows/style.yaml@main
+    with:
+      auto-update: true
+  grammar:
+    if: github.event_name != 'push'
+    name: Grammar Check 🔤
+    uses: insightsengineering/r.pkg.template/.github/workflows/grammar.yaml@main

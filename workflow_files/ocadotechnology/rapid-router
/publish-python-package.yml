@@ -1,0 +1,60 @@
+name: Publish Python Package
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - "CHANGELOG.md"
+      - "game/__init__.py"
+  workflow_dispatch:
+jobs:
+  publish-pypi-packages:
+    name: Publish PyPi Packages
+    runs-on: ubuntu-22.04
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+
+      - name: Install pip requirements
+        run: |
+          pip install pipenv build python-semantic-release==9.*
+          pipenv install --dev --system
+          pip install -U git+https://github.com/ocadotechnology/codeforlife-portal.git#egg=codeforlife-portal #TODO: Remove as part of #688
+          sudo apt-get install gettext
+
+      - name: 📜 Detect Semantic Version
+        env:
+          GH_TOKEN: ${{ secrets.CFL_BOT_GH_TOKEN }}
+        run: semantic-release version
+
+      - name: Build package
+        run: python -m build --sdist --wheel
+
+      - name: 🚀 Publish Semantic Release
+        env:
+          GH_TOKEN: ${{ secrets.CFL_BOT_GH_TOKEN }}
+        run: semantic-release publish
+
+      - name: 🚀 Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+  monitor:
+    uses: ocadotechnology/codeforlife-workspace/.github/workflows/monitor-python-release.yaml@main
+    secrets: inherit
+    needs: [publish-pypi-packages]
+    with:
+      python-version: 3.12
+      remove-repo-name-prefix: ""

@@ -1,0 +1,71 @@
+name: Create Release
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Get new tag version
+        run: echo "NEW_TAG=$(node -e "console.log(require('./package.json').version)")" >> $GITHUB_ENV
+
+      - name: Generate release notes and changelog
+        env:
+          NEW_TAG: ${{ env.NEW_TAG }}
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0)
+          NEW_TAG=${{ env.NEW_TAG }}
+          CHANGELOG=$(git log --pretty=format:"%h - %s (%an)<DELIMITER>" $LAST_TAG..HEAD)
+          RELEASE_NOTES="**Full Changelog**: https://github.com/${{ github.repository }}/compare/$LAST_TAG...$NEW_TAG"
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+          echo "$RELEASE_NOTES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Create new tag
+        uses: actions/github-script@v3
+        env:
+          NEW_TAG: ${{ env.NEW_TAG }}
+        with:
+          github-token: ${{ secrets.RN_BOILERPLATE }}
+          script: |
+            const newTag = `refs/tags/${{ env.NEW_TAG }}`;
+            github.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: newTag,
+              sha: context.sha
+            });
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.RN_BOILERPLATE }}
+          NEW_TAG: ${{ env.NEW_TAG }}
+          RELEASE_NOTES: ${{ env.RELEASE_NOTES }}
+        with:
+          tag_name: ${{ env.NEW_TAG }}
+          release_name: ${{ env.NEW_TAG }}
+          body: ${{ env.RELEASE_NOTES }}
+          draft: false
+          prerelease: false
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

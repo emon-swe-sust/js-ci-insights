@@ -1,0 +1,49 @@
+name: Pre-release tag
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish-dist-tag:
+    runs-on: ubuntu-latest
+
+    permissions:
+      packages: write
+      issues: write
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        env :
+          CI: true
+        run: |
+          npm pkg delete scripts.prepare
+          npm ci
+
+      - name: Run build
+        run: |
+          npm run build
+
+      - name: Pre-release tag main 📦
+        if: success()
+        run: npm run release:ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Pre-release main tag failed 🫣
+        if: failure()
+        run: |
+          echo "It seems something didn't go as planned 🤔"
+          exit 1

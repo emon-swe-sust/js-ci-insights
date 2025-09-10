@@ -1,0 +1,46 @@
+---
+name: test
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron:  '0 1 * * *'
+
+jobs:
+  job-test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [ '20', '22', '24' ]
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Check out source code
+        uses: actions/checkout@v4
+
+      - name: Setup
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Check for uncommitted changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "Error: There are uncommitted changes after the build step."
+            git status
+            git diff
+            exit 1
+          fi
+
+      - name: Run test
+        run: |
+          npm test
+          npx playwright install-deps
+          npx playwright install
+          npx playwright test --browser=all

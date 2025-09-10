@@ -1,0 +1,72 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency: 
+  group: cypress-mailosaur
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      CYPRESS_MAILOSAUR_BASE_URL: https://mailosaur.com/
+      CYPRESS_MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
+      CYPRESS_MAILOSAUR_SERVER: ${{ secrets.MAILOSAUR_SERVER }}
+      CYPRESS_MAILOSAUR_VERIFIED_DOMAIN: ${{ secrets.MAILOSAUR_VERIFIED_DOMAIN }}
+      CYPRESS_MAILOSAUR_PREVIEWS_SERVER: ${{ secrets.MAILOSAUR_PREVIEWS_SERVER }}
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18.13.0 # Usually lts/* but https://github.com/bahmutov/start-server-and-test/issues/333
+    - run: npm i && npm run test:ci
+    - name: Notify on Failure
+      uses: skitionek/notify-microsoft-teams@master
+      if: ${{ failure() }}
+      with:
+        webhook_url: ${{ secrets.TEAMS_BUILDS_WEBHOOK }}
+        needs: ${{ toJson(needs) }}
+        job: ${{ toJson(job) }}
+        overwrite: "{ title: `${workflow} failed for ${repository.name}` }"
+
+  build-next:
+    if: ${{ always() }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      CYPRESS_MAILOSAUR_BASE_URL: https://next.mailosaur.com/
+      CYPRESS_MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
+      CYPRESS_MAILOSAUR_SERVER: ${{ secrets.MAILOSAUR_SERVER }}
+      CYPRESS_MAILOSAUR_VERIFIED_DOMAIN: ${{ secrets.MAILOSAUR_VERIFIED_DOMAIN }}
+      CYPRESS_MAILOSAUR_PREVIEWS_SERVER: ${{ secrets.MAILOSAUR_PREVIEWS_SERVER }}
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18.13.0 # Usually lts/* but https://github.com/bahmutov/start-server-and-test/issues/333
+    - run: npm i && npm run test:ci
+    - name: Notify on Failure
+      uses: skitionek/notify-microsoft-teams@master
+      if: ${{ failure() }}
+      with:
+        webhook_url: ${{ secrets.TEAMS_BUILDS_WEBHOOK }}
+        needs: ${{ toJson(needs) }}
+        job: ${{ toJson(job) }}
+        overwrite: "{ title: `${workflow} failed for ${repository.name}` }"

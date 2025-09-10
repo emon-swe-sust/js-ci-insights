@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request: {}
+
+jobs:
+
+  check:
+    runs-on: ubuntu-latest
+    name: Check w/ ${{ matrix.deno-version }}
+    strategy:
+      matrix:
+        deno-version:
+        - v1.39
+        - v1.43
+        - v2.0
+        - v2.1
+        - v2.2
+        - v2.3
+        - canary
+      fail-fast: false # run each branch to completion
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Use Deno ${{ matrix.deno-version }}
+      uses: denoland/setup-deno@v2
+      with:
+        deno-version: ${{ matrix.deno-version }}
+
+    # "https" cache: code from the Internet
+    # External sources won't change much so we use less precise keys
+    - name: Cache https://
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/deno/deps/https
+          ~/.cache/deno/remote/https
+        key: deno/${{ matrix.deno-version }}-https/v1-${{ github.sha }}
+        restore-keys: deno-https/v1-
+
+    - name: Check demo.ts
+      run: time deno check --unstable demo.ts
+
+    - name: Check mod.ts
+      run: time deno check --unstable mod.ts
+
+    # - name: Run tests
+    #   run: time deno test --allow-net=localhost --allow-read=/proc/self
+
+
+  publish-dry-run:
+    runs-on: ubuntu-latest
+    name: Check JSR rules
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Set up Deno
+      uses: denoland/setup-deno@v2
+      with:
+        deno-version: v2.3
+
+    - name: Check publish rules
+      run: time deno publish --dry-run
+
+  rebundle-otel:
+    runs-on: ubuntu-latest
+    name: Rebundle OpenTelemetry
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Set up Deno
+      uses: denoland/setup-deno@v2
+      with:
+        deno-version: v2.3
+
+    # "https" cache: code from the Internet
+    # External sources won't change much so we use less precise keys
+    - name: Cache https://
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/deno/remote/https
+        key: deno-https/v1-${{ github.sha }}
+        restore-keys: deno-https/v1-
+
+    - name: Cache npm
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/deno/npm
+        key: deno-npm/v1-${{ github.sha }}
+        restore-keys: deno-npm/v1-
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        # cache: 'yarn'
+
+    - name: Build
+      run: time hack/bundle-opentelemetry.ts
+
+    - name: Status
+      run: git status
+
+    - name: Check demo.ts
+      run: time deno check --unstable demo.ts
+
+  publish:
+    runs-on: ubuntu-latest
+    needs:
+    - check
+    - publish-dry-run
+    - rebundle-otel
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - uses: denoland/setup-deno@v2
+
+    - uses: actions/checkout@v4
+
+    - name: Publish now
+      run: deno publish

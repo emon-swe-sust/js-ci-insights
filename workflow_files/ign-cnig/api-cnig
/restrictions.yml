@@ -1,0 +1,26 @@
+name: Pull Request Restriction
+ 
+on:
+  pull_request:
+    branches:
+      - '*'
+ 
+jobs:
+  restrict_pull_request:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if PR is from allowed branches
+        run: |
+          SOURCE_BRANCH="${{ github.head_ref }}"
+          TARGET_BRANCH="${{ github.base_ref }}"
+          
+          # Define the special rules for specific branches
+          SPECIAL_SOURCE_BRANCH="premain"
+          SPECIAL_TARGET_BRANCH="master"
+           
+          if [ "$TARGET_BRANCH" == "$SPECIAL_TARGET_BRANCH" ] && [ "$SOURCE_BRANCH" != "$SPECIAL_SOURCE_BRANCH" ]; then
+            echo "No se permite hacer pull request a '$TARGET_BRANCH' desde '$SOURCE_BRANCH'. Solo se permite desde '$SPECIAL_SOURCE_BRANCH'."
+            exit 1
+          fi
+           
+          echo "Pull request permitido desde '$SOURCE_BRANCH' hacia '$TARGET_BRANCH'."

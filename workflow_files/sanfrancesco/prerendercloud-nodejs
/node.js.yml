@@ -1,0 +1,52 @@
+name: Node.js test and npm publish
+on:
+  pull_request:
+    branches:
+      - "**"
+  push:
+    branches:
+      - "master"
+
+jobs:
+  test:
+    name: make test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [12.x, 14.x, 16.x, 18.x, 20.x]
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          # cache: "npm"
+          # cache-dependency-path: "package-lock.json"
+      - uses: actions/cache@v3
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/package-lock.json') }}
+      - run: npm install
+      - run: make build
+      - run: make test
+        env:
+          CI: true
+
+  build:
+    # if: ${{ github.ref == 'refs/heads/master' }}
+    name: npm publish
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - run: make build
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20.x
+          registry-url: "https://registry.npmjs.org"
+      - name: Npm Publish
+        if: ${{ github.ref == 'refs/heads/master' }}
+        run: npm publish ./publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

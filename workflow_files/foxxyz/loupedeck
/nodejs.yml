@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x, 23.x, latest]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+    - name: Update repositories 
+      run: sudo apt-get update
+    - name: Install system dependencies
+      run: sudo apt-get install libcairo2-dev libpango1.0-dev libgif-dev
+    - run: npm ci
+    - run: npm install canvas@next
+    - run: npm test
+      env:
+        CI: true

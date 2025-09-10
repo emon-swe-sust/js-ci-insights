@@ -1,0 +1,32 @@
+name: Selenium tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  selenium_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Gradle Wraper Cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.gradle/wrapper/
+          key: ${{ runner.OS }}-gradle-wraper-cache
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu' # See 'Supported distributions' for available options
+          java-version: '17'
+
+      - name: Run Tests
+        env:
+          CI_BUILD: true
+          MASTO_LOGIN_TEST_USER: ${{ secrets.MASTO_LOGIN_TEST_USER }}
+          MASTO_LOGIN_TEST_PASS: ${{ secrets.MASTO_LOGIN_TEST_PASS }}
+        run: cd selenium-test && ./gradlew test

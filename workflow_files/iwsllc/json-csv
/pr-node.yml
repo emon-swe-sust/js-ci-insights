@@ -1,0 +1,11 @@
+name: "PR to main - @iwsio/json-csv-node"
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'packages/json-csv-node/**'
+jobs:
+  test:
+    if: ${{github.event.pull_request.draft == false && !contains(github.event.head_commit.message, '#skip') }}
+    uses: ./.github/workflows/node-test.yaml

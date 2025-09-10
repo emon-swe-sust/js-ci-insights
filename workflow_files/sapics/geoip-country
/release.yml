@@ -1,0 +1,34 @@
+name: Auto dastabase update
+on:
+  schedule:
+    - cron: '38 23 * * Tue,Fri'
+  workflow_dispatch:
+jobs:
+  release:
+    name: latest version
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          registry-url: 'https://registry.npmjs.org'
+      - name: install dependencies
+        run: npm i
+      - name: update
+        run: npm run-script updatedb
+        env:
+          GEOLITE2_LICENSE_KEY: ${{secrets.GEOLITE2_LICENSE_KEY}}
+          GEOIP_USE_REDIST: true
+      - name: test
+        run: npm run test
+      - name: commit
+        run: scripts/release.sh
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{secrets.GTOKEN}}

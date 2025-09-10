@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+      - expt
+    tags:
+      - "v*.*.*"
+  pull_request:
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '16.x'
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        id: yarn-cache # use this to check for `cache-hit` (`steps.yarn-cache.outputs.cache-hit != 'true'`)
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install project dependencies
+        # if: steps.yarn-cache.outputs.cache-hit != 'true' # Over here!
+        run: |
+          yarn
+          yarn install
+          # No longer do "yarn global add react-scripts"
+          # Was there a reason for this?
+          # react scripts are already part of project and the latest scripts
+          # are incompatible with our node version 14 - so failed here.
+
+      - name: Run linter
+        run: |
+          yarn lint:quiet
+
+      - name: Run tests
+        run: yarn test
+
+      - name: Compile application
+        env:
+          CI: false
+        run: yarn build

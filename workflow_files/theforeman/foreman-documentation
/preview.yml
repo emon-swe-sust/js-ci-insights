@@ -1,0 +1,105 @@
+name: preview
+
+on:
+  workflow_run:
+    workflows:
+      - deploy
+    types:
+      - completed
+
+jobs:
+  preview-failed:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download metadata artifact
+        run: gh run download '${{ github.event.workflow_run.id }}' -n pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Read PR data
+        run: echo "PR_DATA=$(cat ./pr.json)" >> $GITHUB_ENV
+
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          number: ${{ fromJSON(env.PR_DATA).pr_number }}
+          message: "The PR preview for ${{ fromJSON(env.PR_DATA).head_sha }} could not be generated"
+
+  preview:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download metadata artifact
+        run: gh run download '${{ github.event.workflow_run.id }}' -n pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Read PR data
+        run: echo "PR_DATA=$(cat ./pr.json)" >> $GITHUB_ENV
+
+      - name: Set preview domain
+        run: echo "PREVIEW_DOMAIN=$(echo ${{ github.repository }} | tr / - )-${{ github.job }}-pr-${{ fromJSON(env.PR_DATA).pr_number }}.surge.sh" >> $GITHUB_ENV
+
+      - name: Install surge
+        run: npm install surge
+
+      - name: Install diffstat and pygments
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y diffstat python3-pygments
+
+      - name: Create preview layout
+        run: |
+          gh run download '${{ github.event.workflow_run.id }}' --name 'foreman-docs-web-master' --dir preview
+          gh run download '${{ github.event.workflow_run.id }}' --name 'foreman-docs-html-${{ fromJSON(env.PR_DATA).branch_name }}' --dir 'preview/${{ fromJSON(env.PR_DATA).target_name }}'
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create old base
+        run: gh run download '${{ github.event.workflow_run.id }}' --name foreman-docs-html-base --dir old
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create diff to old base
+        run: |
+          diff -Nrwu old/ preview/${{ fromJSON(env.PR_DATA).target_name }}/ | cat > preview/diff.patch
+          if [[ -s preview/diff.patch ]] ; then
+            pygmentize -o preview/diff.html -l diff -f html -O full preview/diff.patch
+            diffstat -l -p2 preview/diff.patch > diff.txt
+          fi
+
+      - name: Deploy to surge.sh
+        run: ./node_modules/.bin/surge ./preview $PREVIEW_DOMAIN --token ${{ secrets.SURGE_TOKEN }}
+
+      - name: Generate summary
+        run: |
+          echo "The PR preview for ${{ fromJSON(env.PR_DATA).head_sha }} is available at [${{ env.PREVIEW_DOMAIN }}](https://${{ env.PREVIEW_DOMAIN }})" >> pr.md
+          echo "" >> pr.md
+
+          if [[ -f diff.txt ]] ; then
+            echo "The following output files are affected by this PR:" >> pr.md
+            sed -E "s#(.*)#- [\1](https://${{ env.PREVIEW_DOMAIN }}/${{ fromJSON(env.PR_DATA).target_name }}/\1)#" diff.txt >> pr.md
+          else
+            echo "No diff compared to the current base" >> pr.md
+          fi
+
+          if [[ -f preview/diff.patch ]] ; then
+            echo "" >> pr.md
+            echo '[show diff](https://${{ env.PREVIEW_DOMAIN }}/diff.patch)' >> pr.md
+          fi
+
+          if [[ -f preview/diff.html ]] ; then
+            echo "" >> pr.md
+            echo '[show diff as HTML](https://${{ env.PREVIEW_DOMAIN }}/diff.html)' >> pr.md
+          fi
+
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          number: ${{ fromJSON(env.PR_DATA).pr_number }}
+          path: pr.md

@@ -1,0 +1,16 @@
+name: CI
+on:
+  [push, pull_request]
+jobs:
+  ci:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: npm install --ignore-scripts
+    - run: node install.js
+    - run: ./bin/deno --version

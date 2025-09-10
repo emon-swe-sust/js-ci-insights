@@ -1,0 +1,22 @@
+name: GitHub pages
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+      - run: npm i
+      - run: npm install jsdoc ink-docstrap tsd-jsdoc
+      - name: Build
+        run: npm run build:docs
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+          publish_dir: ./docs

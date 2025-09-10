@@ -1,0 +1,96 @@
+name: Plugin Check
+
+on:
+  push:
+    paths:
+      - '**.js'
+      - '**.cjs'
+      - '**.ts'
+      - '**.tsx'
+      - '**/package.json'
+      - 'package-lock.json'
+      - 'web-stories.php'
+      - 'includes/**.php'
+      - '.github/workflows/lint-plugin-check.yml'
+    branches:
+      - main
+  pull_request:
+    paths:
+      - '**.js'
+      - '**.cjs'
+      - '**.ts'
+      - '**.tsx'
+      - '**/package.json'
+      - 'package-lock.json'
+      - 'web-stories.php'
+      - 'includes/**.php'
+      - '.github/workflows/lint-plugin-check.yml'
+
+permissions:
+  contents: read
+
+# Cancels all previous workflow runs for pull requests that have not completed.
+concurrency:
+  # The concurrency group contains the workflow name and the (target) branch name.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911
+        with:
+          egress-policy: audit # TODO: change to 'egress-policy: block' after couple of runs
+
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@ec406be512d7077f68eed36e63f4d91bc006edc4
+        with:
+          php-version: '8.0'
+          coverage: none
+          tools: composer
+
+      - name: Install dependencies
+        run: |
+          npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+
+      - name: Install PHP dependencies
+        uses: ramsey/composer-install@3cf229dc2919194e9e36783941438d17239e8520
+        with:
+          composer-options: '--prefer-dist --no-progress --no-interaction'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: latest
+
+      - name: Build plugin
+        run: bun run build:js
+
+      - name: Bundle plugin
+        run: bun run workflow:build-plugin
+
+      - name: Run plugin check
+        uses: wordpress/plugin-check-action@v1
+        with:
+          build-dir: './build/web-stories'
+          exclude-directories: 'third-party'
+          exclude-checks: |
+            late_escaping
+            plugin_readme
+            plugin_review_phpcs
+            plugin_updater

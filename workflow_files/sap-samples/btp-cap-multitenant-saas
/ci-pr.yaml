@@ -1,0 +1,211 @@
+name: Deployment and Subscription Test
+
+on:
+  pull_request_target:
+    branches:
+      - main  # Run the workflow for PRs targeting the "main" branch
+    paths-ignore:
+      - '**/*.md'
+jobs:
+  cf-test:
+    if: github.event.pull_request.draft == false  #Skip on draft PRs
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.pull_request.head.repo.fork == true && 'ci-forked' || 'ci-owner' }}
+    steps:
+    # Step 1: Check out the code from the PR branch
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ${{github.event.pull_request.head.sha}}
+
+    # Step 2: Set up Node.js
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20.x'
+
+    # Step 3: Install MBT and dependencies
+    - name: Install MBT and dependencies
+      run: |
+        npm install -g mbt
+        cd code
+        npm install --production
+
+    # Step 4: Install CF Cli
+    - name: Install CF Cli
+      run: |
+         wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | gpg --dearmor -o /usr/share/keyrings/cli.cloudfoundry.org.gpg
+         echo "deb [trusted=yes] https://packages.cloudfoundry.org/debian stable main" | sudo tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+         sudo apt-get update
+         sudo apt-get install cf8-cli
+
+    # Step 5: Download and Install SAP BTP CLI
+    - name: Install BTP CLI
+      run: |
+        dpkg --print-architecture
+        curl -LJO https://tools.hana.ondemand.com/additional/btp-cli-linux-amd64-latest.tar.gz --cookie "eula_3_2_agreed=tools.hana.ondemand.com/developer-license-3_2.txt"
+        tar -xzf btp-cli-linux-amd64-latest.tar.gz
+        ls -a
+        mv linux-amd64/btp /usr/local/bin
+        chmod +x /usr/local/bin/btp
+    
+    # Step 6: Install Multiapps Plugin
+    - name: Install Multiapps Plugin
+      run: |
+        cf add-plugin-repo CF-Community https://plugins.cloudfoundry.org
+        cf install-plugin multiapps -f
+
+    # Step 7: Login to CF
+    - name: Log in to Cloud Foundry
+      run: |
+        cf login -u ${{ secrets.CF_USERNAME }} -p ${{ secrets.CF_PASSWORD }} -o ${{ secrets.CF_ORG }} -s ${{ secrets.CF_SPACE }} -a ${{ secrets.CF_API }} --origin saptfe-platform
+      
+    - name: Init Broker Catalog
+      run: |
+        cd code/broker
+        npm run init
+        
+    # Step 8: Build the project
+    - name: Build MTA Archive
+      run: |
+        cd deploy/cf
+        sed -i 's|{{BROKER_USER}}|'"${{ secrets.BROKER_USER }}"'|g' ./mtaext/ci.mtaext
+        sed -i 's|{{BROKER_PASSWORD}}|'"${{ secrets.BROKER_PASSWORD }}"'|g' ./mtaext/ci.mtaext
+        mbt build -e ./mtaext/ci.mtaext
+
+    # Step 9: Verify MTA Archive built successfully
+    - name: Deploy to CF
+      run: |
+        cf deploy ./deploy/cf/mta_archives/susaas_0.0.1.mtar -f 
+
+    # Step 10: Verify MTA Archive built successfully
+    - name: Run Subscription Test Script
+      run: |
+        chmod +x ./code/test/subscription-test.sh
+        ./code/test/subscription-test.sh
+      env:
+        BTP_USERNAME: ${{ secrets.CF_USERNAME }}
+        BTP_PASSWORD: ${{ secrets.CF_PASSWORD }}
+        BTP_SUBDOMAIN: ${{ secrets.BTP_SUBDOMAIN }}
+        CF_SPACE: ${{ secrets.CF_SPACE }}
+        CF_ORG: ${{ secrets.CF_ORG}}
+  
+  kyma:
+    if: github.event.pull_request.draft == false  #Skip on draft PRs
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.pull_request.head.repo.fork == true && 'ci-forked' || 'ci-owner' }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ${{github.event.pull_request.head.sha}}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20.x'
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v4
+      id: install-kctl
+
+    - name: Install Helm
+      uses: azure/setup-helm@v4.3.0
+      id: install-helm
+
+    - name: Install pack CLI
+      run: |
+        sudo add-apt-repository ppa:cncf-buildpacks/pack-cli
+        sudo apt-get update
+        sudo apt-get install pack-cli
+
+    - name: Install BTP CLI
+      run: |
+        dpkg --print-architecture
+        curl -LJO https://tools.hana.ondemand.com/additional/btp-cli-linux-amd64-latest.tar.gz --cookie "eula_3_2_agreed=tools.hana.ondemand.com/developer-license-3_2.txt"
+        tar -xzf btp-cli-linux-amd64-latest.tar.gz
+        ls -a
+        mv linux-amd64/btp /usr/local/bin
+        chmod +x /usr/local/bin/btp
+
+    - name: Create kubeconfig file
+      run: |
+        echo "🔐 Fetching token from IAS..."
+
+        TOKEN=$(curl -s -u "$IAS_CLIENT_ID:$IAS_CLIENT_SECRET" \
+        -X POST "$IAS_TOKEN_URL" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "grant_type=client_credentials" | jq -r '.access_token')
+
+        if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+          echo "❌ Failed to retrieve access token"
+        exit 1
+        fi
+
+        echo "::add-mask::$TOKEN"
+        mkdir -p ~/.kube
+        cat <<EOF > ~/.kube/config
+        apiVersion: v1
+        kind: Config
+        current-context: ${CLUSTER_NAME}
+        users:
+          - name: ${CLUSTER_NAME}
+            user:
+              token: ${TOKEN}
+        clusters:
+          - name: ${CLUSTER_NAME}
+            cluster:
+              certificate-authority-data: ${CERTIFICATE}
+              server: ${SERVER}
+        contexts:
+          - context:
+              cluster:  ${CLUSTER_NAME}
+              user: ${CLUSTER_NAME}
+              namespace: mtenant
+            name: ${CLUSTER_NAME}
+        EOF
+      env:
+        CERTIFICATE: ${{ secrets.CLUSTER_CA_DATA }}
+        SERVER:  ${{ secrets.CLUSTER_API }}
+        CLUSTER_NAME: ${{ secrets.CLUSTER_NAME }}
+        IAS_CLIENT_ID: ${{ secrets.IAS_CLIENT_ID }}
+        IAS_CLIENT_SECRET: ${{ secrets.IAS_CLIENT_SECRET }}
+        IAS_TOKEN_URL: ${{ secrets.IAS_TOKEN_URL }}
+
+    - name: Test Kubectl
+      run: |
+        kubectl get namespaces
+      
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USER }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+    - name: Build and Deploy
+      run: |
+        cd code
+        make release IMAGE_PREFIX=${DOCKERHUB_USER} KYMA_DOMAIN=${KYMA_DOMAIN}
+      env:
+        DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+        KYMA_DOMAIN: ${{ secrets.KYMA_DOMAIN }}
+    
+    - name: Run Subscription Test Script 
+      run: |
+        chmod +x ./code/test/subscription-test.sh
+        ./code/test/subscription-test.sh
+      env:
+        BTP_USERNAME: ${{ secrets.CF_USERNAME }}
+        BTP_PASSWORD: ${{ secrets.CF_PASSWORD }}
+        BTP_SUBDOMAIN: ${{ secrets.BTP_SUBDOMAIN }}
+
+
+    
+        
+
+        
+

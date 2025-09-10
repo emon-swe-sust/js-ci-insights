@@ -1,0 +1,153 @@
+name: Publish
+on:
+  issues:
+    types: [labeled]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    name: Publish a new version
+    if: github.event.label.name == 'accepted' && github.event.issue.state == 'open'
+    timeout-minutes: 90
+    env:
+      SENTRY_DSN: "https://303a687befb64dc2b40ce4c96de507c5@o1.ingest.sentry.io/6183838"
+    steps:
+      - name: Get repo contents
+        uses: actions/checkout@v3
+        with:
+          path: .__publish__
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 14
+          cache: yarn
+          cache-dependency-path: .__publish__/yarn.lock
+
+      - name: Install yarn dependencies
+        run: yarn install --cwd ".__publish__"
+
+      - name: Parse and set inputs
+        id: inputs
+        run: node .__publish__/src/publish/inputs.js
+
+      - name: Inform start
+        if: steps.inputs.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .__publish__/src/publish/post-workflow-details.js
+
+      # Setting the target repo branch will cause the craft config (.craft.yml) to be taken from the checked out branch
+      # By default, we check out the default branch of the repo.
+      # If you need to maintain diverging craft configs on different branches, add your repo and the merge target branch
+      # (i.e. the branch craft will merge the release branch into) into the if condition below.
+      - name: Set target repo checkout branch
+        # Note: Branches registered here MUST BE protected in the target repo!
+        if: |
+          fromJSON(steps.inputs.outputs.result).repo == 'sentry-migr8' && fromJSON(steps.inputs.outputs.result).merge_target == 'tmp-merge-target' ||
+          fromJSON(steps.inputs.outputs.result).repo == 'sentry-javascript' && fromJSON(steps.inputs.outputs.result).merge_target == 'v9' ||
+          fromJSON(steps.inputs.outputs.result).repo == 'sentry-javascript' && fromJSON(steps.inputs.outputs.result).merge_target == 'v8' ||
+          fromJSON(steps.inputs.outputs.result).repo == 'sentry-javascript' && fromJSON(steps.inputs.outputs.result).merge_target == 'v7' ||
+          fromJSON(steps.inputs.outputs.result).repo == 'sentry-javascript' && fromJSON(steps.inputs.outputs.result).merge_target == 'master' ||
+          fromJSON(steps.inputs.outputs.result).repo == 'sentry-python' && fromJSON(steps.inputs.outputs.result).merge_target == 'alpha' ||
+          fromJSON(steps.inputs.outputs.result).repo == 'sentry-wizard' && fromJSON(steps.inputs.outputs.result).merge_target == '1.x' ||
+          false
+        id: target-repo-branch
+        run: |
+          echo 'taking craft config from branch ${{ fromJSON(steps.inputs.outputs.result).merge_target }} in ${{ fromJSON(steps.inputs.outputs.result).repo }}'
+          echo 'target_repo_branch=${{ fromJSON(steps.inputs.outputs.result).merge_target }}' >> "$GITHUB_OUTPUT"
+
+      - name: Get Release Bot auth token
+        id: token
+        uses: actions/create-github-app-token@5d869da34e18e7287c1daad50e0b8ea0f506ce69 # v1.11.0
+        with:
+          app-id: ${{ vars.SENTRY_RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.SENTRY_RELEASE_BOT_PRIVATE_KEY }}
+          owner: getsentry # create token that have access to all repos
+
+      - uses: actions/checkout@v3
+        name: Check out target repo
+        if: ${{ steps.inputs.outputs.result }}
+        with:
+          path: __repo__
+          ref: ${{ steps.target-repo-branch.outputs.target_repo_branch || ''}}
+          repository: getsentry/${{ fromJSON(steps.inputs.outputs.result).repo }}
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Set targets
+        shell: bash
+        if: fromJSON(steps.inputs.outputs.result).targets
+        run: >
+          jq -n --argjson
+          source '${{ toJSON(fromJSON(steps.inputs.outputs.result).targets) }}'
+          '[{($source[]): true }] | add | {"published": (. // {}) }'
+          > __repo__/${{ fromJSON(steps.inputs.outputs.result).path }}/.craft-publish-${{ fromJSON(steps.inputs.outputs.result).version }}.json
+
+      - uses: docker://getsentry/craft:latest
+        name: Publish using Craft
+        with:
+          entrypoint: /bin/bash
+          args: >-
+            -e
+            -c "
+            export HOME=/root &&
+            cd __repo__/${{ fromJSON(steps.inputs.outputs.result).path }} &&
+            exec craft publish ${{ fromJSON(steps.inputs.outputs.result).version }}
+            "
+        env:
+          CRAFT_MERGE_TARGET: ${{ fromJSON(steps.inputs.outputs.result).merge_target }}
+          CRAFT_LOG_LEVEL: ${{ secrets.CRAFT_LOG_LEVEL }}
+          CRAFT_DRY_RUN: ${{ fromJSON(steps.inputs.outputs.result).dry_run }}
+          GIT_COMMITTER_NAME: getsentry-bot
+          GIT_AUTHOR_NAME: getsentry-bot
+          EMAIL: bot@getsentry.com
+          GITHUB_API_TOKEN: ${{ steps.token.outputs.token }}
+          COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
+          CRAFT_GCS_TARGET_CREDS_JSON: ${{ secrets.CRAFT_GCS_TARGET_CREDS_JSON }}
+          CRAFT_GCS_STORE_CREDS_JSON: ${{ secrets.CRAFT_GCS_STORE_CREDS_JSON }}
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+          DOCKER_USERNAME: sentrybuilder
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GEM_HOST_API_KEY: ${{ secrets.GEM_HOST_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          NUGET_API_TOKEN: ${{ secrets.NUGET_API_TOKEN }}
+          POWERSHELL_API_KEY: ${{ secrets.POWERSHELL_API_KEY }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          PUBDEV_ACCESS_TOKEN: ${{ secrets.PUBDEV_ACCESS_TOKEN }}
+          PUBDEV_REFRESH_TOKEN: ${{ secrets.PUBDEV_REFRESH_TOKEN }}
+
+      - name: Update completed targets and remove label
+        if: ${{ cancelled() || failure() }}
+        env:
+          PUBLISH_ARGS: ${{ steps.inputs.outputs.result }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .__publish__/src/publish/update-issue.js
+
+      - name: Inform about cancellation
+        if: ${{ cancelled() }}
+        env:
+          PUBLISH_ARGS: ${{ steps.inputs.outputs.result }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .__publish__/src/publish/post-result.js cancelled
+
+      - name: Inform about failure
+        if: ${{ failure() }}
+        env:
+          PUBLISH_ARGS: ${{ steps.inputs.outputs.result }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .__publish__/src/publish/post-result.js failure
+
+      - name: Close on success
+        if: ${{ success() }}
+        env:
+          PUBLISH_ARGS: ${{ steps.inputs.outputs.result }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .__publish__/src/publish/post-result.js success

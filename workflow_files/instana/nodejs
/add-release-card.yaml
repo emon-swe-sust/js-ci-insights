@@ -1,0 +1,150 @@
+name: add-release-card
+
+on:
+  push:
+    tags:
+      - v[0-9]+.*
+  workflow_dispatch:
+
+jobs:
+  create-jira-card:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "IBM/Instana/Team Node.js"
+          git config user.email github-actions@github.com
+
+      - name: Get latest and previous release tags
+        id: tags
+        run: |
+          set -euo pipefail
+          TAGS=($(git tag --sort=-creatordate))
+          
+          TAG_COUNT=${#TAGS[@]}
+          if [[ $TAG_COUNT -lt 2 ]]; then
+            echo "Not enough release tags found."
+            exit 1
+          fi
+
+          echo "LATEST_TAG=${TAGS[0]}" >> "$GITHUB_OUTPUT"
+          echo "PREVIOUS_TAG=${TAGS[1]}" >> "$GITHUB_OUTPUT"
+
+      - name: Get commits between releases
+        id: commits
+        run: |
+          set -euo pipefail
+          LATEST=${{ steps.tags.outputs.LATEST_TAG }}
+          PREVIOUS=${{ steps.tags.outputs.PREVIOUS_TAG }}
+
+          echo "Getting commits from $PREVIOUS to $LATEST"
+          COMMITS=$(git log "$PREVIOUS..$LATEST" --pretty=format:"%s%n%b")
+
+          echo "COMMITS<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$COMMITS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Extract referenced links
+        id: extract_refs
+        run: |
+          set -euo pipefail
+
+          cat > commits.txt <<EOF
+          ${{ steps.commits.outputs.COMMITS }}
+          EOF
+          REFS=$(grep -oiP 'ref(?:s)?\s+\Khttps?://\S+' commits.txt | sort -u)
+
+          if [[ -z "$REFS" ]]; then
+            echo "No referenced links found."
+            echo "refs_list=No refs found" >> "$GITHUB_OUTPUT"
+          else
+            echo "Found referenced links:"
+            echo "$REFS"
+            echo "refs_list<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$REFS" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Jira issue
+        env:
+          JIRA_BASE_URL: https://jsw.ibm.com
+          JIRA_EMAIL: katharina.irrgang@ibm.com
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          REFS_LIST: ${{ steps.extract_refs.outputs.refs_list }}
+        run: |
+          set -euo pipefail
+
+          SUMMARY="Node.js tracer release ${{ steps.tags.outputs.LATEST_TAG }}"
+
+          DESCRIPTION="
+          New release is out! 🧜🏽
+
+          *Changes*
+          $REFS_LIST
+
+          *Checkout*
+          https://github.com/instana/nodejs/releases
+          "
+
+          CREATE_PAYLOAD=$(jq -n \
+            --arg summary "$SUMMARY" \
+            --arg description "$DESCRIPTION" \
+            '{
+              fields:{
+                project:{key:"INSTA"},
+                summary:$summary,
+                description:$description,
+                issuetype:{name:"Task"},
+                labels:["release"],
+                components:[
+                  {name:"Tracers Node.js Team"}
+                ]
+              }
+            }')
+
+          RESP_FILE=$(mktemp)
+          STATUS=$(curl --http1.1 -sS -o "$RESP_FILE" -w "%{http_code}" \
+                    -X POST "${JIRA_BASE_URL%/}/rest/api/2/issue" \
+                    -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    -d "$CREATE_PAYLOAD")
+
+          echo "🔁 create-issue status: $STATUS"
+          cat "$RESP_FILE" | jq . 2>/dev/null || cat "$RESP_FILE"
+
+          if [[ "$STATUS" != "201" ]]; then
+            exit 1
+          fi
+
+          NEW_KEY=$(jq -r '.key' "$RESP_FILE")
+          echo "✅ Created release issue: $NEW_KEY"
+
+          KEYS=$(printf '%s\n' "$REFS_LIST" \
+                   | grep -oP '/browse/\K[A-Z]+-[0-9]+' \
+                   | sort -u)
+
+          for TGT in $KEYS; do
+            [[ "$TGT" == "$NEW_KEY" ]] && continue
+
+            LINK_PAYLOAD=$(jq -n \
+              --arg inward "$NEW_KEY" \
+              --arg outward "$TGT" \
+              '{type:{name:"Relates"},
+                inwardIssue:{key:$inward},
+                outwardIssue:{key:$outward}}')
+
+            LSTATUS=$(curl --http1.1 -sS -o /dev/null -w "%{http_code}" \
+                       -X POST "${JIRA_BASE_URL%/}/rest/api/2/issueLink" \
+                       -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+                       -H "Content-Type: application/json" \
+                       -d "$LINK_PAYLOAD")
+
+            echo "🔗 link $NEW_KEY ↔ $TGT → $LSTATUS"
+          done

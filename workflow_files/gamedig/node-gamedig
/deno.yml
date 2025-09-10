@@ -1,0 +1,38 @@
+
+name: Deno
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - "**.js" # Any JS file
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deno.yml" # This action
+  pull_request:
+    branches: ["master"]
+    paths:
+      - "**.js" # Any JS file
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deno.yml" # This action
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup repo
+        uses: actions/checkout@v3
+
+      - name: Setup Deno
+        # uses: denoland/setup-deno@v1
+        uses: denoland/setup-deno@61fe2df320078202e33d7d5ad347e7dcfa0e8f31  # v1.1.2
+        with:
+          deno-version: v1.39.2
+
+      - name: Compile
+        run: deno compile --allow-net bin/gamedig.js

@@ -1,0 +1,46 @@
+###########################
+## Linter GitHub Actions ##
+###########################
+#
+# Documentation: https://github.com/super-linter/super-linter/
+#
+# Exception config files are in the .github/linters directory
+#
+name: Lint Code Base
+on:
+  - workflow_dispatch
+  - pull_request
+jobs:
+  lint:
+    name: Lint Code Base
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          # Full git history is needed to get a proper list of changed files within `super-linter`
+          fetch-depth: 0
+      - name: Set VALIDATE_ALL_CODEBASE variable to false
+        # Only run the full workflow for manual runs or if upgrading the super linter
+        if: |
+            github.event_name != 'workflow_dispatch' &&
+            startsWith(github.event.pull_request.title,'Bump super-linter/super-linter') != true
+        run: |
+          echo "VALIDATE_ALL_CODEBASE=false" >> $GITHUB_ENV
+      - name: Lint Code Base
+        uses: super-linter/super-linter/slim@v8
+        env:
+          DEFAULT_BRANCH: main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FILTER_REGEX_EXCLUDE: .*\.min\..*
+          VALIDATE_BASH: true
+          VALIDATE_CSS: true
+          VALIDATE_EDITORCONFIG: true
+          VALIDATE_HTML: true
+          VALIDATE_JAVASCRIPT_ES: true
+          VALIDATE_JSON: true
+          VALIDATE_MARKDOWN: true
+          VALIDATE_PYTHON_PYLINT: true
+          VALIDATE_PYTHON_FLAKE8: true
+          VALIDATE_PYTHON_BLACK: true
+          VALIDATE_YAML: true

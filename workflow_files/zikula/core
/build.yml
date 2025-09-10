@@ -1,0 +1,179 @@
+name: Build and test
+on: [push] #, pull_request]
+#on:
+#  push:
+#    branches-ignore: [gh-pages]
+#  pull_request:
+#    branches-ignore: [gh-pages]
+jobs:
+  build:
+    name: Build (PHP ${{ matrix.php-versions }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-versions: ['8.3', '8.4']
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v5
+
+      - name: Run security checker
+        uses: symfonycorp/security-checker-action@v5
+
+      - name: Get composer cache directory
+        id: composer-cache
+        run: |
+          dir="$(composer config cache-files-dir)"
+          echo "dir=$dir" >> $GITHUB_OUTPUT
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      # Docs: https://github.com/shivammathur/setup-php
+      - name: Setup PHP with PCOV
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-versions }}
+          #tools: php-cs-fixer, phpunit-bridge
+          # required PHP extensions for Symfony: see https://symfony.com/doc/current/setup.html#technical-requirements
+          extensions: ctype, iconv, intl, json, mbstring, mysql, pcre, session, simplexml, tokenizer, xml, php-ast # xml is required by phpunit, php-ast is used by phan
+          coverage: pcov
+          ini-values: memory_limit=256M, post_max_size=256M, pcov.directory=src
+
+      - name: Install composer dependencies
+        run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+      - name: Extract English translations
+        run: php bin/console translation:extract --force en -vv
+
+  test:
+    name: Tests (PHP ${{ matrix.php-versions }})
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        php-versions: ['8.3', '8.4']
+    services:
+      mysql:
+        image: mysql:latest
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: false
+          MYSQL_ROOT_PASSWORD: 12345678
+          #MYSQL_DATABASE: zk_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v5
+
+      # Docs: https://github.com/shivammathur/setup-php
+      - name: Setup PHP with PCOV
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-versions }}
+          #tools: php-cs-fixer, phpunit-bridge
+          # required PHP extensions for Symfony: see https://symfony.com/doc/current/setup.html#technical-requirements
+          extensions: ctype, iconv, intl, json, mbstring, mysql, pcre, session, simplexml, tokenizer, xml, php-ast # xml is required by phpunit, php-ast is used by phan
+          coverage: pcov
+          ini-values: memory_limit=256M, post_max_size=256M, pcov.directory=src
+
+      - name: Install composer dependencies
+        run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+      - name: Run linter
+        run: |
+          php bin/console lint:container
+          php bin/console lint:yaml config/
+          php bin/console lint:yaml src/system/ --parse-tags
+          php bin/console lint:twig --show-deprecations src/system/
+
+      - name: Cache vulnerability database
+        uses: actions/cache@v4
+        id: cache-db
+        with:
+          path: ~/.symfony/cache
+          key: db
+      - name: Run security checker
+        uses: symfonycorp/security-checker-action@v5
+
+     # TODO enable migrations
+     # - name: Run Migration
+     #   run: |
+     #     composer require --dev symfony/orm-pack
+     #     php bin/console doctrine:schema:update --force || echo "No migrations found or schema update failed"
+     #     php bin/console doctrine:migrations:migrate || echo "No migrations found or migration failed"
+     #   env:
+     #     DATABASE_URL: mysql://root:zikula@127.0.0.1:${{ job.services.mysql.ports['3306'] }}/zk_test
+
+      - name: Run unit tests with coverage
+        # see https://dev.to/swashata/setup-php-pcov-for-5-times-faster-phpunit-code-coverage-3d9c
+        # run: ./vendor/bin/phpunit
+        run: php -dpcov.enabled=1 -dpcov.directory="src" -dpcov.exclude="~vendor~" vendor/bin/phpunit -c "phpunit.dist.xml" "src" --coverage-text
+
+      # - name: Determine coverage badge
+      #   uses: timkrase/phpunit-coverage-badge@main
+      #   with:
+      #     push_badge: true
+      #     repo_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Test installation
+        run: ./.github/scripts/testInstall.sh
+
+  # qa-cs-fixer:
+  #   name: QA - Run php-cs-fixer (PHP ${{ matrix.php-versions }})
+  #   runs-on: ubuntu-latest
+  #   needs: test
+  #   strategy:
+  #     matrix:
+  #       php-versions: ['8.4']
+  #   steps:
+  #     - name: Checkout sources
+  #       uses: actions/checkout@v4
+  # 
+  #     - name: Install composer dependencies
+  #       run: composer install --no-progress --prefer-dist --optimize-autoloader
+  # 
+  #     - name: Run php-cs-fixer
+  #       # see https://cs.symfony.com/
+  #       run: ./vendor/bin/php-cs-fixer fix --verbose --allow-risky=yes --dry-run --config "build/php_cs_fixer.dist"
+
+  # qa-phpstan:
+  #   name: QA - Run phpstan (PHP ${{ matrix.php-versions }})
+  #   runs-on: ubuntu-latest
+  #   needs: test
+  #   strategy:
+  #     matrix:
+  #       php-versions: ['8.4']
+  #   steps:
+  #     - name: Checkout sources
+  #       uses: actions/checkout@v4
+  # 
+  #     - name: Install composer dependencies
+  #       run: composer install --no-progress --prefer-dist --optimize-autoloader
+  # 
+  #     - name: Run phpstan
+  #       # see https://github.com/phpstan/phpstan
+  #       # level: (0 = loosest - 10 = strictest), default level is 0
+  #       run: ./vendor/bin/phpstan analyse -c ./build/phpstan.neon --level 3 src
+
+  create-artifacts:
+    name: Package
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v5
+
+      - name: Build release artifacts
+        run: ./.github/scripts/buildReleaseArtifacts.sh
+
+      # see https://github.com/actions/upload-artifact
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: release-archives
+          path: './build_work/archive'

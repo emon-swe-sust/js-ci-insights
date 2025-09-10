@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2019 haya14busa
+
+name: reviewdog
+
+on: [pull_request]
+
+env:
+  ESLINT_USE_FLAT_CONFIG: false
+
+jobs:
+  eslint:
+    name: runner / eslint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install eslint eslint-plugin-jsdoc -D
+      - uses: reviewdog/action-eslint@v1
+        with:
+          reporter: github-check
+          eslint_flags: 'src/'

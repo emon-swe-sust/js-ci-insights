@@ -1,0 +1,25 @@
+name: Test
+on:
+  push:
+    branches: [master]
+  pull_request:
+    types: [opened, synchronize]
+jobs:
+  test:
+    strategy:
+      matrix:
+        node: [20, 22]
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: pnpm/action-setup@v4
+      - run: pnpm i
+      - run: pnpm lint
+      - run: pnpm biome check
+      - run: pnpm build

@@ -1,0 +1,16 @@
+name: javascript / format
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 'Checkout code'
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+      - name: 'Verify formatting of all files'
+        run: ./bin/check-formatting.sh

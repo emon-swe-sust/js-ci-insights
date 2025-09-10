@@ -1,0 +1,63 @@
+name: Release MacOS
+
+on:
+  workflow_dispatch:
+
+# for security reasons the github actions are pinned to specific release versions
+jobs:
+  desktop_macos:
+    name: MacOS installers
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # MacOS signing: certificate and password, see electron.build/code-signing
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+      CSC_LINK:  ${{ secrets.MAC_CERTS }}
+      # MacOS notarization: see github.com/electron/notarize#readme
+      API_KEY_ID: ${{ secrets.API_KEY_ID }}
+      API_KEY_ISSUER_ID: ${{ secrets.API_KEY_ISSUER_ID }}
+    defaults:
+      run:
+        working-directory: td.vue
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4.2.0
+
+      - name: Use node LTS 20.14.0
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: '20.14.0'
+
+      - name: Cache NPM dir
+        uses: actions/cache@v4.2.0
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+            ${{ runner.os }}-
+
+      - name: Install packages
+        run: npm install
+
+      - name: Prepare for MacOS notarization
+        # Import Apple API key to support signing of app
+        run: |
+          mkdir -p ~/private_keys/
+          echo '${{ secrets.API_KEY }}' > ~/private_keys/AuthKey_${{ secrets.API_KEY_ID }}.p8
+
+      - name: Publish MacOS disk image
+        run: npm run build:desktop -- --mac --publish always
+
+      - name: Print logs on error
+        if: ${{ failure() }}
+        run: find . -name "*.log" -exec cat '{}' \; -print
+
+      - name: Save SBOM artifact
+        uses: actions/upload-artifact@v4.6.0
+        with:
+          name: sboms-desktop-macos-site
+          path: './td.vue/dist-desktop/bundled/.sbom/*'
+          include-hidden-files: true
+          if-no-files-found: error

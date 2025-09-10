@@ -1,0 +1,25 @@
+name: Endpoint CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Use Node.js
+      uses: actions/setup-node@v1
+      with:
+        node-version: '14.x'
+    - name: Update API data.json
+      run: node app/endpoint.js > app/api/v1/data.json
+    - name: Sync Repository
+      run: |
+          git config user.name 'amirisback'
+          git config user.email 'faisalamircs@gmail.com'
+          git pull
+          git commit -am "Update README.md"
+          git push

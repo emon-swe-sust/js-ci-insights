@@ -1,0 +1,29 @@
+name: Lighthouse CI check
+
+on:
+  deployment_status
+
+jobs:
+  run:
+    name: Lighthouse CI check
+    runs-on: ubuntu-latest
+    if: github.event.deployment_status.state == 'success'
+    steps:
+      - name: Download repository with all commits
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Log payload
+        run: cat "$GITHUB_EVENT_PATH"
+      - name: Debug payload branch
+        run: echo "${{ github.event.deployment.payload.branch }}"
+      - name: Set branch environment variable
+        run: echo "GITHUB_BRANCH=${{ github.event.deployment.payload.branch }}" >> $GITHUB_ENV
+      - uses: docker://quay.csssr.cloud/csssr/github-info:v2
+        id: gh
+      - name: Run Lighthouse for provided urls
+        run: |
+          npx @lhci/cli@0.4.x autorun --collect.url=https://${{ steps.gh.outputs.releaseID }}.csssr-new-blog.csssr.cloud/en --collect.url=https://${{ steps.gh.outputs.releaseID }}.csssr-new-blog.csssr.cloud/en/article/offshore-web-development
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+          LHCI_BUILD_CONTEXT__CURRENT_BRANCH: https://${{ steps.gh.outputs.releaseID }}.csssr-new-blog.csssr.cloud

@@ -1,0 +1,32 @@
+name: Crawler
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *'
+
+jobs:
+  cron:
+    runs-on: ubuntu-latest
+    container: node:20
+    steps:
+      - uses: actions/checkout@v3
+      - run: git config --global --add safe.directory /__w/billboard-hot-100/billboard-hot-100
+
+      - name: Install dependencies
+        working-directory: ./crawl
+        run: npm install
+
+      - name: Run crawler
+        working-directory: ./crawl
+        run: npm run crawl
+
+      - name: Get current date
+        id: date
+        run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
+
+      - name: Add & Commit
+        uses: EndBug/add-and-commit@v9
+        with:
+          author_name: Crawler
+          message: 'Crawled on ${{ steps.date.outputs.date }}'

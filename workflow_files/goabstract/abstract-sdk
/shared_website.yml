@@ -1,0 +1,67 @@
+name: Web Site
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: Publish web site
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  SkipConcurrentBuild:
+    name: Skip Concurrent Builds
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+
+    steps:
+      - uses: fkirc/skip-duplicate-actions@v5.3.1
+        id: skip_check
+        with:
+          concurrent_skipping: "same_content"
+          github_token: ${{ github.token }}
+          do_not_skip: '["pull_request"]'
+          cancel_others: "true"
+          skip_after_successful_duplicate: "false"
+
+  Build:
+    needs:
+      - SkipConcurrentBuild
+
+    if: ${{ needs.SkipConcurrentBuild.outputs.should_skip != 'true' }}
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: website
+
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "yarn"
+
+      - run: yarn
+
+      - run: yarn build
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: inputs.publish
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Publish
+        if: inputs.publish
+        run: aws s3 cp ./build/abstract-sdk/ s3://abstract-sdk-website/ --recursive --include "*" --acl public-read

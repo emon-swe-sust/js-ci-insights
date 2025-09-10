@@ -1,0 +1,15 @@
+name: example-basic
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      # during development we use the latest version of this action
+      # in the real world, the user should use
+      # - uses: bahmutov/npm-install@v1
+      - uses: bahmutov/npm-install@HEAD
+        with:
+          working-directory: examples/basic
+      - run: npm t
+        working-directory: examples/basic

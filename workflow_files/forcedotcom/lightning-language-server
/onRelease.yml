@@ -1,0 +1,17 @@
+name: npm release
+# when a github release happens, publish an npm package,
+on:
+  release:
+    types: [released]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    container:
+      image: node:lts
+    steps:
+      - uses: actions/checkout@v3
+      - run: yarn
+      - name: Set .npmrc
+        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+      - run: yarn publish-lsp

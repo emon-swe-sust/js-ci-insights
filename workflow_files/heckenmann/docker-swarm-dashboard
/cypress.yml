@@ -1,0 +1,76 @@
+# Workflow to run Cypress tests on multiple architectures, Node.js versions, and browsers
+name: Cypress
+
+# Environment variables for working directory
+env:
+  WORKING_DIRECTORY: ./app-src
+
+# Trigger the workflow on push or manual dispatch
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  # Job to run Cypress tests
+  cypress-run:
+    # Use matrix-defined runners, Node versions, and browsers
+    runs-on: ${{ matrix.runner }}
+    # Define matrix for parallel execution
+    strategy:
+      # Continue other jobs if one fails
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        node-version: ['22', '24']
+        browser: ['firefox', 'electron']
+        include:
+          - runner: ubuntu-24.04
+            browser: chromium
+            node-version: '22'
+          - runner: ubuntu-24.04
+            browser: chromium
+            node-version: '24'
+          - runner: ubuntu-24.04
+            browser: edge
+            node-version: '22'
+          - runner: ubuntu-24.04
+            browser: edge
+            node-version: '24'
+    # Set default working directory for all run steps
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+    steps:
+      # Check out the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # Set up Node.js environment
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # Install global dependencies
+      - name: Install global dependencies
+        run: yarn global add concurrently
+
+      # Update browserslist database
+      - name: Update browserslist
+        run: npx update-browserslist-db@latest
+
+      # Run Cypress tests
+      - name: Cypress run
+        uses: cypress-io/github-action@v6
+        with:
+          working-directory: ${{ env.WORKING_DIRECTORY }}
+          start: yarn run start
+          install-command: yarn --frozen-lockfile
+          command: yarn run cy:run --browser ${{ matrix.browser }}
+          wait-on: 'http://localhost:3000'
+  
+  cypress-tests-passed:
+    needs: cypress-run
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All cypress-tests jobs completed successfully"

@@ -1,0 +1,33 @@
+name: Playwright Runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: install modules
+        working-directory: ./playwright-runner-v2
+        run: npm ci
+      - name: install playwright browsers
+        working-directory: ./playwright-runner-v2
+        run: npx playwright install chromium --with-deps
+      - name: execute tests
+        working-directory: ./playwright-runner-v2
+        run: npm run test
+      - name: report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: playwright-runner/report/index.html
+      - name: junit report
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: playwright-runner-v2/report/report.xml
+          fail_on_failure: true

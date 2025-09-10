@@ -1,0 +1,48 @@
+name: Code Cleanliness
+
+on: [pull_request]
+
+env:
+  NODE_VERSION: 20
+
+permissions:
+  contents: read
+
+jobs:
+  linting:
+    name: Linting
+    runs-on: ubuntu-latest
+    steps: # list of steps
+      - name: Harden Runner
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2
+        with:
+          egress-policy: audit
+
+      - name: Install NodeJS
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Code Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Dependencies
+        run: npm install --workspaces
+
+      - name: Code Linting
+        run: |
+          npm run lint
+          npm run lint --workspaces --if-present
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Check generated config types are up-to-date
+        run: |
+          npm run generate-config-types
+          if ! git diff --exit-code src/config/generated/config.ts; then
+            echo "Generated config types are out of date. Run 'npm run generate-config-types' locally and commit the changes."
+            exit 1
+          fi

@@ -1,0 +1,52 @@
+name: Conditional Specification Validation
+
+on:
+  pull_request:
+    paths:
+      - '**/resources/schema/**/*.json'
+
+jobs:
+  validate_specification:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Validate branch names
+        id: validate
+        run: |
+          echo "Validating branch names..."
+          if ! [[ "${{ github.event.pull_request.head.ref }}" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+            echo "Invalid characters in head ref"
+            exit 1
+          fi
+          if ! [[ "${{ github.event.pull_request.base.ref }}" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+            echo "Invalid characters in base ref"
+            exit 1
+          fi
+          echo "::set-output name=head_ref::${{ github.event.pull_request.head.ref }}"
+          echo "::set-output name=base_ref::${{ github.event.pull_request.base.ref }}"
+
+      - name: Fetch Base and Head References
+        run: |
+          git fetch origin ${{ steps.validate.outputs.head_ref }}:${{ steps.validate.outputs.head_ref }}
+          git fetch origin ${{ steps.validate.outputs.base_ref }}:${{ steps.validate.outputs.base_ref }}
+        if: github.event_name == 'pull_request'
+
+      - name: Validate Changes and Commit Message
+        run: |
+          # Check for changes in specification files inside the resources folder
+          changed_files=$(git diff --name-only ${{ steps.validate.outputs.base_ref }} ${{ steps.validate.outputs.head_ref }})
+
+          # Fetch the commit messages from the PR
+          commit_messages=$(git log --pretty=oneline ${{ steps.validate.outputs.base_ref }}..${{ steps.validate.outputs.head_ref }})
+
+          # Check if any commit message contains a specific keyword or pattern (e.g., "RTC")
+          if echo "$commit_messages" | grep -q 'RTC' && echo "$changed_files" | grep -E 'resources/schema/.*\.json$'; then
+            echo "Commit message contains 'RTC' keyword, and specification files have changed. Build passed. Please check if your changes are working in visual rule editor. Update spec version in form container dialog"
+          else
+            echo "Either commit message doesn't contain 'RTC' keyword or specification files haven't changed. Build failed.  Please check if your changes are working in visual rule editor"
+            exit 1
+          fi
+        shell: bash

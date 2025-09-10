@@ -1,0 +1,45 @@
+name: Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        nodeVersion: [14.x, 16.x, 18.x, 20.X, 22.X]
+
+    name: Test - ${{ matrix.os }} - Node v${{ matrix.nodeVersion }}
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Node version - ${{ matrix.nodeVersion }}
+        uses: actions/setup-node@master
+        with:
+          node-version: ${{ matrix.nodeVersion }}
+          cache: npm
+
+      - name: Environment information
+        run: |
+          npm --version
+          node --version
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build project
+        run: npm run build
+
+      - name: Run coverage
+        run: npm run test:coverage
+
+      - name: Publish to coveralls.io
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.github_token }}

@@ -1,0 +1,44 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches-ignore:
+      - beta
+  workflow_dispatch:
+
+jobs:
+  common-ci:
+    uses: ./.github/workflows/common_ci.yml
+    secrets: inherit
+    with:
+      type_pipeline: 'continuous_integration'
+
+  cancel-previous-run:
+
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Cancel previous runs
+      uses: styfle/cancel-workflow-action@0.12.1
+      with:
+        access_token: ${{ github.token }}
+
+  test-mutation-diff:
+
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Project checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - run: docker compose build test-mutation-diff
+    - name: Load secrets from 1password
+      uses: 1password/load-secrets-action@v2
+      env:
+        OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+        STRYKER_DASHBOARD_API_KEY: op://CI-CD/stryker-mutator/API_KEY
+    - name: Run mutation test - Changed files in the branch
+      run: make test-mutation-diff
+      env:
+        STRYKER_DASHBOARD_API_KEY: ${{ env.STRYKER_DASHBOARD_API_KEY }}

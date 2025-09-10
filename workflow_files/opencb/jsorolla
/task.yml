@@ -1,0 +1,22 @@
+name: "Task workflow for TASK-* branches"
+
+on:
+  push:
+    branches:
+      - "TASK-*"
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-jsorolla-workflow.yml
+
+  test:
+    uses: ./.github/workflows/test.yml
+    needs: build
+
+
+  deploy-docker:
+    uses: ./.github/workflows/deploy-docker-jsorolla.yml
+    needs: test
+    with:
+      cli: python3 ./docker/docker-build.py push --tag ${{ github.ref_name }}
+    secrets: inherit

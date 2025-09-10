@@ -1,0 +1,39 @@
+name: Project CI
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest]
+        node: ['14', '16', '18', '20']
+    name: lint
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node }}
+      - name: install dependencies
+        run: yarn install --frozen-lockfile --ignore-engines --ignore-scripts
+      - name: check lint
+        run: yarn lint
+
+  release:
+    name: Semantic release
+    runs-on: 'ubuntu-latest'
+    needs: lint
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      - name: install dependencies
+        run: yarn install --frozen-lockfile --ignore-engines --ignore-scripts
+      - name: release
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          NPM_TOKEN: ${{secrets.NPM_TOKEN}}

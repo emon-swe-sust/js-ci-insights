@@ -1,0 +1,35 @@
+name: 'setup-env'
+on:
+  pull_request:
+    paths:
+    - 'setup-env/**'
+    - '.github/workflows/setup-env*'
+  push:
+    paths:
+    - 'setup-env/**'
+    - '.github/workflows/setup-env*'
+
+
+jobs:
+  unit-tests:
+    runs-on: ${{ matrix.operating-system }}
+    strategy:
+      matrix:
+        operating-system: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set Node.js 20.x
+      uses: actions/setup-node@master
+      with:
+        node-version: 20.x
+        cache: 'npm'
+        cache-dependency-path: 'setup-env/package-lock.json'
+
+    - name: npm install
+      working-directory: ./setup-env
+      run: npm install
+
+    - name: Lint and Unit tests
+      working-directory: ./setup-env
+      run: npm run test

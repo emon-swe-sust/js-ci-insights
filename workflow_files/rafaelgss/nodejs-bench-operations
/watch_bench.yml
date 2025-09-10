@@ -1,0 +1,48 @@
+name: 'Watch Benchmarks'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'bench/**'
+
+permissions:
+  issues: write
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+
+    outputs:
+      files: ${{ steps.changes.outputs.benchmarks_files }}
+      changes: ${{ steps.changes.outputs.benchmarks }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 'Detect File Changes'
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          list-files: json
+          base: ${{ github.ref }}
+          working-directory: bench
+          filters: |
+            benchmarks:
+              - added|modified: 'bench/*.mjs'
+
+  benchmark:
+    needs: changes
+    if: needs.changes.outputs.files != '[]'
+    strategy:
+      fail-fast: true
+      matrix:
+        # Parse JSON array containing names of all filters matching any of changed files
+        # e.g. ['add-property.js', 'array-append.js'] if both bench files contains changes
+        bench-file: ${{ fromJSON(needs.changes.outputs.files) }}
+    uses: ./.github/workflows/bench.yml
+    name: Running ${{ matrix.bench-file }}
+    with:
+      bench-file: ${{ matrix.bench-file }}

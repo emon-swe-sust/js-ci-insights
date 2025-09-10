@@ -1,0 +1,16 @@
+name: commitlint
+on:
+  workflow_call:
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Call Conventional Commits Checker
+        uses: linuxdeepin/action-conventionalcommits-checker@master

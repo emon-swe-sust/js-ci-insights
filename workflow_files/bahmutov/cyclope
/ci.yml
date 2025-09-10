@@ -1,0 +1,51 @@
+name: ci
+on: [push]
+jobs:
+  tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout 🛎
+        uses: actions/checkout@v4
+
+      # Install NPM dependencies, cache them correctly
+      # and run all Cypress tests
+      # https://github.com/cypress-io/github-action
+      - name: Cypress tests 🧪
+        uses: cypress-io/github-action@v6
+        with:
+          start: npm start
+          wait-on: 'http://localhost:3777'
+          config: 'excludeSpecPattern=["cypress/e2e/example/on-failure.cy.js"]'
+        env:
+          CYCLOPE_SERVICE_URL: ${{ secrets.CYCLOPE_SERVICE_URL }}
+          CYCLOPE_SERVICE_KEY: ${{ secrets.CYCLOPE_SERVICE_KEY }}
+          DEBUG: cyclope
+
+      - name: Can skip using Cyclope service 🧪
+        uses: cypress-io/github-action@v6
+        with:
+          # we have already installed all dependencies above
+          install: false
+          start: npm start
+          wait-on: 'http://localhost:3777'
+          spec: 'cypress/e2e/element-image.cy.js'
+
+      # https://github.com/actions/upload-artifact
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: page
+          path: |
+            page/
+            *.png
+
+      - name: Semantic Release 🚀
+        if: github.ref == 'refs/heads/main'
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          branches: main
+        env:
+          # github token is automatically created by the GH Action workflow
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # created using semantic-release
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,49 @@
+name: Auto-fix Biome Issues
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      - name: Install Biome
+        run: npm install -g @biomejs/biome
+
+      - name: Run Biome lint and format
+        run: |
+          biome lint --write .
+          biome format --write .
+
+      - name: Check for changes and commit
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config --local user.email "harmonizer@betterlyrics.dev"
+            git config --local user.name "Better Lyrics Harmonizer"
+            git add .
+            git commit -m "Auto-fix: Apply Biome lint and format fixes"
+
+            if git symbolic-ref HEAD >/dev/null 2>&1; then
+              git push
+              echo "✅ Auto-fixed Biome issues and committed changes"
+            else
+              echo "✅ Auto-fixed Biome issues (detached HEAD - changes committed locally)"
+            fi
+          else
+            echo "✅ No Biome issues found - skipping commit"
+          fi

@@ -1,0 +1,16 @@
+name: bash
+
+on:
+  push:
+
+jobs:
+  hsm:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bash
+    steps:
+    - uses: actions/checkout@main
+    - run: ./test/shunit2Install.sh
+    - run: sudo apt-get install -y softhsm2
+    - run: ./test/softHSM.sh

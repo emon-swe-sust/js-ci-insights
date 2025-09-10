@@ -1,0 +1,39 @@
+name: CD (commit on master)
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '*.md'
+
+jobs:
+  deploy:
+    runs-on: 'ubuntu-latest'
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          check-latest: true
+          cache: yarn
+      - uses: robinraju/release-downloader@v1.11
+        with:
+          repository: italia/api-oas-checker-rules
+          fileName: '*'
+          out-file-path: rulesets/
+          latest: true
+      - name: Unzip files
+        run: |
+          for file in rulesets/*.zip; do
+            unzip -o "$file" -d rulesets/
+          done
+      - name: Build ui, test ui and deploy
+        run: |
+          git remote set-url origin https://git:${GITHUB_TOKEN}@github.com/italia/api-oas-checker.git
+          make deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

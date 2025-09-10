@@ -1,0 +1,20 @@
+name: Sync
+
+env: {NODE_VERSION: 14}
+
+# Triggers the workflow on create new tag
+on:
+  push:
+    tags: ['**']
+
+jobs:
+  sync_cnpm:
+    name: Sync latest version from npm to cnpm
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v2
+      with: {node-version: '${{ env.NODE_VERSION }}'}
+    - run: npm install cnpm -g
+    - run: cnpm sync eslint-plugin-wxml

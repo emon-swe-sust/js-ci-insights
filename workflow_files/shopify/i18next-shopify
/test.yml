@@ -1,0 +1,46 @@
+name: Tests
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+# events but only for the main branch
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20]
+
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - name: Setup Node with v${{ matrix.node-version }}
+        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3.9.1
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+
+      - name: Restore cache
+        uses: actions/cache@2f8e54208210a422b2efd51efaa6bd6d7ca8920f # v3.4.3
+        with:
+          path: |
+            **/.eslintcache
+          key: ${{ runner.os }}-node${{ matrix.node-version }}-test-v1-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-node${{ matrix.node-version }}-test-v1-
+
+      - name: Install dependencies
+        run: yarn --frozen-lockfile
+
+      - name: Build packages
+        run: yarn build
+
+      - name: Lint
+        run: yarn lint --filter=[HEAD^1]
+
+      - name: Test
+        run: yarn test

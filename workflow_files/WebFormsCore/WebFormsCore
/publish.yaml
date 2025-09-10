@@ -1,0 +1,133 @@
+name: .NET
+
+on:
+  push:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: 134
+
+      - name: Setup Firefox
+        uses: browser-actions/setup-firefox@v1
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      - name: Build Debug
+        run: dotnet build --configuration Debug --no-restore
+
+      - name: Test
+        run: dotnet test --no-build --no-restore --configuration Debug --verbosity normal --logger trx --collect:"XPlat Code Coverage"
+      
+      - name: Combine Coverage Reports
+        uses: danielpalme/ReportGenerator-GitHub-Action@5.2.4
+        with:
+          reports: "**/*.cobertura.xml"
+          targetdir: "${{ github.workspace }}"
+          reporttypes: "Cobertura"
+          verbosity: "Info"
+          title: "Code Coverage"
+          tag: "${{ github.run_number }}_${{ github.run_id }}" 
+          customSettings: "" 
+          toolpath: "reportgeneratortool"
+
+      - name: Upload Combined Coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: ${{ github.workspace }}/Cobertura.xml
+          retention-days: 5
+
+      - name: Upload Test Result Files
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: ${{ github.workspace }}/**/TestResults/**/*
+          retention-days: 5
+
+      - name: Build Release
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Publish WebFormsCore
+        uses: GerardSmit/publish-nuget@v3.1.2
+        if: github.ref == 'refs/heads/main' && matrix.os == 'ubuntu-latest'
+        with:
+          NUGET_KEY: ${{secrets.NUGET_API_KEY}}
+          VERSION_FILE_PATH: Directory.Build.props
+          PROJECT_FILE_PATH: |
+            src/WebFormsCore/WebFormsCore.csproj
+            src/WebFormsCore.Parser/WebFormsCore.Parser.csproj
+            src/WebFormsCore.Compiler/WebFormsCore.Compiler.csproj
+            src/WebFormsCore.SourceGenerator/WebFormsCore.SourceGenerator.csproj
+            sdk/WebFormsCore.SDK/WebFormsCore.SDK.csproj
+            sdk/WebFormsCore.SDK.AspNetCore/WebFormsCore.SDK.AspNetCore.csproj
+            src/WebFormsCore.Extensions.Choices/WebFormsCore.Extensions.Choices.csproj
+            src/WebFormsCore.Extensions.ClientResourceManagement/WebFormsCore.Extensions.ClientResourceManagement.csproj
+            src/WebFormsCore.Extensions.EntityFrameworkCore/WebFormsCore.Extensions.EntityFrameworkCore.csproj
+            src/WebFormsCore.Extensions.Grid/WebFormsCore.Extensions.Grid.csproj
+            src/WebFormsCore.Extensions.TinyMCE/WebFormsCore.Extensions.TinyMCE.csproj
+      
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    name: test summary
+    needs: [build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Combined Coverage XML
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+
+      - name: Download Test Result Files
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+
+      - name: Publish Code Coverage Report
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: "Cobertura.xml"
+          badge: true
+          fail_below_min: false
+          format: markdown
+          hide_branch_rate: false
+          hide_complexity: false
+          indicators: true
+          output: both
+          thresholds: "10 30"
+
+      - name: Add Coverage PR Comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: github.event_name == 'pull_request' && matrix.os == 'windows-latest'
+        with:
+          recreate: true
+          path: code-coverage-results.md
+
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2.18.0
+        with:
+          trx_files: "${{ github.workspace }}/**/*.trx"
+          check_name: "Results (${{ matrix.os }})"

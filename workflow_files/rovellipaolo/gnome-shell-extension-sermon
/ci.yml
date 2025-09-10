@@ -1,0 +1,29 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Build
+        run: |
+          make install-checkstyle
+          npm install coveralls-next
+      - name: Checkstyle
+        run: |
+          make checkstyle
+      - name: Test
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          make test-coverage
+          ./node_modules/coveralls-next/bin/coveralls.js < coverage/lcov.info

@@ -1,0 +1,74 @@
+name: "Create Release"
+run-name: "Create ${{ inputs.version }} release"
+permissions:
+    contents: write
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: 'Version bump'
+                required: true
+                default: 'patch'
+                type: choice
+                options:
+                    - patch
+                    - minor
+                    - major
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    bump-package:
+        runs-on: ubuntu-latest
+        steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+        
+        - name: Configure git
+          run: |
+            git config --global user.name '${{github.actor}}'
+            git config --global user.email '${{github.actor}}@users.noreply.github.com'
+    
+        - name: Create new release branch and bump npm version
+          run: |
+            git reset --hard
+            git pull        
+            npm version ${{ inputs.version }} --no-git-tag-version
+            version=$(cat package.json | jq -r '.version')
+            git checkout -b "$version"
+            git push --set-upstream origin "$version"
+
+        - name: Commit changes
+          env:
+            FILE_TO_COMMIT: package.json
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            OWNER: ${{ github.repository_owner }}
+            REPO: ${{ github.event.repository.name }}
+          run: |
+            export VERSION=$(cat package.json | jq -r '.version')
+            export TODAY=$( date -u '+%Y-%m-%d' )
+            export MESSAGE="Bump package.json to $VERSION"
+            export SHA=$(git rev-parse HEAD:package.json) # Note: Adjusted to use HEAD
+            export CONTENT=$( base64 $FILE_TO_COMMIT ) # Note: Removed -i
+            gh api --method PUT /repos/:owner/:repo/contents/$FILE_TO_COMMIT --field message="$MESSAGE" --field branch="$VERSION" --field content="$CONTENT" --field sha="$SHA"
+    
+        - name: Pull commit, tag release branch and push
+          run: |
+            git reset --hard
+            git pull        
+            version=$(cat package.json | jq -r '.version')
+            git tag "v$version"
+            git push origin "v$version"
+    
+        - name: Create draft release
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+            version=$(cat package.json | jq -r '.version')
+            gh release create "v$version" \
+                --draft \
+                --title="v$version" \
+                --generate-notes
+      

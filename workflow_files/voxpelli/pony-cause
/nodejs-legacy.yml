@@ -1,0 +1,22 @@
+name: Node CI Legacy
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: voxpelli/ghatemplates/.github/workflows/test.yml@main
+    with:
+      node-versions: '12,14'
+      npm-test-script: 'test-build-less'
+      npm-no-prepare: true

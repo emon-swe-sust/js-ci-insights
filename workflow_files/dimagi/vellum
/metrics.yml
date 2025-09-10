@@ -1,0 +1,36 @@
+name: vellum metrics
+on:
+  pull_request:
+    branches:
+    - master
+  schedule:
+    - cron: "0 0 * * *" # daily
+
+jobs:
+  metrics:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      REPO: vellum
+      DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+      DATADOG_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - uses: actions/setup-python@v4
+      with:
+        python-version: |
+          3.9
+    - name: Install dependencies
+      run: |
+        mv package.json package.json.save
+        npm install "yarn@^1"
+        rm package-lock.json
+        mv package.json.save package.json
+        yarn install
+    - name: Install dependency-metrics
+      run: pip install dependency-metrics
+    - name: run metrics for yarn
+      run: metrics yarn --send

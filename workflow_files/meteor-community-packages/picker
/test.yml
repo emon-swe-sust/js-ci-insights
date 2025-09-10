@@ -1,0 +1,30 @@
+name: Test
+on: push
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        meteorRelease:
+          - '--release 3.0.3'
+          # Latest version
+          -
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+
+      - name: Install Dependencies
+        run: |
+          curl https://install.meteor.com | /bin/sh
+          npm i -g @zodern/mtest
+
+      - name: Run Tests
+        run: |
+          # Retry tests since some of them are flaky
+          mtest --package ./ --once ${{ matrix.meteorRelease }} || mtest --package ./ --once ${{ matrix.meteorRelease }} 

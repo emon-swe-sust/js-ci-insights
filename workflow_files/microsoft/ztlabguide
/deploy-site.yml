@@ -1,0 +1,52 @@
+name: GitHub Page CI/CD
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  pages: write
+  
+jobs:
+    deploy:
+      environment:
+        name: github-pages
+        url: ${{ steps.deployment.outputs.page_url }}
+      runs-on: ubuntu-latest
+      defaults:
+        run:
+          working-directory: ./src/website
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+        # 👇 Build steps
+        - name: Set up Node.js
+          uses: actions/setup-node@v3
+          with:
+            node-version: 16.x
+            cache: yarn
+            cache-dependency-path: src/website/yarn.lock
+        - name: Install dependencies
+          run: yarn install --frozen-lockfile --non-interactive
+        - name: Build
+          run: yarn build
+        # 👆 Build steps
+        - name: Setup Pages
+          uses: actions/configure-pages@v3
+        - name: Upload artifact
+          uses: actions/upload-pages-artifact@v3
+          with:
+            # 👇 Specify build output path
+            path: src/website/build
+        - name: Deploy to GitHub Pages
+          id: deployment
+          uses: actions/deploy-pages@v4

@@ -1,0 +1,32 @@
+name: build
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-14, macos-13]
+        mongodb-version: [8.0, 7.0, 6.0]
+        include:
+          - os: ubuntu-24.04
+            mongodb-version: 8.0
+          - os: ubuntu-24.04-arm
+            mongodb-version: 8.0
+          - os: windows-2025
+            mongodb-version: 7.0
+          - os: windows-2022
+            mongodb-version: 5.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.
+        with:
+          mongodb-version: ${{ matrix.mongodb-version }}
+
+      - if: ${{ matrix.mongodb-version >= 6 }}
+        run: |
+          mongosh --eval "db.version()"
+
+      - if: ${{ matrix.mongodb-version < 6 }}
+        run: |
+          mongo --eval "db.version()"

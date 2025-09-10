@@ -1,0 +1,89 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+env:
+  BROWSERSLIST_IGNORE_OLD_DATA: beQuiet
+  DATABASE_URL: "postgres://postgres:postgres@localhost:5432/manifold_test"
+  DISABLE_SPRING: yes
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:/usr/local/sbin
+  RAILS_ENV: test
+
+jobs:
+  client-lint:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v3
+
+      - uses: ./.github/actions/setup-node
+
+      - name: "Lint client"
+        working-directory: "./client"
+        run: yarn lint
+
+      - name: "Check for unused dependencies"
+        working-directory: "./client"
+        run: yarn depcheck
+
+  api-lint:
+    if: github.event.pull_request.draft == false
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v3
+
+      - uses: ./.github/actions/setup-ruby
+
+      - name: "Run Rubocop"
+        working-directory: "./api"
+        run: bin/rubocop
+
+  api-tests:
+    if: github.event.pull_request.draft == false
+
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:13.12-alpine
+        ports: ["5432:5432"]
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: manifold_test
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+      redis:
+        image: redis:6.2.7-alpine
+        ports: ["6379:6379"]
+        options: --entrypoint redis-server
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v3
+
+      - uses: ./.github/actions/setup-ruby
+
+      - uses: ./.github/actions/setup-node
+
+      - name: "Install Pandoc"
+        run: |
+          wget https://github.com/jgm/pandoc/releases/download/2.2/pandoc-2.2-1-amd64.deb
+          sudo dpkg -i pandoc-2.2-1-amd64.deb
+
+      - name: "Setup test database"
+        working-directory: "./api"
+        run: bin/rails db:setup
+
+      - name: "Run API specs"
+        working-directory: "./api"
+        run: bin/rspec spec --tag="~integration" --tag="~slow"

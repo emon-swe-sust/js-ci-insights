@@ -1,0 +1,127 @@
+name: Runner
+
+on:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: 1
+  npm_config_yes: true
+  USE_HARD_LINKS: false # Prevent electron-builder from crashing
+
+jobs:
+  build:
+    strategy:
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+        app: [01-empty-app, 02-empty-app-frameless]
+  
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Git pull # Needed for sequential run
+        run: git pull
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+
+      # Setup dotnet env
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup MAUI
+        run: if [ "$RUNNER_OS" != "Linux" ]; then dotnet workload install maui; fi
+        shell: bash
+
+      # Setup Java environment in order to build the Android app.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '18.x'
+
+      # Setup the flutter environment.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'      
+
+      # Setup the go environment
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      # Setup ninja
+      - uses: seanmiddleditch/gha-setup-ninja@master
+
+      # Os-specific dependencies
+      - if: ${{ runner.os == 'Windows' }}
+        name: Install wget
+        run: |
+          choco install wget --no-progress
+
+      - if: ${{ runner.os == 'Windows' }}
+        name:  Install MicrosoftEdgeWebView2RuntimeInstallerX64
+        run:   |
+          wget https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/5a00ea81-ccdf-4016-807d-1dc2c67d5574/MicrosoftEdgeWebView2RuntimeInstallerX64.exe -O MicrosoftEdgeWebView2RuntimeInstallerX64.exe
+          .\MicrosoftEdgeWebView2RuntimeInstallerX64.exe /silent /install
+
+      - if: ${{ runner.os == 'Linux' }}
+        name:  Install apt deps
+        run:   |
+          sudo apt update
+          sudo apt install -y xvfb # X Server
+          sudo apt install -y dbus at-spi2-core # Fixes some dbus errors/warning
+          sudo apt install -y libxshmfence1 libglu1 libnss3 libatk1.0-0 libatk-bridge2.0-0 libgdk-pixbuf2.0-0 libgtk-3-0 libasound2 # Electron
+          sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev # Tauri
+          sudo apt install -y libwebkit2gtk-4.0-dev libstdc++6 # NeutralinoJS
+          sudo apt install -y pkg-config build-essential cmake make mesa-common-dev libglu1-mesa-dev file libqt5core5a libqt5dbus5 libqt5gui5 libqt5network5 libqt5printsupport5 libqt5svg5 libqt5widgets5 libxcb-xkb-dev libxcb-cursor0 libopengl0 # NodeGUI
+
+      - name: Install runner tools
+        run: |
+          cd runner/
+          npm i
+
+      - name: Prepare environments
+        run: |
+          cd runner/
+          bash preprocess.sh ${{ matrix.app }}
+
+      - name: Install wails
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@latest
+          wails doctor
+
+      - name: Install neutralino's neu
+        run: npm i -g @neutralinojs/neu@latest
+
+      - name: Run apps
+        run: |
+          if [ "$(git diff origin/main | grep ${{ matrix.app }})" != "" ]; then
+            cd runner/
+            if [ "$RUNNER_OS" == "Linux" ]; then
+              LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/home/runner/work/web-to-desktop-framework-comparison/web-to-desktop-framework-comparison/benchmark/01-empty-app/nodegui/node_modules/@nodegui/nodegui/miniqt/6.6.0/gcc_64/lib/" xvfb-run --auto-servernum node --expose-gc runner.js ${{ matrix.app }}
+            else
+              node --expose-gc runner.js ${{ matrix.app }}
+            fi
+          fi
+        shell: bash
+
+      - name: Update README
+        run: |
+          cd runner/
+          node write_readme.js
+
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: Update benchmark for ${{ matrix.app }} on ${{ matrix.os }}
+          file_pattern: runner/benchmarks.json README.md

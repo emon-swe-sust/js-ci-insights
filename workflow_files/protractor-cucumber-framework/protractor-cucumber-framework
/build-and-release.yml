@@ -1,0 +1,63 @@
+name: Build and release
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+    types: [ opened, synchronize ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          registry-url: https://registry.npmjs.org/
+      - name: Install Node Modules
+        uses: bahmutov/npm-install@v1
+        env:
+          CHROMEDRIVER_FILEPATH: "/usr/bin/chromedriver"
+
+      - run: npm run test:ci
+        env:
+          CI: true
+
+  release:
+    name: Release
+    if: ${{ github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          registry-url: https://registry.npmjs.org/
+      - name: Install Node Modules
+        uses: bahmutov/npm-install@v1
+        env:
+          CHROMEDRIVER_FILEPATH: "/usr/bin/chromedriver"
+
+      - name: Release
+        run: npx semantic-release --debug
+        env:
+          CI: true
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}

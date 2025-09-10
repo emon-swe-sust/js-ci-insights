@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-on-npm:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: [18.x, 20.x, 22.x]
+        cli-arg: ['js', 'ts']
+        include:
+          - cli-arg: js
+            flags: '-t javascript -l -u jest -al -d false -m npm'
+          - cli-arg: ts
+            flags: '-t typescript -l -u jest -al -d false -m npm'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Print Node.js version
+        run: node -v
+
+      - name: Install beta version  with args ${{ matrix.flags }}
+        if: github.ref != 'refs/heads/main'
+        shell: bash
+        run: |
+          npx gen-express-cli@beta test-${{ matrix.cli-arg }} ${{ matrix.flags }}
+
+      - name: Install latest version with args ${{ matrix.flags }}
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          sleep 60
+          npx gen-express-cli@latest test-${{ matrix.cli-arg }} ${{ matrix.flags }}
+
+      - name: Start server
+        shell: bash
+        working-directory: test-${{ matrix.cli-arg }}
+        run: npm run dev &
+
+      - name: Wait for server to start
+        shell: bash
+        run: |
+          for i in {1..15}; do
+            curl -s http://localhost:8000/api && exit 0
+            echo "Waiting for server to start..."
+            sleep 1
+          done
+          echo "Server did not start in time" && exit 1
+
+      - name: Test api
+        shell: bash
+        working-directory: test-${{ matrix.cli-arg }}
+        run: |
+          curl -s http://localhost:8000/api | grep -q "This is the API root!" || exit 1
+
+      - name: Test linter
+        shell: bash
+        working-directory: test-${{ matrix.cli-arg }}
+        run: |
+          npm run lint || exit 1
+          npm run format || exit 1
+
+      - name: Test unit test
+        shell: bash
+        working-directory: test-${{ matrix.cli-arg }}
+        run: |
+          npm run test || exit 1

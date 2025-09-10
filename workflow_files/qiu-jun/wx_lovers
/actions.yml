@@ -1,0 +1,33 @@
+name: Timer
+
+on:
+  schedule:
+    - cron:  '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: 'main'
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16.14.0'
+      - name: Depend install and serve
+        env:
+          WXAPPID: ${{ secrets.WXAPPID }}
+          WXSECRET: ${{ secrets.WXSECRET }}
+          WXTOKEN: ${{ secrets.token }}
+          TEMPLATEID: ${{ secrets.TEMPLATEID }}
+          TIANXINGKEY: ${{ secrets.TIANXINGKEY }} 
+          AMAPKEY: ${{ secrets.AMAPKEY }}
+        run: |
+          npm install
+          npm run startac
+      - name: Send Notify
+        run: curl -X POST http://127.0.0.1:7001/sendNotify
+      - name: Stop Service
+        run: npm run stop

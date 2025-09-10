@@ -1,0 +1,105 @@
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+
+name: Continuous Integration
+
+env:
+  default_node_version: 22
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Test supported release Node.js versions (even numbers) plus current
+        # development version.
+        node_version: [14, 16, 18, 20, 22, 24]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+          cache: 'npm'
+          cache-dependency-path: '**/package.json'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run loader tests
+        run: |
+          npm test
+
+  test-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.default_node_version }}
+          cache: 'npm'
+          cache-dependency-path: '**/package.json'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check Integration
+        env:
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DATADOG_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
+          DATADOG_SITE: ${{ secrets.DATADOG_API_HOST }}
+        run: |
+          npm run check-integration
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.default_node_version }}
+          cache: 'npm'
+          cache-dependency-path: '**/package.json'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint Code
+        run: |
+          npm run check-codestyle
+
+      - name: Lint Text
+        run: npm run check-text
+
+  types:
+    name: Build/Check Types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.default_node_version }}
+          cache: 'npm'
+          cache-dependency-path: '**/package.json'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Types
+        run: |
+          npm run build-types
+
+      - name: Check Types
+        run: |
+          npm run check-types

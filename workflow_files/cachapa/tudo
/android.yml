@@ -1,0 +1,82 @@
+name: Android
+on:
+  workflow_call:
+    inputs:
+      name:
+        required: true
+        type: string
+      number:
+        required: true
+        type: string
+      changelog:
+        required: true
+        type: string
+
+jobs:
+  build:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Load secrets
+        working-directory: android
+        run: |
+          echo "${{ secrets.KEYSTORE }}" | base64 -d > app/keystore.jks
+          echo "${{ secrets.KEYSTORE_PROPERTIES }}" > app/keystore.properties
+          echo '${{ secrets.PLAY_STORE }}' > app/play-store.json
+
+      - name: Load config
+        run: echo "${{ secrets.CONFIG }}" > lib/config.dart
+
+      - name: Load changelog
+        env:
+          BUILD_NUMBER: ${{ inputs.number }}
+          CHANGELOG: ${{ inputs.changelog }}
+          CHANGELOG_PATH: android/fastlane/metadata/android/en-US/changelogs
+        run: echo "$CHANGELOG" > $CHANGELOG_PATH/$BUILD_NUMBER.txt
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          cache: true
+
+      - name: Build app
+        env:
+          BUILD_NAME: ${{ inputs.name }}
+          BUILD_NUMBER: ${{ inputs.number }}
+        run: |
+          flutter build appbundle --build-number $BUILD_NUMBER --build-name $BUILD_NAME
+          flutter build apk --build-number $BUILD_NUMBER --build-name $BUILD_NAME
+
+      - name: Rename build artifacts
+        working-directory: build/app/outputs
+        run: |
+          mv bundle/release/app-release.aab bundle/release/tudo_android.aab
+          mv apk/release/app-release.apk apk/release/tudo_android.apk
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          working-directory: android
+          ruby-version: '3.0'
+          bundler-cache: true
+
+      - uses: maierj/fastlane-action@v3.0.0
+        with:
+          lane: 'deploy'
+          subdirectory: 'android'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            build/app/outputs/bundle/release/tudo_android.aab
+            build/app/outputs/apk/release/tudo_android.apk

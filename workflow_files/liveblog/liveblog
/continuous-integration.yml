@@ -1,0 +1,139 @@
+name: Liveblog CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    env:
+      CI: true
+      SYNDICATION_VALIDATE_AUTH: 0
+      MAIL_SERVER: 'localhost'
+      MAIL_PORT: 2225
+      MAIL_USERNAME: __EMPTY__
+      MAIL_PASSWORD: __EMPTY__
+      MAIL_USE_TLS: 0
+      MAIL_USE_SSL: 0
+      MAIL_DEBUG: 1
+      MAIL_SUPPRESS_SEND: true
+      IFRAMELY_KEY: ${{ secrets.IFRAMELY_KEY }}
+      SUPERDESK_URL: 'http://localhost:5000/api'
+      SUPERDESK_CLIENT_URL: 'http://localhost:9000'
+      WEB_CONCURRENCY: 3
+      WEB_TIMEOUT: 8
+      SUPERDESK_TESTING: true
+      MARKETPLACE: true
+      SYNDICATION: true
+
+    services:
+      mongodb:
+        image: mongo:3.4.23
+        ports:
+          - 27017:27017
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+      elasticsearch:
+        image: liveblog3/elasticsearch:1.7.2
+        ports:
+          - 9200:9200
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: nanasess/setup-chromedriver@master
+
+    - name: Cache Conda environment
+      uses: actions/cache@v3
+      with:
+        path: /usr/share/miniconda/envs/liveblog-ci-env
+        key: ${{ runner.os }}-conda-${{ hashFiles('environment.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-conda-
+
+    - name: Setup Conda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        activate-environment: liveblog-ci-env
+        environment-file: environment.yml
+        python-version: 3.6
+        auto-activate-base: false
+
+    - name: Cache Node.js modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.npm
+          client/node_modules
+        key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
+    - name: Cache Python packages
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/pip
+          /usr/share/miniconda/envs/liveblog-ci-env/lib/python3.6/site-packages
+        key: ${{ runner.os }}-pip-${{ hashFiles('server/dev-requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install Python dependencies and run tests
+      working-directory: ./server
+      run: |
+        pip install 'pip<=20.2.3'
+        pip install 'setuptools<50'
+        pip install -r dev-requirements.txt
+        pytest --ignore=src/ --disable-pytest-warnings -v
+        behave --format progress2 --logging-level ERROR
+
+    - name: Install Nodejs dependencies and lint
+      working-directory: ./client
+      run: |
+        npm config set loglevel warn
+        npm install -g grunt-cli
+        npm ci
+        npm run lint
+
+    - name: Initialize app data
+      working-directory: ./server
+      run: |
+        python app_init_elastic.py
+        python manage.py app:initialize_data
+        python manage.py users:create -u admin -p admin -fn Admin -ln Admin -e 'admin@example.com' --admin
+        python manage.py register_local_themes
+        python manage.py register_bloglist
+
+    - name: Start backend services
+      working-directory: ./server
+      run: |
+        (nohup honcho start &)
+        (nohup sudo python -m smtpd -n -c DebuggingServer localhost:2225 &)
+
+    - name: Build client
+      working-directory: ./client
+      run: |
+        grunt build --server='http://localhost:5000/api' --ws='ws://localhost:5100'
+        cd dist
+        while [ ! -f index.html ]; do sleep .5; done
+        (nohup python -m http.server 9000 &)
+
+    - name: Run Protractor e2e tests
+      working-directory: ./client
+      run: |
+        export DISPLAY=:99
+        export SELENIUM_ADDRESS='http://localhost:4444/wd/hub'
+        sudo Xvfb -ac :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+        chromedriver --port=4444 --url-base=/wd/hub &
+        $CHROME_BIN --version
+        npm run e2e
+
+    - name: Run Cypress e2e tests
+      working-directory: ./client
+      run: |
+        npm run cy:run

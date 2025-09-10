@@ -1,0 +1,53 @@
+---
+name: Publish
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Use Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: 18.x
+    - name: 'Get Previous tag'
+      id: previoustag
+      uses: "WyriHaximus/github-action-get-previous-tag@v1"
+    - name: Set version
+      run: |
+        sed -i -e "s/0.0.0/${{ steps.previoustag.outputs.tag }}/" package.json
+        sed -i -e "s/0.0.0/${{ steps.previoustag.outputs.tag }}/" package-lock.json
+        cat package.json
+
+    - run: npm ci
+    - run: npm test
+    - run: npm pack
+    - uses: actions/upload-artifact@v4
+      with:
+        name: package
+        path: ./gettyimages-api-${{ steps.previoustag.outputs.tag }}.tgz
+  
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - uses: actions/checkout@v2
+    - name: 'Get Previous tag'
+      id: previoustag
+      uses: "WyriHaximus/github-action-get-previous-tag@v1"
+    - uses: actions/download-artifact@v4.1.7
+      with:
+        name: package
+        path: .
+    - uses: actions/setup-node@v2
+      with:
+        node-version: 18.x
+        registry-url: 'https://registry.npmjs.org'
+    - run: npm publish ./gettyimages-api-${{ steps.previoustag.outputs.tag }}.tgz
+      env:
+        NODE_AUTH_TOKEN: ${{secrets.NPM_AUTOMATION_KEY}}

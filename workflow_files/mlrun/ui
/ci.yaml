@@ -1,0 +1,136 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - development                    # Matches the development branch
+      - 'feature/**'                   # Matches branches like 'feature/***'
+      - '[0-9]+.[0-9]+.x'              # Matches branches like '1.3.x'
+      - '[0-9]+.[0-9]+.[0-9]+'         # Matches branches like '1.2.3'
+      - '[0-9]+.[0-9]+.[0-9]+_.*'      # Matches branches like '1.7.0_cpj_mm'
+      - '[0-9]+.[0-9]+.[0-9]+-.*'      # Matches branches like '1.2.3-feature'
+
+
+jobs:
+  check-copyright:
+    name: Check Copyright Existence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: denoland/setup-deno@11b63cf76cfcafb4e43f97b6cad24d8e8438f62d # v1.5.2
+        with:
+          deno-version: v1.x
+      - name: Check
+        run: |
+          deno run --allow-read https://deno.land/x/license_checker@v3.2.3/main.ts
+      - name: Instructions For Adding Copyright
+        if: ${{ failure() }}
+        run: |
+          echo "
+          Please add the following lines to the top of your code:
+          .yaml/Dockerfile/.yml/.py :
+          # Copyright 2018 Iguazio
+          #
+          # Licensed under the Apache License, Version 2.0 (the "License");
+          # you may not use this file except in compliance with the License.
+          # You may obtain a copy of the License at
+          #
+          #   http://www.apache.org/licenses/LICENSE-2.0
+          #
+          # Unless required by applicable law or agreed to in writing, software
+          # distributed under the License is distributed on an "AS IS" BASIS,
+          # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+          # See the License for the specific language governing permissions and
+          # limitations under the License.
+
+          .js :
+          /*
+          Copyright 2019 Iguazio Systems Ltd.
+
+          Licensed under the Apache License, Version 2.0 (the "License") with
+          an addition restriction as set forth herein. You may not use this
+          file except in compliance with the License. You may obtain a copy of
+          the License at http://www.apache.org/licenses/LICENSE-2.0.
+
+          Unless required by applicable law or agreed to in writing, software
+          distributed under the License is distributed on an "AS IS" BASIS,
+          WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+          implied. See the License for the specific language governing
+          permissions and limitations under the License.
+
+          In addition, you may not use the software for any purposes that are
+          illegal under applicable law, and the grant of the foregoing license
+          under the Apache 2.0 license is conditioned upon your compliance with
+          such restriction.
+          */
+
+          "
+
+  build-docker:
+    name: Build Docker
+    runs-on: ubuntu-latest
+    outputs:
+      igz-controls-import-error: ${{ steps.check-error.outputs.igz-controls-import-error }}
+
+    steps:
+      - name: Exit if merge commit
+        if: github.event.pull_request.merged == true
+        run: |
+          echo "Skipping workflow because this is a merge commit."
+          exit 0
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build Docker image
+        id: build
+        run: |
+          docker build -t my-react-app:$GITHUB_SHA . > build.log 2>&1 || (cat build.log; exit 1)
+
+      - name: Check for igz-controls error message
+        id: check-error
+        if: failure()
+        run: |
+          if grep -q "igz-controls/" build.log; then
+            echo -e "\033[31mModule not found: Error: Can't resolve 'igz-controls....'.\033[0m"
+            echo -e "\033[33mPlease check for changes in the 'dashboard-react-controls' repository.\033[0m"
+            echo "::set-output name=igz-controls-import-error::failure"
+            echo "::error::Module not found: Error: Can't resolve 'igz-controls"
+          else
+            echo "::set-output name=igz-controls-import-error::success"
+            echo "igz-controls-import-error=success" >> $GITHUB_ENV
+          fi
+
+  lint-check:
+    name: Lint Check
+    runs-on: ubuntu-latest
+    needs: build-docker
+    if: failure() && needs.build-docker.outputs.igz-controls-import-error == 'failure'
+    steps:
+      - name: Exit if merge commit
+        if: github.event.pull_request.merged == true
+        run: |
+          echo "Skipping workflow because this is a merge commit."
+          exit 0
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: get needs object
+        run: echo "${{toJson(needs)}}"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint
+        run: |
+          export NODE_ENV=production
+          npx eslint 'src/**/*.js'

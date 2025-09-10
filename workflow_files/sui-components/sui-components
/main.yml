@@ -1,0 +1,303 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  # Assigns the event creator to the PR
+  assign_pr_owner:
+    name: Assign PR Owner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assign PR to creator
+        uses: thomaseizinger/assign-pr-creator-action@v1.0.0
+        if: github.event_name == 'pull_request' && github.event.action == 'opened'
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Creates a build and uploads an artifact
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Build dependencies
+        run: |
+          npm run install:ci
+          npm run install:themes
+          npm run build
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Compress public directory
+        run: tar -zcvf public-dir.tar.gz ./public/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-folder
+          path: public-dir.tar.gz
+
+  # Lint the code
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Linting
+        run: |
+          npm run install:ci
+          npm run lint
+
+  # Typecheck the source code
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Install
+        run: npm run install:ci
+
+      - name: Typecheck
+        run: npm run types:check
+
+  # Test components
+  testing:
+    name: Testing
+    runs-on: ubuntu-latest
+    outputs:
+      coverage_statements_pct_master: ${{ steps.coverage-master.outputs.coverage_statements_pct_master }}
+      coverage_branches_pct_master: ${{ steps.coverage-master.outputs.coverage_branches_pct_master }}
+      coverage_functions_pct_master: ${{ steps.coverage-master.outputs.coverage_functions_pct_master }}
+      coverage_lines_pct_master: ${{ steps.coverage-master.outputs.coverage_lines_pct_master }}
+      coverage_statements_pct_current: ${{ steps.coverage-current.outputs.coverage_statements_pct_current }}
+      coverage_branches_pct_current: ${{ steps.coverage-current.outputs.coverage_branches_pct_current }}
+      coverage_functions_pct_current: ${{ steps.coverage-current.outputs.coverage_functions_pct_current }}
+      coverage_lines_pct_current: ${{ steps.coverage-current.outputs.coverage_lines_pct_current }}
+      coverage_statements_total_current: ${{ steps.coverage-current.outputs.coverage_statements_total_current }}
+      coverage_branches_total_current: ${{ steps.coverage-current.outputs.coverage_branches_total_current }}
+      coverage_functions_total_current: ${{ steps.coverage-current.outputs.coverage_functions_total_current }}
+      coverage_lines_total_current: ${{ steps.coverage-current.outputs.coverage_lines_total_current }}
+      coverage_statements_covered_current: ${{ steps.coverage-current.outputs.coverage_statements_covered_current }}
+      coverage_branches_covered_current: ${{ steps.coverage-current.outputs.coverage_branches_covered_current }}
+      coverage_functions_covered_current: ${{ steps.coverage-current.outputs.coverage_functions_covered_current }}
+      coverage_lines_covered_current: ${{ steps.coverage-current.outputs.coverage_lines_covered_current }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install xvfb for headless testing
+        run: sudo apt-get install xvfb
+
+      - name: Setup Max User Watches for Testing
+        run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
+
+      - name: Testing
+        run: |
+          npm run install:ci
+          xvfb-run --auto-servernum npm run test -- --ci --coverage
+
+      - name: Log Master Coverage
+        uses: actions/github-script@v7
+        id: coverage-master
+        with:
+          script: |
+            const script = require('./.github/SCRIPTS/exportCoverageFromMarkdownShields')
+            await script({github, context, core, exec}, './README.md')
+
+      - name: Log Current Coverage
+        uses: actions/github-script@v7
+        id: coverage-current
+        with:
+          script: |
+            const script = require('./.github/SCRIPTS/exportCoverageFromJsonSummary')
+            await script({github, context, core, exec}, './coverage/coverage.json')
+
+      - name: prepare coverage directory
+        run: |
+          mkdir _coverage
+          cp -rf ./coverage/coverage.xml ./coverage/coverage.json ./coverage/report-html/* ./_coverage/
+          rm -rf coverage/
+          mv _coverage coverage
+
+      - name: Compress coverage directory
+        run: tar -zcvf coverage-dir.tar.gz ./coverage/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-folder
+          path: coverage-dir.tar.gz
+
+  # Publish the necessary npm new package versions
+  release:
+    name: Release
+    needs: [lint, typecheck, testing]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Comment Coverage
+        if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const script = require('./.github/SCRIPTS/commentCoverage')
+            const needsObject = ${{ toJSON(needs) }}
+            await script(
+              {github, context, core, exec},
+              {
+                masterPCTStatements: needsObject.testing.outputs.coverage_statements_pct_master,
+                masterPCTBranches: needsObject.testing.outputs.coverage_branches_pct_master,
+                masterPCTFunctions: needsObject.testing.outputs.coverage_functions_pct_master,
+                masterPCTLines: needsObject.testing.outputs.coverage_lines_pct_master
+              },
+              {
+                currentPCTStatements: needsObject.testing.outputs.coverage_statements_pct_current,
+                currentPCTBranches: needsObject.testing.outputs.coverage_branches_pct_current,
+                currentPCTFunctions: needsObject.testing.outputs.coverage_functions_pct_current,
+                currentPCTLines: needsObject.testing.outputs.coverage_lines_pct_current,
+                currentTotalStatements: needsObject.testing.outputs.coverage_statements_total_current,
+                currentTotalBranches: needsObject.testing.outputs.coverage_branches_total_current,
+                currentTotalFunctions: needsObject.testing.outputs.coverage_functions_total_current,
+                currentTotalLines: needsObject.testing.outputs.coverage_lines_total_current,
+                currentCoveredStatements: needsObject.testing.outputs.coverage_statements_covered_current,
+                currentCoveredBranches: needsObject.testing.outputs.coverage_branches_covered_current,
+                currentCoveredFunctions: needsObject.testing.outputs.coverage_functions_covered_current,
+                currentCoveredLines: needsObject.testing.outputs.coverage_lines_covered_current
+              }
+            )
+
+      - name: Update Coverage Badges
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const script = require('./.github/SCRIPTS/updateCoverageBadges')
+            const needsObject = ${{ toJSON(needs) }}
+            await script(
+              {github, context, core, exec},
+              './README.md',
+              {
+                currentPCTStatements: needsObject.testing.outputs.coverage_statements_pct_current,
+                currentPCTBranches: needsObject.testing.outputs.coverage_branches_pct_current,
+                currentPCTFunctions: needsObject.testing.outputs.coverage_functions_pct_current,
+                currentPCTLines: needsObject.testing.outputs.coverage_lines_pct_current
+              }
+            )
+
+      - name: Update README.md Coverage badges
+        uses: EndBug/add-and-commit@v7
+        if: github.event_name == 'push'
+        env:
+          GITHUB_USER: sui-bot
+          GITHUB_EMAIL: cloud-accounts@scmspain.com
+        with:
+          add: 'README.md'
+          author_name: ${{ env.GITHUB_USER }}
+          author_email: ${{ env.GITHUB_EMAIL }}
+          message: 'chore(Root): Update coverage badges'
+
+      - name: Release components
+        if: github.event_name == 'push'
+        run: |
+          npm install @s-ui/mono@2 --no-audit --no-fund --legacy-peer-deps
+          npx @s-ui/ci release
+        env:
+          GITHUB_EMAIL: cloud-accounts@scmspain.com
+          GITHUB_TOKEN: ${{github.token}}
+          GITHUB_USER: sui-bot
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Deploy artifact to Vercel
+  deploy:
+    name: Deploy
+    needs: [build, lint, testing]
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name != 'pull_request' && 'Production' || 'Preview'}}
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: public-folder
+          path: .
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-folder
+          path: .
+
+      - name: Uncompress public directory
+        run: |
+          tar -zxvf ./public-dir.tar.gz
+          rm ./public-dir.tar.gz
+
+      - name: Uncompress coverage directory
+        run: |
+          tar -zxvf ./coverage-dir.tar.gz -C ./public/
+          rm ./coverage-dir.tar.gz
+
+      - name: Deploy
+        id: deploy
+        run: |
+          npm i -g vercel --no-save --no-fund --no-audit --no-scripts
+          DEPLOYMENT_URL=$(vercel deploy --token $VERCEL_TOKEN --yes $VERCEL_PARAMS --archive=tgz)
+          echo "::set-output name=url::$(echo $DEPLOYMENT_URL)"
+        env:
+          VERCEL_PARAMS: ${{ github.event_name != 'pull_request' && '--prod' || ''}}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

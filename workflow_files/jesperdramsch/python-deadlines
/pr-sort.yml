@@ -1,0 +1,134 @@
+name: Pull Request Conference Sort & All-contrib
+
+on:
+  pull_request_target:
+    paths:
+    - '_data/conferences.yml'
+    types:
+    - closed
+    branches:
+    - main
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to reference (leave empty for sort-only)'
+        required: false
+        type: string
+      contributor:
+        description: 'GitHub username to add as contributor (leave empty to skip)'
+        required: false
+        type: string
+
+# Add permissions block here
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  process-changes:
+    runs-on: ubuntu-latest
+    # Only check for merged PR when triggered by a pull_request event
+    # And skip if PR was merged by a bot
+    if: >-
+      (github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && !contains(github.event.pull_request.user.login, '[bot]') && !contains(github.event.pull_request.user.login, '-bot') && github.event.pull_request.user.login != 'dependabot' && github.event.pull_request.user.login != 'github-actions'))
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup Pixi
+      uses: prefix-dev/setup-pixi@v0.9.0
+
+    - name: Set variables
+      id: vars
+      run: |
+        if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
+          # For PR-triggered workflow
+          echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          echo "contributor=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
+          echo "branch_name=automated-updates-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+        else
+          # For manually triggered workflow
+          PR_REF="${{ github.event.inputs.pr_number }}"
+          CONTRIBUTOR="${{ github.event.inputs.contributor }}"
+
+          if [[ -n "$PR_REF" ]]; then
+            echo "pr_number=$PR_REF" >> $GITHUB_OUTPUT
+            echo "branch_name=automated-updates-$PR_REF" >> $GITHUB_OUTPUT
+          else
+            # Generate a timestamp if no PR number provided
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
+            echo "pr_number=manual-$TIMESTAMP" >> $GITHUB_OUTPUT
+            echo "branch_name=automated-updates-$TIMESTAMP" >> $GITHUB_OUTPUT
+          fi
+
+          if [[ -n "$CONTRIBUTOR" ]]; then
+            echo "contributor=$CONTRIBUTOR" >> $GITHUB_OUTPUT
+          else
+            echo "contributor=" >> $GITHUB_OUTPUT
+          fi
+        fi
+
+    - name: Create branch and make changes
+      id: changes
+      run: |
+        # Create a new branch
+        BRANCH_NAME="${{ steps.vars.outputs.branch_name }}"
+        git checkout -b $BRANCH_NAME
+
+        # Run sort command
+        pixi run sort
+
+        # Add contributor if specified
+        if [[ -n "${{ steps.vars.outputs.contributor }}" ]]; then
+          pixi run install
+          pixi run add ${{ steps.vars.outputs.contributor }} conference
+        fi
+
+        # Check if there are changes
+        git status
+        if git diff --exit-code --quiet; then
+          echo "No changes detected in working directory"
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        else
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+
+          # Stage and commit changes
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add _data/* .all-contributorsrc README.md CONTRIBUTING.md || true
+
+          # Create commit message
+          COMMIT_MSG="chore: updates"
+          git commit -m "$COMMIT_MSG"
+
+          # Push the branch to the remote repository
+          git push -u origin $BRANCH_NAME
+        fi
+
+    - name: Manual PR creation
+      if: steps.changes.outputs.has_changes == 'true'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        BRANCH_NAME: ${{ steps.vars.outputs.branch_name }}
+      run: |
+        # Check if PR already exists
+        PR_EXISTS=$(gh pr list --head $BRANCH_NAME --json number | jq 'length')
+
+        if [[ "$PR_EXISTS" == "0" ]]; then
+          # Create a new PR
+          gh pr create \
+            --title "chore: sort & add contributor" \
+            --body "Automated workflow update
+
+            Changes include:
+            - Sorted conferences
+            - Added contributor
+
+            Please review and merge these automated updates." \
+            --base main \
+            --head $BRANCH_NAME
+        else
+          echo "Pull request from branch $BRANCH_NAME already exists."
+        fi

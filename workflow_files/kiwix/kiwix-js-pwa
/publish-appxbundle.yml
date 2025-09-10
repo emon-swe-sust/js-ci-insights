@@ -1,0 +1,59 @@
+# This is a draft workflow to publish released assets on download.kiwix.org
+
+name: Publish appxbundle to Kiwix server
+
+# Controls when the action will run. 
+on:
+  # Triggers the workflow when a release is publsihed or updated
+  release:
+    types: [ published ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Give the tag name of the version you wish to publish (e.g. v2.5.0)
+        required: false
+        default: ''
+        
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "upload"
+  upload:
+    if: |
+      ! contains( ${{ github.ref_name }}, 'WikiMed') && contains( ${{ github.ref_name }}, 'Wikivoyage')
+    runs-on: windows-latest
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+      # Set up secret files from encrypted secrets
+      - name: Set up secret files
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        shell: pwsh
+        run: |
+          $SSH_KEY = $Env:SSH_KEY
+          if ("x$SSH_KEY" -eq "x") {
+            echo "WARNING! The SSH secret is empty!"
+          }
+          echo "$SSH_KEY" > .\scripts\ssh_key
+      # Runs the upload script
+      - name: Run upload script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          INPUT_TAGNAME: ${{ github.event.inputs.version }}
+        shell: pwsh
+        run: |
+          $GITHUB_TOKEN = $Env:GITHUB_TOKEN
+          $TAG_NAME = $Env:TAG_NAME
+          # Provide a dummy tag if the tag is not defined
+          if (-Not $TAG_NAME) {
+            $TAG_NAME = $Env:INPUT_TAGNAME
+          }
+          if ($TAG_NAME -imatch 'wiki(med|voyage)') {
+            "Nothing to upload because we don't publish WikiMed or Wikivoyage packages to Kiwix."
+          } else {
+            echo "Using tag: $TAG_NAME for version upload"
+            .\scripts\Push-KiwixRelease.ps1 "$TAG_NAME" -tag -yes
+          }

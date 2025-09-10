@@ -1,0 +1,36 @@
+name: Stitch CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - experimental
+
+defaults:
+  run:
+    working-directory: ./packages/stitch
+    shell: bash
+
+jobs:
+  build-test:
+    name: Build code and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+      - run: npm ci
+      - run: npm run build_all
+      - run: npm run test
+
+  audit:
+    name: NPM Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+      - run: npm audit --prod

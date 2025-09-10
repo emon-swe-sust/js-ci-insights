@@ -1,0 +1,320 @@
+name: Build release
+run-name: 'Release version: Commit ${{ github.sha }}'
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+    - master
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version'
+        required: false
+      isAutoUpdateDisabled:
+        description: 'Is auto-update disabled (true / 1)?'
+        required: false
+      isBfxApiStaging:
+        description: 'Is it necessary to use BFX API Staging? (true / 1)?'
+        required: false
+      isNotarizeDisabled:
+        description: 'Is notarize disabled (true / 1)?'
+        required: false
+      repoOwner:
+        description: 'Repository owner for auto-update'
+        required: false
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+jobs:
+  linux-win-docker-builder:
+    timeout-minutes: 90
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - if: github.event.inputs.version != ''
+      name: Set release version
+      run: |
+        sed -i -e \
+          "s/\"version\": \".*\"/\"version\": \"${{ github.event.inputs.version }}\"/g" \
+          "./package.json"
+    - if: contains(fromJson('["true", "1", true, 1]'), github.event.inputs.isAutoUpdateDisabled)
+      name: Turn off auto-update
+      run: |
+        echo "IS_AUTO_UPDATE_DISABLED=1" >> $GITHUB_ENV
+    - if: contains(fromJson('["true", "1", true, 1]'), github.event.inputs.isBfxApiStaging)
+      name: Use BFX API Staging for queries
+      run: |
+        echo "IS_BFX_API_STAGING=1" >> $GITHUB_ENV
+    - name: Set repository owner for auto-update
+      run: |
+        if [[ "${{ github.event.inputs.repoOwner }}" != "" ]]; then
+          echo "REPO_OWNER=${{ github.event.inputs.repoOwner }}" >> $GITHUB_ENV
+        else
+          echo "REPO_OWNER=${{ github.repository_owner }}" >> $GITHUB_ENV
+        fi
+    - name: Cache Electron binaries
+      id: electron-cache
+      uses: actions/cache@v4
+      env:
+        cache-name: electron-cache-v1
+      with:
+        path: |
+          ~/.cache/electron
+          ~/.cache/electron-builder
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('package.json') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+    - name: Build release
+      id: release-builder
+      uses: nick-fields/retry@v3
+      continue-on-error: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        timeout_minutes: 20
+        retry_wait_seconds: 10
+        max_attempts: 3
+        retry_on: any
+        command: |
+          if [[ "${REPO_OWNER}" != "${{ github.repository_owner }}" ]]; then
+            ./scripts/launch.sh -lw
+          else
+            ./scripts/launch.sh -lwp
+          fi
+    - name: Zip Linux Unpacked build
+      run: zip -r dist/linux-unpacked.zip dist/linux-unpacked
+    - name: Upload Linux Unpacked build
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-unpacked
+        path: dist/linux-unpacked.zip
+    - name: Zip Win Unpacked build
+      run: zip -r dist/win-unpacked.zip dist/win-unpacked
+    - name: Upload Win Unpacked build
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-unpacked
+        path: dist/win-unpacked.zip
+    - if: env.REPO_OWNER != github.repository_owner
+      name: Upload Linux Dist Release
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-dist-release
+        path: |
+          dist/*-linux.AppImage
+          dist/*-linux.AppImage.zip
+          dist/latest-linux.yml
+    - if: env.REPO_OWNER != github.repository_owner
+      name: Upload Win Dist Release
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-dist-release
+        path: |
+          dist/*-win.exe
+          dist/*-win.exe.blockmap
+          dist/latest.yml
+    - name: Prepare cache folders
+      run: |
+        sudo chown -R $(id -u):$(id -g) ~/.cache/electron
+        sudo chown -R $(id -u):$(id -g) ~/.cache/electron-builder
+
+  mac-builder:
+    timeout-minutes: 150
+    runs-on: macos-15
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - if: github.event.inputs.version != ''
+      name: Set release version
+      run: |
+        sed -i".bak" -E -e \
+          "s/\"version\": \".*\"/\"version\": \"${{ github.event.inputs.version }}\"/g" \
+          "./package.json"; rm -f "./package.json.bak"
+    - if: contains(fromJson('["true", "1", true, 1]'), github.event.inputs.isAutoUpdateDisabled)
+      name: Turn off auto-update
+      run: |
+        echo "IS_AUTO_UPDATE_DISABLED=1" >> $GITHUB_ENV
+    - if: ${{ !contains(fromJson('["true", "1", true, 1]'), github.event.inputs.isNotarizeDisabled) }}
+      name: Turn on notarize
+      run: |
+        echo "NOTARIZE=1" >> $GITHUB_ENV
+    - if: contains(fromJson('["true", "1", true, 1]'), github.event.inputs.isBfxApiStaging)
+      name: Use BFX API Staging for queries
+      run: |
+        echo "IS_BFX_API_STAGING=1" >> $GITHUB_ENV
+    - name: Set repository owner for auto-update
+      run: |
+        if [[ "${{ github.event.inputs.repoOwner }}" != "" ]]; then
+          echo "REPO_OWNER=${{ github.event.inputs.repoOwner }}" >> $GITHUB_ENV
+        else
+          echo "REPO_OWNER=${{ github.repository_owner }}" >> $GITHUB_ENV
+        fi
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20.18.1
+    - name: Cache Electron binaries
+      id: electron-cache
+      uses: actions/cache@v4
+      env:
+        cache-name: electron-cache-v1
+      with:
+        path: |
+          ${{ runner.temp }}/.cache/electron
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('package.json') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+    - name: Build release
+      id: release-builder
+      uses: nick-fields/retry@v3
+      continue-on-error: false
+      env:
+        APPLE_TEAM_ID: ${{ secrets.BFX_APPLE_TEAM_ID }}
+        APPLE_ID: ${{ secrets.BFX_APPLE_ID_USERNAME }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.BFX_APPLE_ID_REPORT_PASSWORD }}
+        CSC_LINK: ${{ secrets.BFX_APPLE_BUILD_CERTIFICATE_B64 }}
+        CSC_KEY_PASSWORD: ${{ secrets.BFX_APPLE_BUILD_CERTIFICATE_PASSWORD }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ELECTRON_CACHE: ${{ runner.temp }}/.cache/electron
+      with:
+        timeout_minutes: 40
+        retry_wait_seconds: 10
+        max_attempts: 3
+        retry_on: any
+        command: |
+          if [[ -z "${APPLE_TEAM_ID}" || "${NOTARIZE:-}" != "1" ]]; then unset NOTARIZE; fi
+          if [[ -z "${APPLE_TEAM_ID}" || "${NOTARIZE:-}" != "1" ]]; then unset APPLE_TEAM_ID; fi
+          if [[ -z "${APPLE_ID}" || "${NOTARIZE:-}" != "1" ]]; then unset APPLE_ID; fi
+          if [[ -z "${APPLE_APP_SPECIFIC_PASSWORD}" || "${NOTARIZE:-}" != "1" ]]; then unset APPLE_APP_SPECIFIC_PASSWORD; fi
+          if [[ -z "${CSC_LINK}" || "${NOTARIZE:-}" != "1" ]]; then unset CSC_LINK; fi
+          if [[ -z "${CSC_KEY_PASSWORD}" || "${NOTARIZE:-}" != "1" ]]; then unset CSC_KEY_PASSWORD; fi
+          if [[ "${REPO_OWNER}" != "${{ github.repository_owner }}" ]]; then
+            ./scripts/build-release.sh -m
+          else
+            ./scripts/build-release.sh -mp
+          fi
+    - name: Zip Mac Unpacked build
+      run: zip -r dist/mac.zip dist/mac
+    - name: Upload Mac Unpacked build
+      uses: actions/upload-artifact@v4
+      with:
+        name: mac-unpacked
+        path: dist/mac.zip
+    - if: env.REPO_OWNER != github.repository_owner
+      name: Upload Mac Dist Release
+      uses: actions/upload-artifact@v4
+      with:
+        name: mac-dist-release
+        path: |
+          dist/*-mac.zip
+          dist/*-mac.zip.blockmap
+          dist/*-mac.dmg
+          dist/*-mac.dmg.blockmap
+          dist/latest-mac.yml
+
+  linux-e2e-test-runner:
+    name: Linux E2E Test Runner
+    timeout-minutes: 30
+    runs-on: ubuntu-22.04
+    needs: [linux-win-docker-builder]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20.18.1
+    - name: Install main dev deps
+      run: npm i --development --no-audit --progress=false --force
+    - name: Download Linux Unpacked build
+      uses: actions/download-artifact@v4
+      with:
+        name: linux-unpacked
+        path: dist
+    - name: Unzip Linux Unpacked build
+      run: unzip dist/linux-unpacked.zip
+    - name: Run tests
+      uses: coactions/setup-xvfb@6b00cf1889f4e1d5a48635647013c0508128ee1a
+      with:
+        run: npm run e2e
+    - name: Normalize E2E test report
+      run: node ./scripts/node/normalize-e2e-test-report e2e-test-report.xml
+    - name: Upload Linux E2E test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-e2e-test-results
+        path: e2e-test-report.xml
+
+  win-e2e-test-runner:
+    name: Win E2E Test Runner
+    timeout-minutes: 30
+    runs-on: windows-2022
+    needs: [linux-win-docker-builder]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20.18.1
+    - name: Install main dev deps
+      run: npm i --development --no-audit --progress=false --force
+    - name: Download Linux Unpacked build
+      uses: actions/download-artifact@v4
+      with:
+        name: win-unpacked
+        path: dist
+    - name: Unzip Win Unpacked build
+      run: 7z -y x dist/win-unpacked.zip
+    - name: Run tests
+      uses: coactions/setup-xvfb@6b00cf1889f4e1d5a48635647013c0508128ee1a
+      with:
+        run: npm run e2e
+    - name: Normalize E2E test report
+      run: node ./scripts/node/normalize-e2e-test-report e2e-test-report.xml
+    - name: Upload Win E2E test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-e2e-test-results
+        path: e2e-test-report.xml
+
+  mac-e2e-test-runner:
+    name: Mac E2E Test Runner
+    timeout-minutes: 30
+    runs-on: macos-15
+    needs: [mac-builder]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Prepare Mac runner
+      uses: ./.github/actions/prepare-mac-runner
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20.18.1
+    - name: Install main dev deps
+      run: npm i --development --no-audit --progress=false --force
+    - name: Download Mac Unpacked build
+      uses: actions/download-artifact@v4
+      with:
+        name: mac-unpacked
+        path: dist
+    - name: Unzip Mac Unpacked build
+      run: unzip dist/mac.zip
+    - name: Run tests
+      uses: coactions/setup-xvfb@6b00cf1889f4e1d5a48635647013c0508128ee1a
+      with:
+        run: npm run e2e
+    - name: Normalize E2E test report
+      run: node ./scripts/node/normalize-e2e-test-report e2e-test-report.xml
+    - name: Upload Mac E2E test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: mac-e2e-test-results
+        path: e2e-test-report.xml

@@ -1,0 +1,89 @@
+name: XDP
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'XDP Branch or Commit'
+        required: false
+        default: 'main'
+        type: string
+  pull_request:
+    branches:
+    - main
+    paths:
+    - .github/workflows/xdp.yml
+  repository_dispatch:
+    types: [run-xdp]
+      # Args: { guid, sha, ref, pr }
+
+concurrency:
+  group: xdp-${{ github.event.client_payload.pr || github.event.client_payload.sha || inputs.ref || github.event.pull_request.number || 'main' }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  # For automated identification of the workflow.
+  name:
+    name: For ${{ github.event.client_payload.guid }}
+    if: ${{ github.event_name == 'repository_dispatch' }}
+    needs: []
+    runs-on: ubuntu-24.04
+    steps:
+    - run: |
+        echo "guid: ${{ github.event.client_payload.guid }}"
+        echo "sha: ${{ github.event.client_payload.sha }}"
+        echo "ref: ${{ github.event.client_payload.ref }}"
+        echo "pr: ${{ github.event.client_payload.pr }}"
+
+  build:
+    name: Build XDP
+    needs: []
+    strategy:
+      matrix:
+        os: ['2022']
+        arch: [x64]
+      fail-fast: false
+    uses: microsoft/xdp-for-windows/.github/workflows/build.yml@main
+    with:
+      ref: ${{ github.event.client_payload.sha || github.event.client_payload.ref || inputs.ref || 'main' }}
+      os: ${{ matrix.os }}
+      arch: ${{ matrix.arch }}
+      upload_artifacts: true
+
+  test:
+    name: Test Windows
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        vec: [
+          { env: "lab",   os: "2022", arch: "x64" },
+        ]
+    runs-on:
+    - self-hosted
+    - ${{ matrix.vec.env }}
+    - os-windows-${{ matrix.vec.os }}
+    - ${{ matrix.vec.arch }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+      with:
+        repository: microsoft/xdp-for-windows
+        ref: ${{ github.event.client_payload.sha || github.event.client_payload.ref || inputs.ref || 'main' }}
+        sparse-checkout: tools
+    - name: Download Artifacts
+      uses: actions/download-artifact@8caf195ad4b1dee92908e23f56eeb0696f1dd42d
+      with:
+        name: bin_Release_${{ matrix.vec.arch }} # Build always comes from 2022 for now
+        path: artifacts/bin
+    - name: Run Tests
+      shell: pwsh
+      run: tools/two-machine-perf.ps1 -Config Release -Arch ${{ matrix.vec.arch }} -Verbose
+    - name: Upload Logs
+      if: ${{ always() }}
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+      with:
+        name: logs_${{ matrix.vec.env }}_${{ matrix.vec.os }}_${{ matrix.vec.arch }}
+        path: artifacts/logs

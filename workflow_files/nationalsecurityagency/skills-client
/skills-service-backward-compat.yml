@@ -1,0 +1,241 @@
+# This is a basic workflow to help you get started with Actions
+
+name:  Skills-service Backward Compatibility
+
+
+on:
+  push:
+    paths-ignore:
+      - 'README.md'
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+
+  build-skills-service:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: |
+            11
+            ${{ vars.JAVA_VERSION }}
+
+      - name: Print Versions
+        run: |
+          mvn --version
+          java -version
+          npm -version
+          node --version
+
+      - name: Cache local Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Checkout specific branch fo skills-service
+        uses: actions/checkout@v4
+        with:
+          repository: NationalSecurityAgency/skills-service
+          path: skills-service
+
+      - name: build skill-service
+        run: |
+          cd skills-service
+          mvn --batch-mode clean install -DskipTests
+          cd ..
+
+      - name: upload service jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: service jar
+          path: ./skills-service/service/target/skills-service-*.jar
+
+  test-skill-service-backward-compat:
+    runs-on: ubuntu-latest
+    needs: [build-skills-service]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        skillsJsVersion: [ '3.1.1', '3.2.0', '3.3.0', '3.3.1', '3.4.0', '3.4.1', '3.5.0']
+
+    services:
+      postgres:
+        # Docker Hub image
+        image: postgres
+        # Provide the password for postgres
+        env:
+          POSTGRES_PASSWORD: skillsPassword
+          POSTGRES_DB: skills
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps tcp port 5432 on service container to the host
+          - 5432:5432
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ vars.NODE_VERSION }}
+
+    - uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: |
+          11
+          ${{ vars.JAVA_VERSION }}
+
+    - name: Print Versions
+      run: |
+        mvn --version
+        java -version
+        npm -version
+        node --version
+
+    - name: Cache local Maven repository
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-maven-
+
+    - name: Cache npm
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
+#    - name: build skill-service
+#      run: ./.github/workflows/scripts/getSkillsService.sh
+#    - name: download skill-service
+#      run: |
+#        mkdir skills-service
+#        cd skills-service
+#        curl -s https://api.github.com/repos/NationalSecurityAgency/skills-service/releases/latest | grep browser_download_url | cut -d '"' -f 4 | wget -qi -
+#        ls ./
+#        cd ..
+
+#    - name: Checkout specific branch fo skills-service
+#      uses: actions/checkout@v4
+#      with:
+#        repository: NationalSecurityAgency/skills-service
+#        path: skills-service
+#
+#    - name: build skill-service
+#      run: |
+#        cd skills-service
+#        mvn --batch-mode clean install -DskipTests
+#        cp ./service/target/skills-service-*.jar ./
+#        ls ./
+#        cd ..
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: service jar
+        path: ./skills-service/
+
+    - name: build integration test apps
+      env:
+        MAVEN_OPTS: -Xmx2048m
+      run: |
+        cd ./skills-client-integration/skills-int-client-js
+        npm install @skilltree/skills-client-js@${{ matrix.skillsJsVersion }} --save-exact
+        cd ..
+        mvn --batch-mode clean install
+        cd ../
+
+    - name: start services for cypress tests
+      run: |
+        cd skills-client-integration/skills-int-e2e-test
+        npm install
+        ls ../
+        echo "------"
+        ls ../../
+        echo "------"
+        ls ../../skills-service/
+        echo "------"
+        npm run cyServices:start:skills-service:ci
+        npm run cyServices:start:integration-apps
+        cd ../../
+
+
+    - name: Run Cypress tests
+      run: |
+        cd skills-client-integration/skills-int-e2e-test
+        npm run cy:run
+        cd ../../
+
+    - name: upload result artifacts
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: result artifacts for [${{ matrix.skillsJsVersion }}] version
+        path: |
+          ./skills-service/*.jar
+          ./skills-client-integration/skills-int-service/target/*.jar
+          ./skills-client-integration/skills-int-e2e-test/target/logs/*.out
+          ./skills-client-integration/skills-int-e2e-test/cypress/videos/*.mp4
+          ./skills-client-integration/skills-int-e2e-test/cypress/screenshots/**/*.png
+          ./skills-client-integration/skills-int-e2e-test/logs
+          ./skills-client-integration/skills-int-e2e-test/cypress/videos
+          ./skills-client-integration/skills-int-e2e-test/cypress/screenshots
+          ./skills-client-integration/skills-int-e2e-test/cypress/snapshots/**/**/__diff_output__/*.png
+          ./skills-client-integration/skills-int-e2e-test/cypress/snapshots/**/__diff_output__/*.png
+        
+
+#    - name: run backwards compat tests
+#      run: |
+#        cd skills-client-integration/skills-int-e2e-test
+#        mvn --batch-mode clean package
+#        export NO_COLOR=1
+#        java -jar target/skills-int-e2e-test-*.jar
+#        cd ../../
+#
+#    - name: upload result artifacts
+#      if: ${{ always() }}
+#      uses: actions/upload-artifact@v4
+#      with:
+#        name: result artifacts
+#        path: |
+#          ./skills-client-integration/skills-int-e2e-test/target/logs/*
+#          ./skills-client-integration/skills-int-e2e-test/target/skills-client/skills-client-integration/skills-int-e2e-test/cypress/videos/*.mp4
+#          ./skills-client-integration/skills-int-e2e-test/target/skills-client/skills-client-integration/skills-int-e2e-test/cypress/screenshots/**/*.png
+#          ./skills-client-integration/skills-int-e2e-test/cypress/videos/*.mp4
+#          ./skills-client-integration/skills-int-e2e-test/cypress/screenshots/**/*.png
+#          /home/runner/.npm/_logs/*

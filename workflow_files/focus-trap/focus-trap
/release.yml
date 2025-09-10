@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup environment
+        id: setup
+        run: |-
+          echo "npm-cache-dir=$(npm config get cache)" >> ${GITHUB_OUTPUT}
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          check-latest: true
+
+      # TODO: this does work (it'll find the cache) but it appears it's not putting the cache
+      #  back into ./node_modules because skipping the install step results in subsequent
+      #  steps failing with messages like `prettier not found`, which implies there's no
+      #  node_modules directory there with Prettier installed in it...
+      #
+      # - name: NPM cache check
+      #   uses: actions/cache@v3
+      #   id: npm-cache
+      #   with:
+      #     path: ${{ steps.setup.outputs.npm-cache-dir }}
+      #     key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-node-
+
+      - name: Install packages
+        # if: steps.npm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Test All
+        run: npm run test
+
+      - name: Create Release or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

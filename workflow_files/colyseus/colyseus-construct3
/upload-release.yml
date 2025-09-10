@@ -1,0 +1,57 @@
+name: Publish & Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  publish-addon:
+    name: Release & Publish
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18.x'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Install dependencies
+      run: |
+        npm install
+
+    - id: check
+      uses: EndBug/version-check@v1
+      with:
+        file-name: plugin/addon.json
+        diff-search: true
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Generate .c3addon file for upload
+      if: steps.check.outputs.changed == 'true'
+      run: npx c3addon pack plugin
+
+    - name: Release
+      if: steps.check.outputs.changed == 'true'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.check.outputs.version }}
+        prerelease: false
+        files: Colyseus_SDK.c3addon
+
+    # - name: Release
+    #   if: steps.check.outputs.changed == 'true'
+    #   run: |
+    #     c3addon publish \
+    #       --addonUrl 'https://www.construct.net/en/make-games/addons/1057/testing-auto-release' \
+    #       --authUser ${{ secrets.C3_AUTH_USER }} \
+    #       --authPassword ${{ secrets.C3_AUTH_PASSWORD }} \
+    #       --uploadFile Colyseus_SDK.c3addon \
+    #       --version ${{ steps.check.outputs.version }} \
+           --releaseNotes 'Released via GitHub Actions'

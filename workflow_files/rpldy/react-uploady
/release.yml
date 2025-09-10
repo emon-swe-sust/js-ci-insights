@@ -1,0 +1,175 @@
+name: Uploady Release
+
+on:
+    workflow_dispatch:
+        branches:
+            - "release-**"
+        inputs:
+            version:
+                type: choice
+                description: Which version to release?
+                required: false
+                default: "patch"
+                options:
+                    - "patch"
+                    - "minor"
+                    - "major"
+                    - "prepatch"
+                    - "preminor"
+                    - "premajor"
+                    - "prerelease"
+
+            preid:
+                type: choice
+                description: Which pre-release ID to use?
+                required: false
+                default: ""
+                options:
+                    - ""
+                    - "rc"
+                    - "alpha"
+
+            mergeMaster:
+                type: boolean
+                description: Merge latest master?
+                required: true
+                default: true
+
+            dry:
+                type: boolean
+                description: dont publish, fail after version
+                required: false
+                default: false
+
+permissions:
+    pull-requests: write
+    contents: write
+
+defaults:
+    run:
+        shell: bash
+
+jobs:
+    release:
+        name: Release Uploady
+        environment: "Release"
+        runs-on: ubuntu-latest
+        steps:
+            -   name: Check is pre-release
+                id: is-pre
+                run: |
+                    echo "PRE_RELEASE=${{ inputs.version == 'premajor' || inputs.version == 'preminor' || inputs.version == 'prepatch' || inputs.version == 'prerelease' }}" >> $GITHUB_OUTPUT
+
+            -   name: Validate version with pre-id
+                if: ${{ steps.is-pre.outputs.PRE_RELEASE == 'true' && inputs.preid == '' }}
+                run: |
+                    echo "🔴 Failing Job - Cant use version: (premajor, preminor, prepatch, prerelease) without selecting 'preid' value too! >> $GITHUB_STEP_SUMMARY
+                    exit 1
+
+            -   uses: actions/checkout@v4
+                with:
+                    fetch-depth: 0
+
+            -   name: Define GIT author
+                run: |
+                    git config user.email "ci@react-uploady.org"
+                    git config user.name "Uploady CI"
+
+            -   name: Merge latest master
+                if: ${{ inputs.mergeMaster == true }}
+                run: |
+                    git merge origin/master -m "chore: merge content from master"
+
+            - name: Prepare
+              uses: ./.github/actions/prepare
+
+            -   name: Clean
+                run: pnpm clean
+
+            -   name: Define Lerna args
+                id: lerna-args
+                run: |
+                    if [ '${{ steps.is-pre.outputs.PRE_RELEASE }}' = 'true' ]
+                    then
+                        if [ '${{ inputs.preid }}' = 'rc' ]
+                        then
+                          echo "using args for RC release"
+                          echo "VERSION=${{ inputs.version }} --preid rc" >> $GITHUB_OUTPUT
+                          echo "PUBLISH=--dist-tag next" >> $GITHUB_OUTPUT
+                        elif [ '${{ inputs.preid }}' = 'alpha' ]
+                        then
+                          echo "using args for Alpha release"
+                          echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+                          echo "PUBLISH=--dist-tag alpha" >> $GITHUB_OUTPUT
+                        fi
+                    else
+                      echo "using args for ${{ inputs.version }} release"
+                      echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+                    fi
+
+            -   name: Create version
+                id: version
+                run: |
+                    echo "### Using version args: ${{ steps.lerna-args.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+                    lerna version ${{ steps.lerna-args.outputs.VERSION }} --sync-dist-version --force-publish=* --no-push --no-git-tag-version ${{ inputs.dry == false && '--yes' || ''  }}
+
+            -   name: Build source
+                run: pnpm build
+
+            -   name: Bundle source
+                run: pnpm bundle:prod
+
+            -   name: Authenticate with NPM registry
+                run: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/.npmrc
+                env:
+                    NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+            -   name: Extract version changelog
+                id: version-log
+                uses: ./.github/actions/versionLog
+
+            -   name: Create version name
+                id: version-name
+                run: |
+                    echo "NEW_VERSION=${{ format('v{0}', steps.version-log.outputs.VERSION) }}" >> $GITHUB_OUTPUT
+
+            -   name: Commit version update
+                run: |
+                    git commit -a -m "chore: updated version to: ${{ steps.version-name.outputs.NEW_VERSION }}"
+
+            -   name: Publish
+                id: publish
+                run: |
+                    lerna publish from-package ${{ steps.lerna-args.outputs.PUBLISH }} --no-push --yes
+                    echo "## Published: ${{ steps.version-name.outputs.NEW_VERSION }} :rocket:" >> $GITHUB_STEP_SUMMARY
+                    echo "${{ steps.version-log.outputs.VERSION_LOG }}" >> $GITHUB_STEP_SUMMARY
+
+            -   name: Push changes
+                if: ${{ always() && steps.version.outcome == 'success' && steps.publish.outcome == 'success' }}
+                run: |
+                    git push
+                    git tag -a ${{ steps.version-name.outputs.NEW_VERSION }} -m "tag for version: ${{ steps.version-name.outputs.NEW_VERSION }}"
+                    git push origin ${{ steps.version-name.outputs.NEW_VERSION }}
+
+            -   name: Create GH Release
+                uses: ncipollo/release-action@v1
+                with:
+                    name: ${{ steps.version-name.outputs.NEW_VERSION }}
+                    body: ${{ steps.version-log.outputs.VERSION_LOG }}
+                    prerelease: ${{ fromJSON(steps.is-pre.outputs.PRE_RELEASE) && true || false }}
+                    tag: ${{ steps.version-name.outputs.NEW_VERSION }}
+
+            -   name: Create PR for Release
+                id: pr
+                uses: peter-evans/create-pull-request@v6
+                with:
+                    title: "chore: release ${{ steps.version-name.outputs.NEW_VERSION }}"
+                    body: "Automatic PR for version release: ${{ steps.version-name.outputs.NEW_VERSION }}"
+                    branch: ${{ github.ref }}
+                    base: "refs/heads/master"
+                    commit-message: "commit new version"
+
+            -   name: Report PR URL
+                if: ${{ steps.pr.outputs.pull-request-number != '' }}
+                run: |
+                   echo "Created PR: ${{ steps.pr.outputs.pull-request-url }}" >> $GITHUB_STEP_SUMMARY

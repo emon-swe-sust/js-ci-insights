@@ -1,0 +1,37 @@
+name: Builds
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  build:
+    name: Create artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v4
+    - name: Chrome
+      run: |
+        mkdir -p chrome
+        cp -R -t chrome *.{js,css,html,json,png} LICENSE
+        rm -f chrome/*-firefox.* chrome/icon.png
+        mv chrome/manifest-chrome.json chrome/manifest.json
+        mv chrome/options-chrome.js chrome/options-browser.js
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: chrome
+        path: chrome
+ 
+    - name: Firefox
+      run: |
+        mkdir -p firefox
+        cp -R -t firefox *.{js,css,html,json,png} LICENSE
+        rm -f firefox/*-chrome.* firefox/icon.png
+        mv firefox/manifest-firefox.json firefox/manifest.json
+        mv firefox/options-firefox.js firefox/options-browser.js
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: firefox
+        path: firefox

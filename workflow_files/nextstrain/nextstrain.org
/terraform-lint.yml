@@ -1,0 +1,51 @@
+name: terraform lint
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
+    paths:
+      - '.github/workflows/terraform-lint.yml'
+      - '**.tf'
+      - '**.tfvars'
+      - '**.tf.json'
+      - '**.tfvars.json'
+
+  # Manually triggered using GitHub's UI
+  workflow_dispatch:
+jobs:
+  fmt:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install Terraform
+        run: |
+          wget -O terraform.zip https://releases.hashicorp.com/terraform/1.10.2/terraform_1.10.2_linux_amd64.zip
+          unzip terraform.zip -d "$HOME/terraform"
+          echo "$HOME/terraform" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v5
+      - run: scripts/terraform-fmt -check
+
+  validate:
+    name: validate ${{matrix.env}}
+    strategy:
+      matrix:
+        env:
+          - env/production
+          - env/testing
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install Terraform
+        run: |
+          wget -O terraform.zip https://releases.hashicorp.com/terraform/1.10.2/terraform_1.10.2_linux_amd64.zip
+          unzip terraform.zip -d "$HOME/terraform"
+          echo "$HOME/terraform" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v5
+
+      - run: terraform init -backend=false
+        working-directory: ${{matrix.env}}
+
+      - run: terraform validate
+        working-directory: ${{matrix.env}}

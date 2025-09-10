@@ -1,0 +1,47 @@
+name: Node.js CI
+
+on:
+  push:
+    branches: [ main, development ]
+  pull_request:
+    branches: [ main, development ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Read .nvmrc
+      run: echo ::set-output name=NVMRC::$(cat .nvmrc)
+      id: nvm
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '${{ steps.nvm.outputs.NVMRC }}'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Cache Node.js modules
+      uses: actions/cache@v2
+      with:
+        path: ~/.npm
+        key: ${{ runner.OS }}-node-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.OS }}-node-
+          ${{ runner.OS }}-
+
+    - name: Install dependencies
+      run: npm i --force
+
+    - name: Run linter
+      run: npm run lint
+
+    - name: Run build
+      run: npm run build
+      env:
+        API_URL: ${{ secrets.API_URL }}
+        COLLABORATORS_WEB_URL: ${{ secrets.COLLABORATORS_WEB_URL }}
+        COLLABORATORS_API_URL: ${{ secrets.COLLABORATORS_API_URL }}

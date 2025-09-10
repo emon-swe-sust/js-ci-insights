@@ -1,0 +1,39 @@
+# Updates snapshots in chromatic, using latest `main` as basleline
+name: 'Chromatic Snapshot Baseline'
+permissions:
+  contents: read
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  chromatic_update_baseline:
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --loglevel=warn
+
+      - name: Build
+        run: npm run build && npm run build-storybook
+
+      - name: Auto-accept chromatic snapshots from `main`
+        uses: chromaui/action@d0795df816d05c4a89c80295303970fddd247cce
+        with:
+          projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+          autoAcceptChanges: true
+          exitZeroOnChanges: false
+          buildScriptName: ''
+          storybookBuildDir: './storybook-static'

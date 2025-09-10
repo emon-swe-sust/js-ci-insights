@@ -1,0 +1,24 @@
+name: Phoenix build verification
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-tasks:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - name: Npm Install
+        run: |
+          npm ci
+      - name: eslint using npm run eslint
+        run: |
+          npm run lint
+      - name: building Phoenix with npm run build
+        run: |
+          npm run build

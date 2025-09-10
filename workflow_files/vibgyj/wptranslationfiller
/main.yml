@@ -1,0 +1,132 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Upload Release Asset
+
+# # Controls when the action will run. 
+# on:
+#   # Triggers the workflow on push or pull request events but only for the master branch
+#   push:
+#     branches: [ master ]
+#   pull_request:
+#     branches: [ master ]
+  
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Upload Release Asset
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Zip Chrome and Firefox Assets
+        run: |
+          ls
+          ls src
+          echo 'Copying Chrome files...'
+          cp src/contentScript.js src/chrome/contentScript.js
+          cp src/wptf-commonTranslate.js src/chrome/wptf-commonTranslate.js
+          cp src/wptf-deeplTrans.js src/chrome/wptf-deeplTrans.js
+          cp src/wptf-googleTrans.js src/chrome/wptf-googleTrans.js
+          cp src/wptf-microsoftTrans.js src/chrome/wptf-microsoftTrans.js
+          cp src/wptf-OpenAITrans.js src/chrome/wptf-OpenAITrans.js
+          cp src/wptf-options.js src/chrome/wptf-options.js
+          cp src/wptf-options.html src/chrome/wptf-options.html
+          cp src/wptf-cute-alert.css src/chrome/wptf-cute-alert.css
+          cp src/wptf-style.css src/chrome/wptf-style.css
+          cp src/jsstore.js src/chrome/jsstore.js
+          cp src/jsstore.worker.js src/chrome/jsstore.worker.js
+          cp src/wptf-database.js src/chrome/wptf-database.js
+          cp src/wptf-cute-alert.js src/chrome/wptf-cute-alert.js
+          cp src/jsdiff.js src/chrome/jsdiff.js
+          cp src/wptf-purify.min.js src/chrome/wptf-purify.min.js
+          cp src/wptf-functions.js src/chrome/wptf-functions.js
+          cp src/wptf-consistency.js src/chrome/wptf-consistency.js
+          cp src/wptf-importfile.js src/chrome/wptf-importfile.js
+          cp src/wptf-block_rules.json src/chrome/wptf-block_rules.json
+          cp src/wptf-inject.js src/chrome/wptf-inject.js
+          cp src/wptf-buildstats.js src/chrome/wptf-buildstats.js
+          cp src/wptf-spellcheck.js src/chrome/wptf-spellcheck.js
+          mkdir src/chrome/img
+          cp src/img/error.svg src/chrome/img/error.svg
+          cp src/img/info.svg src/chrome/img/info.svg
+          cp src/img/question.svg src/chrome/img/question.svg
+          cp src/img/success.svg src/chrome/img/success.svg
+          cp src/img/warning.svg src/chrome/img/warning.svg
+          cp src/img/warning-marker.png src/chrome/img/warning-marker.png
+          echo 'Copying Firefox files...'
+          cp src/contentScript.js src/firefox/contentScript.js
+          cp src/wptf-commonTranslate.js src/firefox/wptf-commonTranslate.js
+          cp src/wptf-deeplTrans.js src/firefox/wptf-deeplTrans.js
+          cp src/wptf-googleTrans.js src/firefox/wptf-googleTrans.js
+          cp src/wptf-microsoftTrans.js src/firefox/wptf-microsoftTrans.js
+          cp src/wptf-OpenAITrans.js src/chrome/wptf-OpenAITrans.js
+          cp src/wptf-options.js src/firefox/wptf-options.js
+          cp src/wptf-options.html src/firefox/wptf-options.html
+          cp src/wptf-cute-alert.css src/firefox/wptf-cute-alert.css
+          cp src/wptf-style.css src/firefox/wptf-style.css
+          cp src/jsstore.js src/firefox/jsstore.js
+          cp src/jsstore.worker.js src/firefox/jsstore.worker.js
+          cp src/wptf-database.js src/firefox/wptf-database.js
+          cp src/wptf-cute-alert.js src/firefox/wptf-cute-alert.js
+          cp src/jsdiff.js src/firefox/jsdiff.js
+          cp src/wptf-purify.min.js src/firefox/wptf-purify.min.js
+          cp src/wptf-functions.js src/firefox/wptf-functions.js
+          cp src/wptf-consistency.js src/firefox/wptf-consistency.js
+          cp src/wptf-block_rules.json src/firefox/wptf-block_rules.json
+          cp src/wptf-inject.js src/chrome/wptf-inject.js
+          cp src/wptf-importfile.js src/chrome/wptf-importfile.js
+          cp src/wptf-buildstats.js src/chrome/wptf-buildstats.js
+          cp src/wptf-spellcheck.js src/chrome/wptf-spellcheck.js
+          mkdir src/firefox/img
+          cp src/img/error.svg src/firefox/img/error.svg
+          cp src/img/info.svg src/firefox/img/info.svg
+          cp src/img/question.svg src/firefox/img/question.svg
+          cp src/img/success.svg src/firefox/img/success.svg
+          cp src/img/warning.svg src/firefox/img/warning.svg
+          cp src/img/warning-marker.png src/chrome/img/warning-marker.png
+          echo 'Creating Chrome zip...'
+          cd ./src/chrome
+          zip -r chrome-extension .
+          echo 'Creating Firefox zip...'
+          cd ../..
+          ls
+          cd ./src/firefox
+          zip -r firefox-addon .
+          ls
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+      - name: Upload Chrome Extension Release Asset
+        id: upload-chrome-extension-release-asset 
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          asset_path: ./src/chrome/chrome-extension.zip
+          asset_name: chrome-extension.zip
+          asset_content_type: application/zip
+      - name: Upload Firefox addon Release Asset
+        id: upload-firefox-addon-release-asset 
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          asset_path: ./src/firefox/firefox-addon.zip
+          asset_name: firefox-addon.zip
+          asset_content_type: application/zip

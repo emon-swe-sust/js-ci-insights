@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - 'v*'
+  pull_request: {}
+  schedule:
+    - cron:  '0 3 * * *' # daily, at 3am
+
+env:
+  VOLTA_FEATURE_PNPM: 1
+
+jobs:
+  lint-addon:
+    name: Lint Addon
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: ./.github/actions/pnpm-setup
+      - name: Install dependencies
+        run: pnpm install
+      - name: Lint
+        run: pnpm lint:addon
+
+  lint-test-app:
+    name: Lint Test App
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: ./.github/actions/pnpm-setup
+      - name: Install dependencies
+        run: pnpm install
+      - name: Lint
+        run: pnpm lint:test-app
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        test-suite:
+          - ember-4.0
+          - ember-lts-4.4
+          - ember-lts-4.8
+          - ember-4.12
+          - ember-lts-5.8
+          - ember-default
+          - ember-release
+          - embroider-safe
+        allow-failure: [false]
+
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: ./.github/actions/pnpm-setup
+      - name: Install dependencies
+        run: pnpm install
+      - name: tests
+        run: pnpm test:test-app ${{ matrix.test-suite }}
+        continue-on-error: ${{matrix.allow-failure}}
+
+  extra-tests:
+    name: Tests (Floating Dependencies)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: ./.github/actions/pnpm-setup
+      - name: Install dependencies
+        run: pnpm install --no-lockfile
+
+      - name: tests
+        run: pnpm test
+        continue-on-error: true
+
+  allow-fail-try-scenarios:
+    name: ${{ matrix.test-suite }} - Allowed to fail
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        test-suite:
+          - embroider-optimized
+          - ember-beta
+          - ember-canary
+        allow-failure: [true]
+
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+      - uses: ./.github/actions/pnpm-setup
+
+      - name: install dependencies
+        run: pnpm install
+
+      - name: Allowed to fail tests
+        id: allowed_to_fail_tests
+        run: pnpm test:test-app ${{ matrix.test-suite }}
+        continue-on-error: true
+
+      - uses: mainmatter/continue-on-error-comment@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          outcome: ${{ steps.allowed_to_fail_tests.outcome }}
+          test-id: ${{ matrix.workspace }} ${{ matrix.test-suite }}

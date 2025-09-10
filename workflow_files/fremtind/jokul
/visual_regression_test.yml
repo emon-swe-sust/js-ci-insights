@@ -1,0 +1,129 @@
+name: Visuelle regresjonstester
+
+on:
+    pull_request:
+        branches:
+            - main
+
+        paths:
+            - utils/**
+            - .github/workflows/visual_regression_test.yml
+            - "packages/jokul/src/**/*.spec.ts"
+            - "packages/jokul/src/**/*.scss"
+            - "packages/jokul/src/**/*.tsx"
+            - "pnpm-lock.yaml"
+
+run-name: Kjør visuelle regresjonstester for ${{ github.event.pull_request.title }}
+
+jobs:
+    tests:
+        if: ${{ !contains(github.event.sender.login, 'fremtind-bot') }}
+        runs-on: ubuntu-latest
+        permissions:
+            actions: write
+            contents: write
+            pull-requests: write
+
+        strategy:
+            fail-fast: false
+            matrix:
+                SHARD: [1, 2, 3]
+                NUM_SHARDS: [3]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  token: ${{ secrets.BOT_PUBLISH_TOKEN }}
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: "pnpm"
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Build packages
+              run: pnpm build
+
+            - name: Find Playwright version
+              shell: bash
+              run: |
+                  PLAYWRIGHT_VERSION=$(pnpm list "@playwright/test" --json | jq --raw-output '.[0].devDependencies["@playwright/test"].version')
+                  echo "PLAYWRIGHT_VERSION=$PLAYWRIGHT_VERSION" >> $GITHUB_ENV
+
+            - name: Playwright binary cache
+              uses: actions/cache@v3
+              id: playwright-cache
+              with:
+                  path: /home/runner/.cache/ms-playwright
+                  key: playwright-${{ env.PLAYWRIGHT_VERSION }}
+                  restore-keys: |
+                      playwright-
+
+            - name: Playwright binaries
+              if: steps.playwright-cache.outputs.cache-hit != 'true'
+              run: pnpm exec playwright install --with-deps chromium
+
+            - name: Run tests
+              run: pnpm integration:ci --shard ${{ matrix.SHARD }}/${{ matrix.NUM_SHARDS }}
+
+            - name: Upload Playwright report on failure
+              if: ${{ failure() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: playwright-report-${{ matrix.SHARD }}.tar.gz
+                  path: playwright-report/
+
+            - name: Upload Playwright test-results on failure
+              if: ${{ failure() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: test-results-${{ matrix.SHARD }}.tar.gz
+                  path: test-results/
+
+            - name: Check for new screenshots
+              id: check
+              run: |
+                  echo "new-screenshots=$(if [ -z "$(git status --porcelain)" ]; then echo "false"; else echo "true"; fi)" >> $GITHUB_OUTPUT
+
+            - name: Upload screenshots
+              if: steps.check.outputs.new-screenshots == 'true'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: playwright-screenshots-${{ matrix.SHARD }}
+                  path: |
+                      packages/jokul/src/components/**/integration/__screenshots__/*
+
+    commit:
+        needs: [tests]
+        runs-on: ubuntu-latest
+        permissions:
+            actions: write
+            contents: write
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v3
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  token: ${{ secrets.BOT_PUBLISH_TOKEN }}
+
+            - name: Download screenshots
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: playwright-screenshots-*
+                  path: packages/jokul/src/components
+                  merge-multiple: true
+
+            - name: Commit snapshots
+              run: |
+                  git config user.email "fremtind.designsystem@fremtind.no"
+                  git config user.name "fremtind-bot"
+                  git add **/integration/__screenshots__/* || echo "No updated screenshots, nothing to add!"
+                  git commit -m "chore: update integration screenshots [ci skip playwright]" --no-verify || echo "No updated screenshots, nothing to commit!"
+                  git push

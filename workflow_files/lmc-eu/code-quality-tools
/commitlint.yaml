@@ -1,0 +1,21 @@
+name: 🔍 Commit Checks
+on:
+  push:
+    branches-ignore:
+      - main
+
+jobs:
+  commitlint:
+    name: 🧾 Linting Commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node and Install Dependencies
+        uses: ./.github/actions/setup-install
+
+      - name: Commitlint
+        run: npx commitlint --color --verbose --from $(git merge-base origin/main HEAD)

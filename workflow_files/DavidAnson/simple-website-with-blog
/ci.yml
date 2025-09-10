@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - 'dependabot/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+      - run: npm install
+      - run: npm run ci
+      - run: npm run playwright-install-bare
+      - run: npm run playwright-test-docker

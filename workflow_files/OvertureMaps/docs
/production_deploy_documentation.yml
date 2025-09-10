@@ -1,0 +1,64 @@
+---
+name: Production Deploy
+run-name: Build and deploy production documentation
+
+on:
+  push:
+    branches: [main]
+
+  # Allow running from the actions tab
+  workflow_dispatch:
+    inputs:
+      schema_branch:
+        description: 'Schema branch to pull from for /reference'
+        required: true
+        default: 'main'
+
+permissions:
+  id-token: write # required to use OIDC authentication
+  contents: read # required to checkout the code from the repo
+  pages: write # for actions/deploy-pages
+
+jobs:
+  build:
+    name: Build the documentation and deploy
+    if: github.repository == 'overturemaps/docs'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the docs repo
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install NPM dependencies
+        run: npm install --prefer-dedupe
+
+      - name: Build Docusaurus Pages 🔧
+        env:
+          SCHEMA_BRANCH: ${{ inputs.schema_branch }}
+        run: npm run build
+
+      - name: Setup Pages 🗂️
+        uses: actions/configure-pages@v5
+
+      - name: Upload static files as GH-Pages artifact 📦
+        id: docs-website
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    environment:
+      name: github-pages
+      url: https://docs.overturemaps.org/
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to GitHub Pages 🚀
+        id: docs-website
+        uses: actions/deploy-pages@v4
