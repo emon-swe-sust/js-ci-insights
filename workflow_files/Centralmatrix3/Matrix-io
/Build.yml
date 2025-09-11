@@ -85,7 +85,7 @@ jobs:
                 if (!geoip++) print "geoip_set:";
                 print "  - " arr[2];
               } else { print $0; }
-            }' "$file" > tmpfile && mv tmpfile "$file"
+            } ' "$file" > tmpfile && mv tmpfile "$file"
             rule_count=$(grep -c '^  - ' "$file")
             {
               echo "# 规则名称: $file_names"
@@ -116,7 +116,7 @@ jobs:
           for file in *.list; do
             [ ! -f "$file" ] && echo "$file not found." && continue
             file_names="${file%.list}"
-            sed -i -E 's/^DOMAIN(-SUFFIX|-KEYWORD|-WILDCARD)?,/HOST\1,/g; s/^IP-CIDR6,/IP6-CIDR,/g; s/,no-resolve//g' "$file"
+            sed -E -i 's/^DOMAIN(-SUFFIX|-KEYWORD|-WILDCARD)?,/HOST\1,/g; s/^IP-CIDR6,/IP6-CIDR,/g; s/,no-resolve//g' "$file"
             awk -v policy="$file_names" '{ print $0 "," policy }' "$file" > tmpfile && mv tmpfile "$file"
             rule_count=$(wc -l < "$file")
             {
@@ -159,8 +159,7 @@ jobs:
             echo '  "rules": [' >> "$tmp"
             first_entry=true
             add_rule_block() {
-              local json_key="$1"
-              shift
+              local json_key="$1"; shift
               local values
               values=$(grep -E "^($(IFS=\|; echo "$*"))," "$file" | cut -d, -f2)
               [ -z "$values" ] && return
@@ -176,6 +175,7 @@ jobs:
             add_rule_block "domain" "DOMAIN"
             add_rule_block "domain_suffix" "DOMAIN-SUFFIX"
             add_rule_block "domain_keyword" "DOMAIN-KEYWORD"
+          # add_rule_block "rule_type" "RULE-TYPE"
             add_rule_block "ip_cidr" "IP-CIDR" "IP-CIDR6"
             echo >> "$tmp"
             echo '  ]' >> "$tmp"

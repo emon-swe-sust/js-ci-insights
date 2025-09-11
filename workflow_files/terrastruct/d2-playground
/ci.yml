@@ -1,26 +1,28 @@
-name: CI
-on:
-  push:
-    branches: [master]
-  pull_request:
-    branches: [master]
+name: ci
+on: [push, pull_request]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    name: Build UI
-    runs-on: ubuntu-22.04
+  ci:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Setup node
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
         with:
-          node-version: 18.12.1
-      - name: Packaging
-        run: |
-          npm install bower@~1.8.14 -g
-          bower install
-          npm install gulp@~4.0.0 -g
-          npm install
-          gulp dist
-          mv es-dist clusternode-web
-          zip -r EventStore.OSS.UI-v${{ steps.release.outputs.version}}.zip clusternode-web
+          go-version-file: ./go.mod
+          cache: true
+      - run: COLOR=1 ./make.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets._GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+  nofixups:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: git submodule update --init
+      - run: COLOR=1 ./ci/sub/bin/nofixups.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets._GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

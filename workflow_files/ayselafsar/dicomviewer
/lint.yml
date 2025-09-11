@@ -1,43 +1,29 @@
-name: Format and Lint
+name: Lint
+
 on:
   pull_request:
-    paths:
-      - '**/*.js'
-      - '**/*.json'
-      - '**/*.yml'
-      - '**/*.yaml'
+  push:
+    branches:
+      - master
+      - stable*
 
 jobs:
-  prettier:
-    name: Check formatting
+  lint:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: tj-actions/changed-files@v46
-        id: changed-files
-        with:
-          files: |
-            **/*.js
-            **/*.json
-            **/*.yml
-            **/*.yaml
-          separator: ' '
-      - uses: creyD/prettier_action@v4.3
-        if: steps.changed-files.outputs.all_changed_files
-        with:
-          dry: True
-          prettier_options: --check ${{ steps.changed-files.outputs.all_changed_files }}
 
-  eslint:
-    name: Check linting
-    runs-on: ubuntu-latest
+    name: Lint
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: tj-actions/changed-files@v46
-        id: changed-files
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
         with:
-          files: |
-            **/*.js
-          separator: ' '
-      - if: steps.changed-files.outputs.all_changed_files
-        run: npm install && npm run eslint -- ${{ steps.changed-files.outputs.all_changed_files }}
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint
+        run: npm run lint

@@ -1,56 +1,35 @@
-name: Test CI
-
+name: 🧪 自动化测试
 on:
-  push:
+  pull_request:
     branches:
       - main
-  pull_request:
-
-permissions:
-  issues: write
-  contents: read
-  id-token: write
-
 jobs:
-  runner-start:
+  test:
+    name: 自动化测试
     runs-on: ubuntu-latest
     steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
         with:
-          aws-region: us-west-2
-          role-to-assume: arn:aws:iam::800406105498:role/RafaelGSS-nodejs-bench-operations
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Start Runner
-        uses: nodesource/aws-eco-runner@v1.0.0-beta.3
+          version: 7.1.6
+      - uses: actions/setup-node@v3
         with:
-          instances_id: '["i-065f0f848eb1615ae"]'
-          action: 'start'
-          aws_default_region: 'us-west-2'
-
-  build:
-    runs-on: self-hosted
-
-    strategy:
-      matrix:
-        node-version: [18, 20, 22, 24]
-
-    env:
-      CI: true
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+          node-version: 14
+          cache: 'pnpm'
+      - run: pnpm i
+      - run: pnpm run test-reporter
+      - name: Test Report
+        uses: dorny/test-reporter@v1
+        if: success() || failure()
         with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run tests
-        run: npm test
+          name: 测试报告
+          path: test-results.json
+          reporter: mocha-json
+      - name: coverage check
+        uses: VeryGoodOpenSource/very_good_coverage@v1
+        with:
+          min_coverage: 95
+      - name: Report NYC coverage
+        uses: romeovs/lcov-reporter-action@v0.2.16
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

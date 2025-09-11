@@ -1,69 +1,87 @@
----
-name: Run tests
+name: Test
 
 on:
   pull_request:
-    branches:
-      - main
+  workflow_dispatch:
+  workflow_call:
 
 jobs:
-  build_and_test:
-    runs-on: ubuntu-latest
+  test:
+    strategy:
+      matrix:
+        operating_system: 
+          - ubuntu-22.04
+          - windows-latest
+          - macos-latest
+      fail-fast: false # run tests on other operating systems even if one fails
 
-    env:
-      CI: true
-      NODE_ENV: test
+    runs-on: ${{ matrix.operating_system }}
 
     steps:
+      - run: |
+          git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: ankane/setup-mongodb@v1
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.x
+          node-version: 20
+      - run: npm ci
+      - name: Run tests (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: npm test
+      - name: Run tests (Windows or macOS)
+        if: ${{ runner.os == 'Windows' || runner.os == 'macOS' }}
+        run: npm test -- --timeout 5000
 
-      - name: Log node version
-        run: node --version
+  validate_declarations:
+    strategy:
+      matrix:
+        operating_system: 
+          - ubuntu-22.04 # Using Ubuntu 22.04 due to AppArmor restrictions in newer versions (23.10+) that interfere with Puppeteer's sandbox functionality. See https://pptr.dev/troubleshooting#issues-with-apparmor-on-ubuntu
+          - windows-latest
+          - macos-latest
+      fail-fast: false # run tests on other operating systems even if one fails
 
+    runs-on: ${{ matrix.operating_system }}
+
+    steps:
+      - run: |
+          git config --global core.autocrlf false
       - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: yarn install --frozen-lockfile
-
-      - name: Check TechDocs
-        run: yarn tech-docs:build
-
-      - name: Lint
-        run: yarn lint
-
-      - name: Unit test
-        run: yarn test:unit
-
-      - name: Build static site
-        run: yarn build
-        env:
-          GATSBY_ALGOLIA_APP_ID: ${{ secrets.GATSBY_ALGOLIA_APP_ID }}
-          GATSBY_ALGOLIA_SEARCH_KEY: ${{ secrets.GATSBY_ALGOLIA_SEARCH_KEY }}
-          ALGOLIA_SKIP_INDEXING: true
-          CONTENTFUL_ACCESS_TOKEN: ${{ secrets.CONTENTFUL_ACCESS_TOKEN }}
-          GATSBY_FUNNEL_RECAPTCHA_ENABLED: false
-          GATSBY_NEWSLETTER_RECAPTCHA_ENABLED: true
-          ROADIE_API_TOKEN: ${{ secrets.ROADIE_API_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.RELEASES_GITHUB_TOKEN }}
-
-      - name: Cypress run
-        uses: cypress-io/github-action@v4
+      - uses: actions/checkout@v4
         with:
-          start: yarn serve --port 8001
-
-      - name: Upload screenshots
-        uses: actions/upload-artifact@v4
-        if: failure()
+          repository: OpenTermsArchive/demo-declarations
+          path: ./demo-declarations
+      - uses: actions/setup-node@v4
         with:
-          name: cypress-screenshots
-          path: cypress/screenshots
+          node-version: 20
+      - run: cd ./demo-declarations && npm install
+      - run: npm ci
+      - run: ./node_modules/.bin/cross-env NODE_ENV=ci npm run declarations:lint
+      - run: ./node_modules/.bin/cross-env NODE_ENV=ci npm run declarations:validate:schema
 
-      - name: Upload videos
-        uses: actions/upload-artifact@v4
-        if: failure()
+  validate_metadata:
+    strategy:
+      matrix:
+        operating_system: 
+          - ubuntu-22.04
+          - windows-latest
+          - macos-latest
+      fail-fast: false
+
+    runs-on: ${{ matrix.operating_system }}
+
+    steps:
+      - run: |
+          git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          name: cypress-videos
-          path: cypress/videos
-
+          repository: OpenTermsArchive/demo-declarations
+          path: ./demo-declarations
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: cd ./demo-declarations && npm install
+      - run: npm ci
+      - run: ./node_modules/.bin/cross-env NODE_ENV=ci npm run metadata:validate

@@ -1,29 +1,37 @@
 name: CI
 
-on:
-  push:
-    branches:
-      - "main"
-  pull_request:
+on: [push, pull_request]
 
 jobs:
-  build:
+  bless:
+    name: Bless
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v2
 
-      - uses: actions/setup-node@v3
+      - name: Install Node
+        uses: actions/setup-node@v2
         with:
-          node-version: 20.x
+          node-version: "14.x"
 
-      - id: cache-node_modules
-        uses: actions/cache@v3
+      - name: Cache npm dependencies
+        uses: actions/cache@v2
         with:
-          path: node_modules
-          key: node_modules-${{ hashFiles('package.json', 'package-lock.json') }}
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
-      - if: steps.cache-node_modules.outputs.cache-hit != 'true'
+      - name: Install npm dependencies
         run: npm ci
 
-      - run: npm test
+      - name: Ensure generated parser files are up to date
+        run: npx tree-sitter generate
+
+      - name: Run tree-sitter tests
+        run: npx tree-sitter test
+
+      - name: Check formatting
+        run: npx prettier --trailing-comma es5 --check grammar.js

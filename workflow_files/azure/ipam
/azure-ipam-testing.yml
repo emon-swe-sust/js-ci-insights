@@ -24,18 +24,21 @@ jobs:
       ipamResourceGroup: ${{ steps.deployScript.outputs.ipamResourceGroup }}
     steps:
       - name: Install Deployment Prerequisites
+        id: installPrerequisites
         shell: pwsh
         run: |
           Set-PSRepository PSGallery -InstallationPolicy Trusted
           Install-Module Az, Microsoft.Graph -AllowClobber -Force
 
       - name: Azure Login
+        id: azureLogin
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
           enable-AzPSSession: true
 
       - name: Checkout Azure IPAM Code
+        id: checkoutRepo
         uses: actions/checkout@v4
         with:
           sparse-checkout: |
@@ -44,10 +47,12 @@ jobs:
             ui
 
       - name: Build Azure IPAM Container
+        id: buildContainer
         run: |
           az acr build -r $ACR_NAME -t ipam:${{ github.run_id }}-${{ github.run_attempt }} -f ./Dockerfile.deb .
 
       - name: Update Bicep File
+        id: updateBicep
         working-directory: deploy
         shell: pwsh
         run: |
@@ -62,14 +67,14 @@ jobs:
           $bicepFile | Out-File -FilePath ./modules/appService.bicep -Force
 
       - name: Deploy Azure IPAM
-        working-directory: deploy
         id: deployScript
+        working-directory: deploy
         shell: pwsh
         run: ./deploy.ps1 -Location "westus3" -UIAppName $env:IPAM_UI_NAME -EngineAppName $env:IPAM_ENGINE_NAME
 
       - name: "Upload Logs"
-        working-directory: logs
         id: uploadLogs
+        working-directory: logs
         env:
           AZURE_IPAM_SUFFIX: ${{ steps.deployScript.outputs.ipamSuffix }}
           STORAGE_ACCT_RG: ${{ vars.LOGGING_STORAGE_RG }}
@@ -97,6 +102,7 @@ jobs:
           Write-Output "logFile=$archiveName" >> $Env:GITHUB_OUTPUT
 
       - name: "Output Azure IPAM Deployment Details"
+        id: deploymentDetails
         env:
           DEPLOYMENT_DETAILS: ${{ steps.uploadLogs.outputs.deployDetails }}
         shell: pwsh
@@ -117,6 +123,7 @@ jobs:
           Write-Host "-------------------"
 
       - name: "Sleep for 5 Minutes"
+        id: sleep
         shell: pwsh
         run: Start-Sleep -s 300
 
@@ -126,24 +133,28 @@ jobs:
     needs: [ deploy ]
     steps:
       - name: Install Testing Prerequisites
+        id: installPrerequisites
         shell: pwsh
         run: |
           Set-PSRepository PSGallery -InstallationPolicy Trusted
           Install-Module Az, Pester -AllowClobber -Force
 
       - name: Azure Login
+        id: azureLogin
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
           enable-AzPSSession: true
 
       - name: Checkout Azure IPAM Code
+        id: checkoutRepo
         uses: actions/checkout@v4
         with:
           sparse-checkout: |
             tests
 
       - name: Test Azure IPAM w/ Pester
+        id: ipamTesting
         working-directory: tests
         env:
           IPAM_RESOURCE_GROUP: ${{ needs.deploy.outputs.ipamResourceGroup }}
@@ -174,23 +185,27 @@ jobs:
     needs: [ deploy, test ]
     steps:
       - name: Install Cleanup Prerequisites
+        id: installPrerequisites
         shell: pwsh
         run: |
           Set-PSRepository PSGallery -InstallationPolicy Trusted
           Install-Module Az -AllowClobber -Force
 
       - name: Azure Login
+        id: azureLogin
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
           enable-AzPSSession: true
 
       - name : Remove Azure IPAM Resources
+        id: cleanupResources
         shell: pwsh
         run: |
           Remove-AzResourceGroup -Name ${{ needs.deploy.outputs.ipamResourceGroup }} -Force
 
       - name : Remove Azure IPAM Identities
+        id: cleanupIdentities
         shell: pwsh
         run: |
           $tenantId = (Get-AzContext).Tenant.Id
@@ -207,5 +222,6 @@ jobs:
           $engineApp | Remove-AzADApplication
 
       - name: "Remove Azure IPAM Container"
+        id: cleanupContainer
         run: |
           az acr repository delete --name $ACR_NAME --repository ipam --yes

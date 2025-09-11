@@ -1,26 +1,33 @@
-name: 'build-test'
-on: # rebuild any PRs and main branch changes
-  pull_request:
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Node.js CI
+
+on:
   push:
-    branches:
-      - main
-      - 'releases/*'
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
 
 jobs:
-  build: # make sure build/ci work properly
+  test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - run: |
-          yarn
-  test: # make sure the action works on a clean machine without building
+
     strategy:
-      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macOS-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        node-version: [18.x, 20.x]
+
     steps:
       - uses: actions/checkout@v5
-      - uses: ./
-        id: cpu-count
-      - run: echo ${{ steps.cpu-count.outputs.count }}
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run test:types
+      - run: npm run test:web
+      - run: npm run build
+        env:
+          CI: true

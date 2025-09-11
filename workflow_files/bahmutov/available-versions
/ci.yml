@@ -1,67 +1,47 @@
-name: CI
-
-on:
-  push:
-    branches:
-      - main
-      - master
-  pull_request:
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}=${{ github.head_ref }}
-  cancel-in-progress: true
-
+name: ci
+on: push
 jobs:
-  ci:
-    name: Build, Lint, Test
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [6.x, 8.x, 10.x, 12.x, 14.x, 16.x, 18.x, 20.x, 22.x]
+  test:
+    runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
+      - name: Checkout 🛎
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: yarn
+      - name: Install everything 📦
+        # https://github.com/bahmutov/npm-install
+        uses: bahmutov/npm-install@v1
 
-      - name: Install dependencies
-        run: yarn install
+      - name: Run tests 🧪
+        run: npm test
+      - name: Build 🏗️
+        run: npm run build
+      - name: Example 1 💎
+        run: npm run example
+      - name: Example 2 scoped 💎
+        run: npm run example-scoped
+      - name: Example 3 standard 💎
+        run: npm run example-standard
+      - name: Example 4 not found 💎
+        run: npm run example-not-found
 
-      - name: Run linter
-        run: yarn lint
+      - name: Audit dependencies 🔎
+        run: npm run deps || echo "ughh, need to bump dependencies"
 
-      - name: Run unit tests
-        run: yarn cover
-
-      - name: Coveralls
-        if: always()
-        uses: coverallsapp/github-action@v2
-  ci-other-os:
-    name: Build, Lint, Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [macos-latest, windows-latest]
+  release:
+    needs: [test]
+    runs-on: ubuntu-20.04
+    if: github.ref == 'refs/heads/master'
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout 🛎
+        uses: actions/checkout@v3
+
+      - name: Install only the semantic release 📦
+        run: npm install semantic-release
+
+      - name: Semantic Release 🚀
+        uses: cycjimmy/semantic-release-action@v3
         with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: yarn
-
-      - name: Install dependencies
-        run: yarn install
-
-      - name: Run linter
-        run: yarn lint
-
-      - name: Run unit tests
-        run: yarn test
+          branch: master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -39,6 +39,7 @@ jobs:
     needs: [ init ]
     steps:
       - name: Azure Login
+        id: azureLogin
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -47,6 +48,7 @@ jobs:
           enable-AzPSSession: true
 
       - name: Checkout Azure IPAM Code
+        id: checkoutRepo
         uses: actions/checkout@v4
         with:
           sparse-checkout: |
@@ -54,6 +56,7 @@ jobs:
             ui
 
       - name: Build Azure IPAM Containers
+        id: buildContainers
         env:
           IPAM_VERSION: ${{ needs.init.outputs.ipamVersion }}
         run: |
@@ -67,6 +70,7 @@ jobs:
     needs: [ init ]
     steps:
       - name: Azure Login
+        id: azureLogin
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -75,6 +79,7 @@ jobs:
           enable-AzPSSession: true
 
       - name: Checkout Azure IPAM Code
+        id: checkoutRepo
         uses: actions/checkout@v4
         with:
           sparse-checkout: |
@@ -83,6 +88,7 @@ jobs:
             lb
 
       - name: Build Legacy Azure IPAM Containers
+        id: buildLegacyContainers
         env:
           IPAM_VERSION: ${{ needs.init.outputs.ipamVersion }}
         run: |

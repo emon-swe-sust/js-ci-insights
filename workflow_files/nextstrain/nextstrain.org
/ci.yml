@@ -1,154 +1,210 @@
-name: CI workflow
+name: CI
 
 on:
   push:
+    branches:
+      - master
   pull_request:
+  workflow_dispatch:
+    inputs:
+      heroku-app:
+        description: Deploy to Heroku app (if set)
+        type: string
+        required: false
+
+# Only one run per branch at a time.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # This is the same as GitHub Action's `bash` keyword as of 20 June 2023:
+    # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsshell
+    #
+    # Completely spelling it out here so that GitHub can't change it out from under us
+    # and we don't have to refer to the docs to know the expected behavior.
+    shell: bash --noprofile --norc -eo pipefail {0}
 
 jobs:
+  # Lint regardless of build or test status and lint early.
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Code checkout
-        uses: actions/checkout@v4
-      - name: Install node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
         with:
-          node-version-file: ".nvmrc"
-          cache: 'npm'
-      - name: Install node dependencies
-        run: npm ci
-      - name: Lint javascript
-        run: npm run lint
-  audit_dependencies:
-    runs-on: ubuntu-latest
+          node-version-file: 'package.json'
+      - run: node --version
+      - run: npm ci
+      - run: npm run lint:server
+      - run: npm run lint:static-site
+      - run: node ./scripts/check-resource-index-match.js
+
+  type-check:
+    runs-on: ubuntu-24.04
     steps:
-      - name: Code checkout
-        uses: actions/checkout@v4
-      - name: Install node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
         with:
-          node-version-file: ".nvmrc"
-          cache: 'npm'
-      - name: Install node dependencies
-        run: npm ci
-      - name: Validate npm package signatures
-        run: npm audit signatures
+          node-version-file: 'package.json'
+      - run: npm ci
+      - run: npm run type-check:ci
+
+  # Build into Heroku slug so we can deploy the same build that we test.
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - run: ./scripts/heroku-build
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: |
+            build/slug.tar.gz
+            build/slug.tar.gz.sha256sum
+            build/slug.json
+
+  # Run tests in Heroku runtime environment against our built slug.
   test:
-    needs:
-      - lint
-      - audit_dependencies
-    runs-on: ubuntu-latest
-    # Start Postgres as a service, wait until healthy. Uses latest Postgres version.
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: analytics_reporter_test
-          POSTGRES_USER: analytics
-          POSTGRES_PASSWORD: 123abc
-        ports:
-          - 5432:5432
-        options:
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    if: github.repository == 'nextstrain/nextstrain.org'
+    needs: build
+    runs-on: ubuntu-24.04
+    container:
+      image: heroku/heroku:22
+    env:
+      # Override NODE_ENV=production default in production build (slug)
+      NODE_ENV: development
+
+      # Set up Heroku runtime environment.  See bash(1) or
+      # <https://www.gnu.org/software/bash/manual/bash.html#Invoked-non_002dinteractively>.
+      BASH_ENV: .heroku/BASH_ENV
     steps:
-      - name: Code checkout
-        uses: actions/checkout@v4
-      - name: Install node
-        uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v5
         with:
-          node-version-file: ".nvmrc"
-          cache: 'npm'
-      - name: Install node dependencies
-        run: npm ci
-      - name: Run tests
-        run: npm test
-  deploy_dev:
+          name: build
+          path: build/
+      - run: sha256sum --check build/slug.tar.gz.sha256sum
+      - run: tar --extract --file build/slug.tar.gz --xform 's,^[.]/app/,,'
+      - run: node --version
+
+      # (Re-)install dev deps which got pruned from production build (slug)
+      - run: npm ci
+
+      # configure AWS to run dev server necessary for `npm run test:ci`
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+          aws-access-key-id: ${{ secrets.DEV_SERVER_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.DEV_SERVER_AWS_SECRET_ACCESS_KEY }}
+
+      - run: npm run test:ci
+        env:
+          # Tests make GitHub API requests which are rate limited.
+          # Use the GitHub Actions token for a limit of 1,000 requests per hour.
+          # <https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#primary-rate-limit-for-github_token-in-github-actions>
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: test/server.log
+
+  index-resources:
+    if: |2
+         github.repository == 'nextstrain/nextstrain.org'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/master'
+    needs: test
+    permissions:
+      id-token: write # needed to interact with GitHub's OIDC Token endpoint
+      contents: read
+    uses: ./.github/workflows/index-resources.yml
+    secrets: inherit
+
+  deploy:
+    if: |2
+         !cancelled()
+      && needs.build.result == 'success'
+      && needs.test.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.index-resources.result)
+      && github.repository == 'nextstrain/nextstrain.org'
+      && (   (github.event_name == 'push' && github.ref == 'refs/heads/master')
+          || (github.event_name == 'workflow_dispatch' && inputs.heroku-app) )
+
+    # Wait for "build", "test", and "index-resources" jobs above to pass.
     needs:
-      - lint
-      - audit_dependencies
+      - build
       - test
-    if: github.ref == 'refs/heads/develop'
-    uses: 18F/analytics-reporter/.github/workflows/deploy.yml@develop
-    with:
-      ANALYTICS_GA4_CALL_RETRY_COUNT: ${{ vars.ANALYTICS_GA4_CALL_RETRY_COUNT_DEV }}
-      ANALYTICS_KEY_FILE_NAME: ${{ vars.ANALYTICS_KEY_FILE_NAME }}
-      ANALYTICS_LOG_LEVEL: ${{ vars.ANALYTICS_LOG_LEVEL_DEV }}
-      ANALYTICS_REPORT_EMAIL: ${{ vars.ANALYTICS_REPORT_EMAIL }}
-      APP_NAME: ${{ vars.APP_NAME_DEV }}
-      CF_ORGANIZATION_NAME: ${{ vars.CF_ORGANIZATION_NAME }}
-      CF_SPACE_NAME: ${{ vars.CF_SPACE_NAME_DEV }}
-      DB_SERVICE_NAME: ${{ vars.DB_SERVICE_NAME_DEV }}
-      MESSAGE_QUEUE_NAME: ${{ vars.MESSAGE_QUEUE_NAME }}
-      NEW_RELIC_APP_NAME: ${{ vars.NEW_RELIC_APP_NAME_DEV }}
-      PROXY_FQDN: ${{ vars.PROXY_FQDN_DEV }}
-      PROXY_PORT: ${{ vars.PROXY_PORT }}
-      S3_SERVICE_NAME: ${{ vars.S3_SERVICE_NAME_DEV }}
-    secrets:
-      ANALYTICS_CREDENTIALS: ${{ secrets.ANALYTICS_CREDENTIALS }}
-      CF_USERNAME: ${{ secrets.CF_USERNAME_DEV }}
-      CF_PASSWORD: ${{ secrets.CF_PASSWORD_DEV }}
-      GA4_CREDS: ${{ secrets.GA4_CREDS_DEV }}
-      NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY_DEV }}
-      PROXY_USERNAME: ${{ secrets.PROXY_USERNAME_DEV }}
-      PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD_DEV }}
-  deploy_stg:
-    needs:
-      - lint
-      - audit_dependencies
-      - test
-    if: github.ref == 'refs/heads/staging'
-    uses: 18F/analytics-reporter/.github/workflows/deploy.yml@develop
-    with:
-      ANALYTICS_GA4_CALL_RETRY_COUNT: ${{ vars.ANALYTICS_GA4_CALL_RETRY_COUNT_STG }}
-      ANALYTICS_KEY_FILE_NAME: ${{ vars.ANALYTICS_KEY_FILE_NAME }}
-      ANALYTICS_LOG_LEVEL: ${{ vars.ANALYTICS_LOG_LEVEL_STG }}
-      ANALYTICS_REPORT_EMAIL: ${{ vars.ANALYTICS_REPORT_EMAIL }}
-      APP_NAME: ${{ vars.APP_NAME_STG }}
-      CF_ORGANIZATION_NAME: ${{ vars.CF_ORGANIZATION_NAME }}
-      CF_SPACE_NAME: ${{ vars.CF_SPACE_NAME_STG }}
-      DB_SERVICE_NAME: ${{ vars.DB_SERVICE_NAME_STG }}
-      MESSAGE_QUEUE_NAME: ${{ vars.MESSAGE_QUEUE_NAME }}
-      NEW_RELIC_APP_NAME: ${{ vars.NEW_RELIC_APP_NAME_STG }}
-      PROXY_FQDN: ${{ vars.PROXY_FQDN_STG }}
-      PROXY_PORT: ${{ vars.PROXY_PORT }}
-      S3_SERVICE_NAME: ${{ vars.S3_SERVICE_NAME_STG }}
-    secrets:
-      ANALYTICS_CREDENTIALS: ${{ secrets.ANALYTICS_CREDENTIALS }}
-      CF_USERNAME: ${{ secrets.CF_USERNAME_STG }}
-      CF_PASSWORD: ${{ secrets.CF_PASSWORD_STG }}
-      GA4_CREDS: ${{ secrets.GA4_CREDS_STG }}
-      NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY_STG }}
-      PROXY_USERNAME: ${{ secrets.PROXY_USERNAME_STG }}
-      PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD_STG }}
-  deploy_prd:
-    needs:
-      - lint
-      - audit_dependencies
-      - test
-    if: github.ref == 'refs/heads/master'
-    uses: 18F/analytics-reporter/.github/workflows/deploy.yml@develop
-    with:
-      ANALYTICS_GA4_CALL_RETRY_COUNT: ${{ vars.ANALYTICS_GA4_CALL_RETRY_COUNT_PRD }}
-      ANALYTICS_KEY_FILE_NAME: ${{ vars.ANALYTICS_KEY_FILE_NAME }}
-      ANALYTICS_LOG_LEVEL: ${{ vars.ANALYTICS_LOG_LEVEL_PRD }}
-      ANALYTICS_REPORT_EMAIL: ${{ vars.ANALYTICS_REPORT_EMAIL }}
-      APP_NAME: ${{ vars.APP_NAME_PRD }}
-      CF_ORGANIZATION_NAME: ${{ vars.CF_ORGANIZATION_NAME }}
-      CF_SPACE_NAME: ${{ vars.CF_SPACE_NAME_PRD }}
-      DB_SERVICE_NAME: ${{ vars.DB_SERVICE_NAME_PRD }}
-      MESSAGE_QUEUE_NAME: ${{ vars.MESSAGE_QUEUE_NAME }}
-      NEW_RELIC_APP_NAME: ${{ vars.NEW_RELIC_APP_NAME_PRD }}
-      PROXY_FQDN: ${{ vars.PROXY_FQDN_PRD }}
-      PROXY_PORT: ${{ vars.PROXY_PORT }}
-      S3_SERVICE_NAME: ${{ vars.S3_SERVICE_NAME_PRD }}
-    secrets:
-      ANALYTICS_CREDENTIALS: ${{ secrets.ANALYTICS_CREDENTIALS }}
-      CF_USERNAME: ${{ secrets.CF_USERNAME_PRD }}
-      CF_PASSWORD: ${{ secrets.CF_PASSWORD_PRD }}
-      GA4_CREDS: ${{ secrets.GA4_CREDS_PRD }}
-      NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY_PRD }}
-      PROXY_USERNAME: ${{ secrets.PROXY_USERNAME_PRD }}
-      PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD_PRD }}
+      - index-resources
+
+    # Name a GitHub environment configuration¹ to auto-create deployment
+    # records in GitHub based on this job's progress/status.  Also grants
+    # access to environment-specific secrets.
+    #
+    # The URL is specific to this deployment, not the environment (i.e. an
+    # environment have deployments at different URLs).
+    #
+    # ¹ https://github.com/nextstrain/nextstrain.org/settings/environments
+    environment:
+      name: ${{ inputs.heroku-app || 'nextstrain-canary' }}
+      url: ${{ inputs.heroku-app && format('https://{0}.herokuapp.com', inputs.heroku-app) || 'https://next.nextstrain.org' }}
+
+    # Deploy steps
+    runs-on: ubuntu-24.04
+    env:
+      HEROKU_APP: ${{ inputs.heroku-app || 'nextstrain-canary' }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: build
+          path: build/
+
+      - name: Login to Heroku
+        run: echo "machine api.heroku.com login $HEROKU_USER password $HEROKU_TOKEN" >> ~/.netrc
+        env:
+          HEROKU_USER: "${{ vars.HEROKU_USER }}"
+          HEROKU_TOKEN: "${{ secrets.HEROKU_TOKEN }}"
+
+      - name: Upload slug
+        run: |
+          # <https://devcenter.heroku.com/articles/platform-api-reference#slug-create>
+          curl https://api.heroku.com/apps/"$HEROKU_APP"/slugs \
+            --data-binary @build/slug.json \
+            --header 'Content-Type: application/json' \
+            --header 'Accept: application/vnd.heroku+json; version=3' \
+            --fail --silent --show-error --location --netrc \
+              | tee slug.json
+
+          curl "$(jq -r .blob.url slug.json)" \
+            --request "$(jq -r .blob.method slug.json | tr a-z A-Z)" \
+            --header "Content-Type:" \
+            --data-binary @build/slug.tar.gz \
+            --fail --location --netrc \
+              | cat
+
+      - name: Release slug
+        run: |
+          # <https://devcenter.heroku.com/articles/platform-api-reference#release-create>
+          curl https://api.heroku.com/apps/"$HEROKU_APP"/releases \
+            --data-binary @<(jq '{slug: .id}' slug.json) \
+            --header 'Content-Type: application/json' \
+            --header 'Accept: application/vnd.heroku+json; version=3' \
+            --fail --silent --show-error --location --netrc \
+              | tee release.json
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy
+          path: |
+            slug.json
+            release.json
+
+      - if: always()
+        name: Logout of Heroku
+        run: sed -i -e '/^machine api\.heroku\.com/d' ~/.netrc
