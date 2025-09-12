@@ -1,0 +1,28 @@
+name: Update RFCs
+
+on:
+  push:
+    paths:
+    - '**.py'
+    - 'Makefile'
+    - 'update.sh'
+  schedule:
+    - cron: '41 9 * * *'
+  workflow_dispatch: null
+
+permissions:
+    contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Python
+      uses: actions/setup-python@v6
+    - name: Build rfcs.json
+      run: make var/rfcs.json
+    - name: Fetch refs.json
+      run: make var/refs.json
+    - name: Upload
+      run: ./bin/update.sh

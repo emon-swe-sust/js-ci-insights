@@ -1,0 +1,30 @@
+name: "Test Default Token List"
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "lists/token-lists/default-token-list/tokens/**"
+  pull_request:
+    paths:
+      - "lists/token-lists/default-token-list/tokens/**"
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18]
+        pnpm-version: [8.9.2]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: pnpm/action-setup@v2.1.0
+        with:
+          version: ${{ matrix.pnpm-version }}
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v2
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+      - run: pnpm install && pnpm build && pnpm test
+        working-directory: './lists/token-lists/default-token-list'

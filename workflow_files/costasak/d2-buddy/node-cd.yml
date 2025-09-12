@@ -1,0 +1,39 @@
+name: Node.js Continuous Deployment
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Continuous Deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v3
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v3
+        with:
+          node-version: "current"
+          cache: "npm"
+      - name: "Clean Install"
+        run: npm ci
+      - name: "Run Tests"
+        run: npm test
+      - name: "Build"
+        run: npm run build
+        env:
+          REACT_APP_BUNGIE_API_KEY: ${{ secrets.PROD_BUNGIE_API_KEY }}
+      - name: "Cloudflare Config"
+        run: cp ./.cloudflare/* ./build/
+      - name: Publish
+        uses: cloudflare/pages-action@1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: d2-buddy
+          directory: build
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: "Clean"
+        run: npm run clean

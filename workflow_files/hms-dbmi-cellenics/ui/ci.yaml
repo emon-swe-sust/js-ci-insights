@@ -1,0 +1,479 @@
+name: Build and Deploy the UI
+on:
+  push:
+    branches:
+      - master
+  release:
+    types:
+      - released
+  pull_request_target:
+    branches:
+      - master
+    types:
+      - labeled
+      - unlabeled
+      - opened
+      - synchronize
+      - reopened
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  is-safe-to-run:
+    name: Sensitive jobs are safe to be run
+    runs-on: ubuntu-22.04
+    if: (github.event_name == 'pull_request_target' && contains(github.event.pull_request.labels.*.name, 'safe to run')) || github.event_name == 'release' || github.event_name == 'push'
+    steps:
+      - id: is-safe-to-run
+        name: Is safe to run
+        run: |-
+          echo "Safe to run, checks will proceed"
+  is-not-safe-to-run:
+    name: Sensitive jobs aren't labeled safe to be run
+    runs-on: ubuntu-22.04
+    if: (github.event_name == 'pull_request_target' && !contains(github.event.pull_request.labels.*.name, 'safe to run'))
+    steps:
+      - id: is-not-safe-to-run
+        name: The pull request hasn't been labeled safe to run
+        run: |-
+          echo "Pull request not labeled safe to run"
+          exit 1
+
+  uncheck-integration-test:
+    name: Mark integration test as not run
+    runs-on: ubuntu-22.04
+    needs: is-safe-to-run
+    if: github.event_name == 'pull_request_target'
+    steps:
+      - id: get-pr-body
+        name: Get the current PR body
+        uses: jwalton/gh-find-current-pr@v1
+        with:
+          state: open
+
+      - id: create-unchecked-pr-body
+        name: Create unchecked PR body
+        run: |-
+          UNCHECKED_BODY=$(sed 's/- \[[Xx]\] Started end-to-end tests on the latest commit./- \[ \] Started end-to-end tests on the latest commit./' <<\EOF
+          ${{ steps.get-pr-body.outputs.body }}
+          EOF
+          )
+
+          echo "Unchecked PR body"
+          echo $UNCHECKED_BODY
+
+          # This sets multiline strings into the output variable
+          # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#example-of-a-multiline-string
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$UNCHECKED_BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - id: uncheck-integration-checkbox
+        if: steps.create-unchecked-pr-body.outputs.body != ''
+        name: Uncheck the integration checkbox
+        uses: tzkhan/pr-update-action@v2
+        with:
+          repo-token: ${{ secrets.API_TOKEN_GITHUB }}
+          head-branch-regex: ${{ github.head_ref }}
+          lowercase-branch: false
+          body-template: ${{  steps.create-unchecked-pr-body.outputs.body }}
+          body-update-action: replace
+
+  test:
+    name: Run unit tests
+    # TODO: the permissions here are too broad and need narrowing down
+    # They are needed because so that upload-coverage can upload the coverage report
+    # and post comments.
+    permissions: write-all
+    runs-on: ubuntu-22.04
+    needs: is-safe-to-run
+    env:
+      CI: true
+    steps:
+      - id: checkout
+        name: Check out source code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{github.head_ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - id: setup-node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.18.0'
+          cache: 'npm'
+
+      - id: install
+        name: Install dependencies
+        run: |-
+          echo "Running CI with "
+          echo "Node version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+
+          git config --global url."https://".insteadOf ssh://
+          npm ci --legacy-peer-deps
+
+      - id: test
+        name: Run unit tests
+        uses: mattallty/jest-github-action@v1
+        env:
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          test-command: 'npm run coverage'
+          coverage-comment: false
+
+      - id: upload-coverage
+        name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v1
+
+      - id: check-licenses
+        name: Check licenses
+        env:
+          ALLOWED_LICENSES: 'MIT;Apache-2.0;BSD-3-Clause;ISC;BSD-2-Clause;BSD;CC0-1.0;0BSD;Unlicense;(MIT AND Zlib);(Unlicense OR Apache-2.0);BSD-3-Clause OR MIT;(MIT OR Apache-2.0);CC-BY-4.0;Apache-Style;(Apache-2.0 OR MPL-1.1);WTFPL;(WTFPL OR MIT);EPL-1.0;(MIT AND BSD-3-Clause);(MIT OR CC0-1.0);Custom: https://github.com/aws-amplify/amplify-js;SGI-B-2.0'
+          EXCLUDE_PACKAGES: 'cartocolor@4.0.2;turf-jsts@1.2.3;gl-vec2@1.3.0;flatbuffers@1.12.0;text-encoding-utf-8@1.0.2'
+        run: |-
+          npm install -g license-checker
+          license-checker --production --json --onlyAllow="${ALLOWED_LICENSES}" --excludePackages="${EXCLUDE_PACKAGES}"
+
+  build-docker:
+    name: Build Docker container
+    runs-on: ubuntu-22.04
+    needs: is-safe-to-run
+    outputs:
+      ref-id: ${{ steps.ref.outputs.ref-id }}
+      image-tag: ${{ steps.ref.outputs.image-tag }}
+    steps:
+      - id: checkout
+        name: Check out source code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{github.head_ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - id: setup-node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.18.0'
+          cache: 'npm'
+
+      - id: install
+        name: Install dependencies
+        run: |-
+          echo "Running CI with "
+          echo "Node version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+
+          git config --global url."https://".insteadOf ssh://
+          npm ci --legacy-peer-deps
+
+      - id: next-cache-seek
+        name: Look up the Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}
+
+      - id: build
+        name: Build project
+        run: |-
+          npm run build
+
+      - id: upload-build-out
+        name: Upload Next.js build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build-out
+          path: |
+            .next/
+            !.next/cache
+          include-hidden-files: true
+
+      - id: download-build-out
+        name: Download Next.js build output
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build-out
+          path: .next/
+
+      - id: ref
+        name: Format docker tag and repository name.
+        run: |-
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            # Construct the PR_GITHUB_REF for our pull request copying GITHUB_REF's format
+            # We can't use GITHUB_REF because it is set to master in this event
+            # More info: https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#pull_request_target
+            PR_GITHUB_REF="refs/pull/${{ github.event.pull_request.number }}/merge"
+            REF_ID=$(echo $PR_GITHUB_REF | sed 's/\//-/g')
+          else
+            # This will take a ref like `refs/heads/master`
+            # and turn it into `refs-heads-master`
+            REF_ID=$(echo $GITHUB_REF | sed 's/\//-/g')
+          fi
+          echo "ref-id=$REF_ID" >> $GITHUB_OUTPUT
+          # the final tag is something like:
+          # refs-heads-master-a4f8bc313dae
+          # this is what we push to ECR
+          # we will also take semver'd tags like `1.0.0` and use them for releases
+          # In push & PR events we want the tag to contain the latest commit on the branch:
+          # in push events, the latest commit of the master branch is GITHUB_SHA
+          # in PR synch the latest commit of the branch is found in github.sha instead
+          TIMESTAMP=$(date +%s)
+          if [ "${{ github.event_name }}" = "release" ] && [ "${{ github.event.action }}" = "released" ]; then
+            COMMIT_SHA=""
+            IMAGE_TAG="${REF_ID/refs-tags-/}"
+          elif [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            COMMIT_SHA="${{ github.sha }}"
+            IMAGE_TAG="$REF_ID-$COMMIT_SHA-$TIMESTAMP"
+          else
+            COMMIT_SHA=$GITHUB_SHA
+            IMAGE_TAG="$REF_ID-$COMMIT_SHA-$TIMESTAMP"
+          fi
+          # IMAGE_TAG is used in the Build Docker Image step.
+          # We can easily build the image-tag from REF_ID and COMMIT_SHA for non-production releases.
+          # But we can not easily create the image tag for production releases, so we're bulding it here
+          echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          # This will take a GitHub repo name like `hms-dbmi-cellenics/releases`
+          # and turns it into `releases`. This will be the name of the
+          # ECR repository.
+          IMAGE_REPO_NAME=$(echo $GITHUB_REPOSITORY | awk -F '/' '{print $2}')
+          echo "repo-name=$IMAGE_REPO_NAME" >> $GITHUB_OUTPUT
+
+      - id: setup-aws
+        name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ci-role-ui
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - id: login-ecr
+        name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - id: create-ecr-registry
+        name: Create an ECR repository (if needed)
+        # This will fail if the registry already exists, which is fine. If there is some other
+        # error, the `push` step will fail instead.
+        continue-on-error: true
+        run: |-
+          aws ecr create-repository --repository-name $REPO_NAME --image-tag-mutability IMMUTABLE
+        env:
+          REPO_NAME: ${{ steps.ref.outputs.repo-name }}
+
+      - id: setup-buildx
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - id: build-docker-image
+        name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          tags: ${{ format('{0}/{1}:{2}', steps.login-ecr.outputs.registry, steps.ref.outputs.repo-name, steps.ref.outputs.image-tag) }}
+          push: true
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-22.04
+    needs: [build-docker, is-safe-to-run]
+    strategy:
+      max-parallel: 1
+      matrix:
+        environment: ['production', 'staging', 'develop']
+    steps:
+      - id: checkout
+        name: Check out source code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{github.head_ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - id: setup-aws
+        name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ci-role-ui
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - id: login-ecr
+        name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - id: fill-metadata
+        name: Fill out a new HelmRelease resource
+        run: |-
+          export DEPLOYMENT_NAME=$(echo $GITHUB_REPOSITORY | awk -F '/' '{print $2}')
+          echo "deployment-name=$DEPLOYMENT_NAME" >> $GITHUB_OUTPUT
+
+          if [ "${{ matrix.environment }}" = "production" ]; then
+            export SANDBOX_ID="default"
+            export KUBERNETES_ENV="production"
+            export CHART_REF="master"
+            export IMAGE_PATTERN="^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$"
+            export IMAGE_EXTRACT='$version'
+            export IMAGE_POLICY_TYPE="semver"
+            export IMAGE_POLICY_KEY="range"
+            export IMAGE_POLICY_VALUE=">=0.0.0"
+            export REPLICA_COUNT="4"
+            export MANIFEST_PATH="./production"
+          fi
+
+          if [ "${{ matrix.environment }}" = "develop" ]; then
+            export SANDBOX_ID="default"
+            export KUBERNETES_ENV="staging"
+            export CHART_REF="master"
+            export IMAGE_PATTERN="^$REF_ID-[a-f0-9]+-(?P<timestamp>[0-9]+)$"
+            export IMAGE_EXTRACT='$timestamp'
+            export IMAGE_POLICY_TYPE="numerical"
+            export IMAGE_POLICY_KEY="order"
+            export IMAGE_POLICY_VALUE="asc"
+            export REPLICA_COUNT="2"
+            export MANIFEST_PATH="./staging"
+          fi
+
+          if [ "${{ matrix.environment }}" = "staging" ]; then
+
+            # The chart template for the UI repo is stored in IAC branch master
+            # If you are working on the chart for UI/API, you can modify this value manualy in in your PR's release
+            export CHART_REF="master"
+            export SANDBOX_ID="STAGING_SANDBOX_ID"
+            export KUBERNETES_ENV="staging"
+            export IMAGE_PATTERN="^$REF_ID-[a-f0-9]+-(?P<timestamp>[0-9]+)$"
+            export IMAGE_EXTRACT='$timestamp'
+            export IMAGE_POLICY_TYPE="numerical"
+            export IMAGE_POLICY_KEY="order"
+            export IMAGE_POLICY_VALUE="asc"
+            export REPLICA_COUNT="1"
+            export MANIFEST_PATH="./staging"
+          fi
+
+          echo "kubernetes-env=$KUBERNETES_ENV" >> $GITHUB_OUTPUT
+
+          export NAMESPACE="$DEPLOYMENT_NAME-$SANDBOX_ID"
+          export CHART_SOURCE_NAME="$DEPLOYMENT_NAME-chart"
+          export IMAGE_POLICY_TAG="{\"\$imagepolicy\": \"$NAMESPACE:$DEPLOYMENT_NAME:tag\"}"
+
+          yq '
+            select(di == 0).metadata.name = strenv(NAMESPACE) |
+            select(di == 0).metadata.labels.sandboxId = strenv(SANDBOX_ID) |
+            select(di == 1).metadata.name = strenv(CHART_SOURCE_NAME) |
+            select(di == 1).metadata.namespace = strenv(NAMESPACE) |
+            select(di == 1).spec.url = "https://github.com/" + strenv(GITHUB_OWNER) + "/iac" |
+            select(di == 1).spec.ref.branch = strenv(CHART_REF) |
+            select(di == 2).metadata.name = strenv(DEPLOYMENT_NAME) |
+            select(di == 2).metadata.namespace = strenv(NAMESPACE) |
+            select(di == 2).spec.image = strenv(REGISTRY) + "/" + strenv(DEPLOYMENT_NAME) |
+            select(di == 3).metadata.name = strenv(DEPLOYMENT_NAME) |
+            select(di == 3).metadata.namespace = strenv(NAMESPACE) |
+            select(di == 3).spec.imageRepositoryRef.name = strenv(DEPLOYMENT_NAME) |
+            select(di == 3).spec.imageRepositoryRef.namespace = strenv(NAMESPACE) |
+            select(di == 3).spec.filterTags.pattern = strenv(IMAGE_PATTERN) |
+            select(di == 3).spec.filterTags.extract = strenv(IMAGE_EXTRACT) |
+            select(di == 3).spec.policy.[strenv(IMAGE_POLICY_TYPE)].[strenv(IMAGE_POLICY_KEY)] = strenv(IMAGE_POLICY_VALUE) |
+            select(di == 4).metadata.name = strenv(DEPLOYMENT_NAME) + "-image-update" |
+            select(di == 4).metadata.namespace = strenv(NAMESPACE) |
+            select(di == 4).spec.update.path = strenv(MANIFEST_PATH) |
+            select(di == 5).metadata.name = strenv(DEPLOYMENT_NAME) |
+            select(di == 5).metadata.namespace = strenv(NAMESPACE) |
+            select(di == 5).metadata.labels.sandboxId = strenv(SANDBOX_ID) |
+            select(di == 5).spec.releaseName = strenv(DEPLOYMENT_NAME) |
+            select(di == 5).spec.chart.spec.sourceRef.name = strenv(CHART_SOURCE_NAME) |
+            select(di == 5).spec.chart.spec.sourceRef.namespace = strenv(NAMESPACE) |
+            select(di == 5).spec.values.kubernetes.env = strenv(KUBERNETES_ENV) |
+            select(di == 5).spec.values.biomageCi.repo = strenv(GITHUB_REPOSITORY) |
+            select(di == 5).spec.values.biomageCi.sandboxId = strenv(SANDBOX_ID) |
+            select(di == 5).spec.values.image.registry = strenv(REGISTRY) |
+            select(di == 5).spec.values.image.repository = strenv(DEPLOYMENT_NAME) |
+            select(di == 5).spec.values.image.tag = strenv(IMAGE_TAG) |
+            select(di == 5).spec.values.image.tag line_comment = strenv(IMAGE_POLICY_TAG) |
+            select(di == 5).spec.values.replicaCount = env(REPLICA_COUNT) |
+            select(di == 5).spec.values.serviceAccount.iamRole = "ui-role-" + strenv(KUBERNETES_ENV)
+          ' .flux.yaml > $DEPLOYMENT_NAME-without-host.yaml
+
+          if [ "${{ matrix.environment }}" = "production" ]
+            then
+              yq '
+                select(di == 5).spec.values.service.additionalHosts = true
+              ' $DEPLOYMENT_NAME-without-host.yaml > $DEPLOYMENT_NAME.yaml
+
+            else
+              yq '
+                select(di == 5).spec.values.service.additionalHosts = false
+              ' $DEPLOYMENT_NAME-without-host.yaml > $DEPLOYMENT_NAME.yaml
+            fi
+
+            cat $DEPLOYMENT_NAME.yaml
+
+        env:
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          REF_ID: ${{ needs.build-docker.outputs.ref-id }}
+          IMAGE_TAG: ${{ needs.build-docker.outputs.image-tag }}
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+
+      - name: Push production/develop template to releases repo for deployment
+        if: (matrix.environment == 'production' && github.event_name == 'release' && github.event.action == 'released') || (matrix.environment == 'develop' && github.event_name == 'push')
+        uses: dmnemec/copy_file_to_another_repo_action@v1.0.4
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+        with:
+          source_file: ${{ steps.fill-metadata.outputs.deployment-name }}.yaml
+          destination_repo: ${{ github.repository_owner }}/releases
+          destination_folder: ${{ steps.fill-metadata.outputs.kubernetes-env }}
+          user_email: ci@biomage.net
+          user_name: Biomage CI/CD
+
+      - name: Change name of deployment file for staging deployment
+        if: (github.event_name == 'pull_request_target' || github.event_name == 'push') && matrix.environment == 'staging'
+        env:
+          DEPLOYMENT_NAME: ${{ steps.fill-metadata.outputs.deployment-name }}
+          REF_ID: ${{ needs.build-docker.outputs.ref-id }}
+        run: |-
+          mv $DEPLOYMENT_NAME.yaml $REF_ID.yaml
+      - name: Push staging deployment template to releases
+        if: (github.event_name == 'pull_request_target' || github.event_name == 'push') && matrix.environment == 'staging'
+        uses: dmnemec/copy_file_to_another_repo_action@v1.0.4
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+        with:
+          source_file: ${{ needs.build-docker.outputs.ref-id }}.yaml
+          destination_repo: ${{ github.repository_owner }}/releases
+          destination_folder: staging-candidates/${{ steps.fill-metadata.outputs.deployment-name }}
+          user_email: ci@biomage.net
+          user_name: 'Biomage CI/CD'
+
+  ready-to-merge:
+    name: Ready for merging
+    runs-on: ubuntu-22.04
+    needs: [deploy, is-safe-to-run]
+    steps:
+      - id: ready-to-merge
+        name: Signal readiness to merge
+        run: |-
+          exit 0
+
+  report-if-failed:
+    name: Report if workflow failed
+    runs-on: ubuntu-22.04
+    needs: [test, build-docker, deploy, is-safe-to-run]
+    if: failure() && github.ref == 'refs/heads/master'
+    steps:
+      - id: send-to-slack
+        name: Send failure notification to Slack on failure
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.WORKFLOW_STATUS_BOT_TOKEN }}
+        uses: voxmedia/github-action-slack-notify-build@v1
+        with:
+          channel: workflow-failures
+          status: FAILED
+          color: danger

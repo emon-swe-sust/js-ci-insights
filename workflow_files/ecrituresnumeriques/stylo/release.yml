@@ -1,0 +1,55 @@
+name: Release
+run-name: Release ${{ inputs.version }} by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version
+        required: true
+      trigger-deploy:
+        description: Trigger deploy?
+        type: boolean
+        default: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          node -e "const pkg = require('./package.json'); pkg.version = '$RELEASE_VERSION'; require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, '  '), 'utf8')"
+          node -e "const pkg = require('./front/package.json'); pkg.version = '$RELEASE_VERSION'; require('fs').writeFileSync('./front/package.json', JSON.stringify(pkg, null, '  '), 'utf8')"
+          node -e "const pkg = require('./graphql/package.json'); pkg.version = '$RELEASE_VERSION'; require('fs').writeFileSync('./graphql/package.json', JSON.stringify(pkg, null, '  '), 'utf8')"
+          npm i --package-lock-only
+          npm i --prefix=graphql --package-lock-only
+          npm i --prefix=front --package-lock-only
+
+          RELEASE_GIT_NAME=$(curl -s https://api.github.com/users/$GITHUB_ACTOR | jq -r .name)
+          RELEASE_GIT_EMAIL=$RELEASE_USER@users.noreply.github.com
+
+          git config --local user.name "$RELEASE_GIT_NAME"
+          git config --local user.email "$RELEASE_GIT_EMAIL"
+
+          git commit -a -m "Release $RELEASE_VERSION"
+          git tag "v$RELEASE_VERSION"
+          git push origin "$BRANCH_NAME"
+          git push origin "v$RELEASE_VERSION"
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+
+  call-build-deploy-docker:
+    uses: EcrituresNumeriques/stylo/.github/workflows/docker.yml@master
+    with:
+      release-version: ${{ inputs.version }}
+    secrets: inherit
+    needs: [release]
+
+  call-deploy-prod:
+    uses: EcrituresNumeriques/stylo/.github/workflows/deploy-tag.yml@master
+    with:
+      release-version: ${{ inputs.version }}
+    secrets: inherit
+    if: ${{ inputs.trigger-deploy }}
+    needs: [call-build-deploy-docker]

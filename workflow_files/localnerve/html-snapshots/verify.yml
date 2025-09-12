@@ -1,0 +1,30 @@
+name: Verify
+on:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  verify:
+
+    runs-on: ubuntu-22.04
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+    - run: npm ci
+    - name: Lint, Test, And Coverage
+      run: npm run lint && xvfb-run -a npm run test:cover
+    - name: Coverage Upload
+      if: ${{ success() }}
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path-to-lcov: ./coverage/lcov.info

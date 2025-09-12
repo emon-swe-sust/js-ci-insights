@@ -1,0 +1,45 @@
+name: 'Build and push container (GHCR / Dockerhub)'
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      TAG_NAME:
+        description: 'Release Version Tag (0.0.0)'
+        required: true
+permissions:
+  actions: write
+  packages: write
+
+jobs:
+  node:
+    name: 'Build & Publish Container'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          ref: ${{ github.ref }}
+      - name: Update Package to Release version
+        uses: technote-space/package-version-check-action@v1.9.3
+      
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push to GHCR
+        uses: docker/build-push-action@v5.0.0
+        with:
+          platforms: linux/amd64
+          file: ./Dockerfile
+          push: true
+          tags: |
+             ghcr.io/qxip/speech2hep:latest
+             ghcr.io/qxip/speech2hep:${{ github.event.inputs.TAG_NAME || github.event.release.tag_name }}
+          labels: |
+            dev.speech2hep.image.title=speech2hep
+            dev.speech2hep.image.type=nodejs
+            dev.speech2hep.image.version={{github.event.inputs.TAG_NAME || github.event.release.tag_name }}

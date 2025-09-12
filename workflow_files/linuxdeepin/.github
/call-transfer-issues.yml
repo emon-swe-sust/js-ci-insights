@@ -1,9 +1,0 @@
-name: Transfer Issues
-on:
-  issues:
-    types: [opened]
-
-jobs:
-  call:
-    uses: linuxdeepin/.github/.github/workflows/transfer-issues-func.yml@master
-    secrets: inherit

@@ -1,0 +1,26 @@
+name: Deploy to production
+on:
+  push:
+    tags:
+      - v*
+jobs:
+  call-tests:
+    uses: ./.github/workflows/reusable-tests.yml
+    secrets: inherit
+    with:
+      skipE2E: true
+  call-build:
+    uses: ./.github/workflows/reusable-build.yml
+    secrets: inherit
+    needs: call-tests
+  call-publish-v2:
+    uses: ./.github/workflows/reusable-publish-v2.yml
+    secrets: inherit
+    needs: call-build
+    with:
+      environment: production
+      build_run_id: ${{ github.run_id }}
+  call-publish-npm:
+    uses: ./.github/workflows/reusable-publish-npm.yml
+    secrets: inherit
+    needs: call-publish-v2

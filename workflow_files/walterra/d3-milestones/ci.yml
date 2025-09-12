@@ -1,0 +1,28 @@
+name: build
+on:
+  push:
+  schedule:
+    # * is a special character in YAML so you have to quote this string
+    - cron:  '20,50 * * * *'
+jobs:
+  ui-test:
+    environment: test-ui
+    runs-on: ubuntu-latest
+    env:
+      APM_SERVER: "${{ secrets.APM_SERVER }}"
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16.18'
+
+      - name: Install / Build / End to End Test
+        run: |
+          export DISPLAY=:99
+          chromedriver --url-base=/wd/hub &
+          sudo Xvfb -ac :99 -screen 0 1280x1024x24 > /dev/null 2>&1 & # optional
+          yarn

@@ -1,0 +1,66 @@
+name: Release Packages
+
+on:
+  push:
+    branches: ['release']
+
+jobs:
+  quality:
+    name: Quality
+    uses: ./.github/workflows/quality.yml
+  storybook:
+    name: Build & Release Docs
+    uses: ./.github/workflows/docs.yml
+    needs: release
+    secrets: inherit
+  sync:
+    name: Sync Develop
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GH_PAT }}
+          repository: rdkcentral/Lightning-UI-Components
+          fetch-depth: 0
+      - name: Set Git config
+        run: |
+          git config --local user.name "svc-lightning-ui-components" # Need to set the user.name, token is carried over from previous step (PAT USERNAME)
+      - name: Merge to develop
+        run: |
+          git checkout develop
+          git pull origin release
+          git push origin develop
+
+  release:
+    name: Release
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          github-server-url: 'https://github.com'
+          fetch-depth: 0 # Make sure to get all history for semantic release
+          persist-credentials: false
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.20.0
+          cache: 'yarn'
+      - name: Install Dependencies
+        run: yarn install
+      - name: Build Packages
+        run: yarn build
+      - name: Copy README # Make sure to deploy README from the root directory along with @lightningjs/ui-components
+        run: cp ./README.md ./packages/@lightningjs/ui-components/README.md
+      - name: Semantic Release
+        run: |
+          yarn workspace @lightningjs/ui-components-theme-base run semantic-release --no-ci -e semantic-release-monorepo
+          yarn workspace @lightningjs/ui-components run semantic-release --no-ci -e semantic-release-monorepo
+          yarn workspace @lightningjs/ui-components-test-utils run semantic-release --no-ci -e semantic-release-monorepo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}

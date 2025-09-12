@@ -1,0 +1,67 @@
+name: Node CI
+
+# trigger on every commit push and PR for all branches
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    branches: ['**']
+    paths-ignore:
+      - '**/*.md'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        node-version: [14.x, 16.x, 18.x, 20.x, 22.x]
+        os: [ubuntu-latest, windows-latest, macOS-13]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # NPM started understanding yarn.lock file starting from v7
+      - name: Update NPM
+        shell: bash
+        run: |
+          export NPM_VERSION=$(npm -v)
+          export IS_NPM_SUITABLE=$(node -p "parseInt(process.env.NPM_ROOT, 10) >= 7")
+          if [ "$IS_NPM_SUITABLE" == "false" ]; then
+            echo "NPM needs upgrading!"
+            npm i npm@7 -g
+          fi
+
+      - name: Install
+        run: |
+          npm install
+
+      - name: Setup Yarn
+        run: |
+          npm uninstall -g yarn
+          npm i -g yarn@1.22.10
+# TODO: Uncomment the following block after updating the Codegen to support this linter
+#      - name: Lint
+#        if: matrix.node-version == '16.x'
+#        run: |
+#          yarn lint
+
+      - name: Unit test
+        run: |
+          npm run test:unit
+
+      - name: Acceptance test
+        run: |
+          npm run test:acceptance
+
+      - name: Type Definitions
+        run: |
+          npm run test:types

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "24 8 * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+      - uses: actions/cache@v4
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/yarn.lock') }}
+
+      - uses: nick-fields/retry@v3
+        name: Fetch events
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_on: error
+          command: |-
+            sudo timedatectl set-timezone Asia/Shanghai
+            yarn
+            yarn start
+
+      - name: Commit and push
+        run: |-
+          git config --global user.email "willin@willin.org" && git config --global user.name "Willin Bot"
+          git add . && git commit -m ":memo: Update Data" || exit 0
+          git push

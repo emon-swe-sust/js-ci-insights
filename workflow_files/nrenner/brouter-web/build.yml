@@ -1,0 +1,26 @@
+name: build
+
+on:
+    push:
+        branches-ignore: 
+            - 'renovate/**'
+    pull_request:
+
+concurrency:
+    group: ${{ github.head_ref || github.ref_name }}
+    cancel-in-progress: true
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v3
+            - uses: actions/setup-node@v3
+              with:
+                  node-version: '16'
+            - run: yarn --frozen-lockfile
+            - run: yarn test
+            - run: yarn lint
+            - run: yarn pretty-quick --check
+            - run: yarn build

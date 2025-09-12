@@ -1,0 +1,80 @@
+name: Docs
+
+on:
+  push:
+    branches: [master, next, docs-fix]
+    paths:
+      - docs-src/**/*
+      - .github/workflows/docs.yml
+      - packages/casl-mongoose/README.md
+      - packages/casl-react/README.md
+      - packages/casl-vue/README.md
+      - packages/casl-angular/README.md
+      - packages/casl-aurelia/README.md
+      - packages/casl-prisma/README.md
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CASL_VERSION: v6
+      SITEMAP_WEBSITE: https://casl.js.org
+    steps:
+    - uses: actions/checkout@v2
+    - name: Cache dependencies
+      uses: actions/cache@v2
+      env:
+        cache-name: casl-docs-deps
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('docs-src/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+          ${{ runner.os }}-build-
+          ${{ runner.os }}-
+    - name: Install deps
+      working-directory: docs-src
+      run: npm install
+    - name: Build documentation
+      working-directory: docs-src
+      env:
+        NODE_ENV: production
+        LIT_APP_PUBLIC_PATH: "/${{ env.CASL_VERSION }}"
+        LIT_APP_CASL_VERSION: "${{ env.CASL_VERSION }}"
+      run: LIT_APP_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA") npm run build
+    - name: Build sitemap
+      working-directory: docs-src
+      run: npm run build.sitemap
+    - name: Prerender
+      working-directory: docs-src
+      run: npm run prerender
+    - name: Deploy
+      env:
+        GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        GITHUB_ACTOR: docs
+      run: |
+        CASL_DOCS_ROOT="./${CASL_VERSION}"
+        CURRENT_BRANCH=$(git branch --show-current)
+        cat <<- EOF > $HOME/.netrc
+          machine github.com
+          login $GITHUB_ACTOR
+          password $GITHUB_TOKEN
+          machine api.github.com
+          login $GITHUB_ACTOR
+          password $GITHUB_TOKEN
+        EOF
+        chmod 600 $HOME/.netrc
+        git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
+        git config --global user.name "$GITHUB_ACTOR"
+        git fetch origin gh-pages
+        git checkout -f gh-pages
+        rm -rf $CASL_DOCS_ROOT
+        mv docs-src/dist $CASL_DOCS_ROOT
+
+        if [ "$CURRENT_BRANCH" = "master" ]; then
+          cp $CASL_DOCS_ROOT/web-root/* $CASL_DOCS_ROOT/versions.txt $CASL_DOCS_ROOT/index.html .
+        fi
+
+        git add .
+        git commit -m "chore(release): deploy ${CASL_DOCS_ROOT}"
+        git push --set-upstream origin gh-pages

@@ -1,0 +1,41 @@
+name: E2E-macOS
+
+on:
+  push:
+    branches:
+    - master
+  pull_request:
+    branches:
+    - master
+
+jobs:
+  test-e2e:
+    name: ${{ matrix.target_features }} with Nodejs v${{ matrix.node_version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node_version:
+          - 20
+        os:
+          - macOS-latest
+        target_features:
+          - latest,webpack,babel
+          - latest,webpack,typescript
+          - latest,parcel,babel
+          - latest,parcel,typescript
+          - latest,dumber,babel
+          - latest,dumber,typescript
+          - latest,vite,babel
+          - latest,vite,typescript
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js ${{ matrix.node_version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node_version }}
+      - run: npm install
+      - run: npm run test:e2e
+        env:
+          TARGET_FEATURES: ${{ matrix.target_features }}
+

@@ -1,0 +1,40 @@
+name: navy CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    name: node-${{ matrix.node-version }} docker-${{ matrix.docker }} compose-${{ matrix.docker_compose }}
+    env:
+      DEBUG: 'navy:*'
+      NAVY_DEBUG: 'navy:*'
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [14.x, 16.x]
+        docker: [18.06-dind, 20.10.5-dind]
+        docker_compose: [1.14.0, 1.29.2, v2.10.2]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js
+        uses: actions/setup-node@v1
+        env:
+          DOCKER_TAG: ${{matrix.docker}}
+          DOCKER_COMPOSE_VERSION: ${{matrix.docker_compose}}
+          GITHUB_NODE_VERSION: ${{matrix.node-version}}
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Before tests
+        run: node --version
+      - name: Install dependencies
+        run: npm ci
+      - name: Bostrap lerna
+        run: npm run bootstrap
+      - name: Test
+        run: npm test
+
+

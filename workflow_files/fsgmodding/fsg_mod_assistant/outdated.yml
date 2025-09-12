@@ -1,0 +1,42 @@
+name: Yarn Package Check
+
+on:
+  schedule:
+    # * is a special character in YAML so you have to quote this string
+    - cron:  '0 7 1,14 * *'
+  workflow_dispatch:
+
+jobs:
+  outdated-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v3
+
+      - name: Install Node.js, NPM and Yarn
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Run install
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: install # will run `yarn install` command
+
+      - name: Get Outdated Versions
+        id: outdated-versions
+        run: |
+          echo 'DEP_OUTPUT<<EOF' >> $GITHUB_ENV
+          npm run depends >> $GITHUB_ENV
+          echo 'EOF' >> $GITHUB_ENV
+
+      - if: ${{ success() }}
+        name: Create issue when outdated
+        id: broken-link-report
+
+        uses: actions-ecosystem/action-create-issue@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          title: Dependencies are outdated
+          body: ${{env.DEP_OUTPUT}}
+          labels: depend

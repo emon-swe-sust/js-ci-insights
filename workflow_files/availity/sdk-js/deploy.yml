@@ -1,0 +1,136 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Publish Release
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  setup:
+    if: "!contains(github.event.head_commit.message, 'skip ci')"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.BOT_TOKEN }}
+          fetch-depth: 0
+          ref: "master"
+
+      - name: Derive appropriate SHAs for base and head for `nx affected` commands
+        uses: nrwl/nx-set-shas@v3
+        with:
+          main-branch-name: "master"
+
+      - name: Set Node Version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "yarn"
+          cache-dependency-path: "yarn.lock"
+
+      # - name: Get yarn cache directory path
+      #   id: yarn-cache-dir-path
+      #   run: |
+      #     echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
+
+      # - name: Restore yarn cache
+      #   uses: actions/cache@v3
+      #   id: yarn-cache
+      #   with:
+      #     path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+      #     key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-yarn-
+
+      # - name: Artifactory Check
+      #   run: yarn check:registry
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+
+      - name: Lint Source Code
+        run: yarn lint
+
+      - name: Unit Tests
+        run: yarn test:ci
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/coverage-final.json
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Build Packages
+        run: yarn build
+
+  release:
+    needs: [setup]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.BOT_TOKEN }}
+          fetch-depth: 0
+          ref: "master"
+
+      - name: Derive appropriate SHAs for base and head for `nx affected` commands
+        uses: nrwl/nx-set-shas@v3
+        with:
+          main-branch-name: "master"
+
+      - name: Set Node Version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "yarn"
+          cache-dependency-path: "yarn.lock"
+
+      # - name: Get yarn cache directory path
+      #   id: yarn-cache-dir-path
+      #   run: |
+      #     echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
+
+      # - name: Restore yarn cache
+      #   uses: actions/cache@v3
+      #   id: yarn-cache
+      #   with:
+      #     path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+      #     key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-yarn-
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+
+      - name: Build Packages
+        run: yarn build
+
+      - name: Setup Publish Config
+        run: |
+          yarn config set npmAuthToken "${{ secrets.NPM_TOKEN }}"
+          git config --global user.email ${{ secrets.GH_EMAIL }}
+          git config --global user.name ${{ secrets.GH_USER }}
+
+      # TODO: ngx-deploy-npm? Or continue to leverage nx + yarn npm publish command?
+      - name: Publish
+        run: |
+          yarn nx affected --target version --parallel=1
+          yarn nx affected --target publish --parallel=1
+          git push && git push --tags
+
+      - name: Build Docs
+        run: yarn build:docs
+
+      - name: Deploy Docs
+        uses: crazy-max/ghaction-github-pages@v3
+        with:
+          target_branch: gh-pages
+          build_dir: docusaurus/build
+          commit_message: deployed docs [skip ci]
+          committer: ${{ secrets.GH_USER }} ${{ secrets.GH_EMAIL }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}

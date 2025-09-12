@@ -1,0 +1,34 @@
+name: Unit Tests
+
+on: [push, pull_request]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        # We must fetch at least the immediate parents so that if this is
+        # a pull request then we can checkout the head.
+        fetch-depth: 2
+
+    # If this run was triggered by a pull request event, then checkout
+    # the head of the pull request instead of the merge commit.
+    - run: git checkout HEAD^2
+      if: ${{ github.event_name == 'pull_request' }}
+
+    - name: Setup nodejs and run tests
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+
+    - run: |
+        npm ci
+        npm run lint
+        npm test
+
+    - name: Upload coverage reports to Codecov with GitHub Action
+      uses: codecov/codecov-action@v4.2.0
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

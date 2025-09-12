@@ -1,0 +1,57 @@
+name: CI
+on:
+  pull_request:
+  push:
+env:
+  SMTP_PORT: 2500
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Setup Node
+      uses: actions/setup-node@v2
+      with:
+        node-version: '18.20.7'
+
+    - name: Setup Scala
+      uses: coursier/setup-action@v1
+      with:
+        jvm: "adopt:11"
+        apps: sbt
+
+    - name: Build the docker compose stack
+      run: docker compose up -d
+
+    - name: Cache node modules
+      uses: actions/cache@v4
+      env:
+        cache-name: cache-node-modules
+      with:
+        path: '**/node_modules'
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+          ${{ runner.os }}-build-
+          ${{ runner.os }}-
+
+    - name: Install NPM deps
+      run: npm install
+
+    - name: Run Jest tests
+      run: npm test
+
+    - name: Coursier cache
+      uses: coursier/cache-action@v6
+
+    - name: Build and test
+      run: |
+        sbt -v -Dfile.encoding=UTF-8 "+test"
+        rm -rf "$HOME/.ivy2/local" || true
+        find $HOME/.ivy2/cache                       -name "ivydata-*.properties" -delete || true
+        find $HOME/.cache/coursier/v1                -name "ivydata-*.properties" -delete || true
+        find $HOME/.sbt                              -name "*.lock"               -delete || true

@@ -1,0 +1,54 @@
+name: build-resources-with-pandoc
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches:
+      - "*" # matches every branch that doesn't contain a '/'
+      - "*/*" # matches every branch containing a single '/'
+      - "**" # matches every branch
+      - "!master" # excludes master
+    tags: ["!**"]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  build-resources-with-pandoc:
+    if: github.repository == 'future-architect/coding-standards'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+      - uses: docker://pandoc/latex:2.19
+        with:
+          entrypoint: "/bin/sh"
+          args: "./build-resources-with-pandoc.sh"
+      - name: Archive resources
+        uses: actions/upload-artifact@v4
+        id: artifact-upload-step
+        with:
+          name: pandoc_resources
+          path: ./public/resources/
+          retention-days: 1
+      - name: Archive Error resources
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error_resources
+          path: ./documents/
+          retention-days: 1
+      - uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { postCustomForArchiveResources } = await import('${{ github.workspace }}/scripts/pr-comment.mjs')
+
+            await postCustomForArchiveResources({
+              github,
+              context,
+              core,
+              url: '${{steps.artifact-upload-step.outputs.artifact-url}}'
+            })

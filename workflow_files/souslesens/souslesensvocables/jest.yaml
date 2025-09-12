@@ -1,0 +1,38 @@
+# This workflow will do a clean install of node dependencies, cache/restore them, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Jest
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+        branches: [master]
+
+env:
+    CONFIG_PATH: tests/data/config
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                node-version: [22.x]
+        steps:
+            - uses: actions/checkout@v4
+            - name: Use Node.js ${{ matrix.node-version }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node-version }}
+                  cache: "npm"
+            - run: npm ci
+            - run: mkdir -p ./tests/coverage
+            - run: npx jest --coverage --rootDir tests --coverageReporters json-summary text --all | tee ./tests/coverage/coverage.txt && exit ${PIPESTATUS[0]}
+            - name: Jest Coverage Comment
+              uses: MishaKav/jest-coverage-comment@main
+              with:
+                  coverage-summary-path: ./tests/coverage/coverage-summary.json
+                  summary-title: Summary
+                  title: Jest Coverage Comment
+                  coverage-path: ./tests/coverage/coverage.txt
+

@@ -1,0 +1,132 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+#
+
+name: ci
+
+on:
+  push:
+    branches-ignore:
+    - 'dependabot/**'
+    paths-ignore:
+    - '**.gitattributes'
+    - '**.gitignore'
+    - '**.md'
+  pull_request:
+    paths-ignore:
+    - '**.gitattributes'
+    - '**.gitignore'
+    - '**.md'
+
+jobs:
+  artifact:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set artifact version
+      run: script/version_snapshot.sh
+      shell: bash
+    - name: Use Node.js (latest)
+      uses: actions/setup-node@v4
+      with:
+        node-version: latest
+    - name: Cache Node.js modules
+      timeout-minutes: 10
+      uses: actions/cache@v4
+      env:
+        cache-name: cache-node-modules
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+          ${{ runner.os }}-build-
+          ${{ runner.os }}-
+    - run: npm ci
+    - name: eslint
+      run: ./script/lint.sh
+      shell: bash
+    - run: npm run build
+    - run: npm test
+    - name: Integration Test
+      run: cd itest && ./itest.sh
+    - name: Package artifacts
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: jsonurl-javascript
+        path: dist/*
+
+  matrix-build:
+    needs: artifact
+    if: ${{ needs.artifact.result == 'success' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        node-version: [18.x, 20.x]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js  ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+    - name: Cache Node.js modules
+      timeout-minutes: 10
+      uses: actions/cache@v4
+      env:
+        cache-name: cache-node-modules
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+          ${{ runner.os }}-build-
+          ${{ runner.os }}-
+    - run: npm ci
+    - name: eslint
+      run: ./script/lint.sh
+      shell: bash
+    - run: npm run build
+    - run: npm test
+    - name: Integration Test
+      run: cd itest && ./itest.sh
+
+  sonarcloud:
+    needs: artifact
+    if: ${{ needs.artifact.result == 'success' && github.event.repository.fork == false && ( github.event_name == 'push' || github.event.pull_request.author_association == 'OWNER' || github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'COLLABORATOR' ) }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Set artifact version
+      run: script/version_snapshot.sh
+      shell: bash
+    - name: Use Node.js (latest)
+      uses: actions/setup-node@v4
+      with:
+        node-version: latest
+    - name: Cache Node.js modules
+      timeout-minutes: 10
+      uses: actions/cache@v4
+      env:
+        cache-name: cache-node-modules
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+          ${{ runner.os }}-build-
+          ${{ runner.os }}-
+    - name: Push Info
+      run: echo Pushed by ${{ github.event.pusher.name }}
+    - run: npm ci
+    - run: npx eslint -f json -o eslint.report.json
+    - run: npm run build
+    - run: npm test
+    - name: SonarCloud Scan
+      uses: sonarsource/sonarcloud-github-action@v2.0.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

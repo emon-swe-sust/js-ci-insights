@@ -1,0 +1,39 @@
+name: Lint & Build
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
+    release:
+        types:
+            - created
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - name: Checkout Latest Code
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+
+            - name: Install Dependencies
+              run: npm ci
+
+            - name: Lint & Build Extension
+              run: npm run build
+
+            - name: Release
+              if: ${{ github.event_name == 'release' }}
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  cd dist
+                  zip -r inject-jyutping.zip *
+                  gh release upload ${{ github.ref_name }} inject-jyutping.zip --clobber

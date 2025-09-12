@@ -1,0 +1,37 @@
+name: Poll for database update
+
+on:
+  repository_dispatch:
+    types:
+      - poll-db
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.REPO_SCOPE }}
+      - id: nodeversion
+        run: echo "NODE=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+      - name: Use Node.js ${{steps.nodeversion.outputs.NODE}}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.nodeversion.outputs.NODE }}
+      - uses: pnpm/action-setup@v2
+        name: Install pnpm
+        id: pnpm-install
+        with:
+          version: 8
+          run_install: true
+      - name: Update database
+        env:
+          DISCORD_HOOK: ${{ secrets.DISCORD_HOOK }}
+        run: |
+          git config --global user.name 'Keycap Archivist Bot'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          pnpm update-db
+          git add catalog-revision.txt
+          git add src/db/catalog.json
+          git commit -m "Update catalog" || true
+          git push -f || true

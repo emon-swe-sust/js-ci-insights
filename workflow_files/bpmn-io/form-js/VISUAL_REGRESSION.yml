@@ -1,0 +1,34 @@
+name: Visual regression tests
+on: push
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.51.1
+      options: --user 1001:1000
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - name: Setup NPM cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install node dependencies
+        run: npm ci
+      - name: Build frontend
+        run: npm run build
+      - name: Build mock website
+        run: npm run build:e2e
+      - name: Start server
+        run: npm run start:visual-preview
+      - name: Run Playwright tests
+        if: github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main'
+        run: npm run test:visual
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Playwright report
+          path: playwright-report/
+          retention-days: 30

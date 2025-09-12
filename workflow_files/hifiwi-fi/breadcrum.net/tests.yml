@@ -1,0 +1,89 @@
+name: tests
+
+on: [pull_request, push]
+
+env:
+  FORCE_COLOR: 1
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/breadcrum
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: breadcrum
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version-file: package.json
+
+    - run: npm i
+    - name: Archive lockfile
+      uses: actions/upload-artifact@v4
+      with:
+        name: package-lock.json
+        path: package-lock.json
+    - run: npm run generate-default-env --workspaces --if-present
+    - run: npm run migrate --workspaces --if-present
+      env:
+        PGDATABASE: breadcrum
+        PGHOST: localhost
+        PGPASSWORD: postgres
+        PGPORT: 5432
+        PGUSER: postgres
+    - run: npm test
+    - name: Coveralls
+      uses: coverallsapp/github-action@v2
+      with:
+        parallel: true
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        files: "packages/web/coverage/lcov.info packages/worker/coverage/lcov.info"
+
+  coverage:
+    needs: test
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close parallel build=
+        uses: coverallsapp/github-action@v2
+        with:
+          parallel-finished: true
+
+  automerge:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - uses: fastify/github-action-merge-dependabot@v3
+        if: ${{ github.actor == 'dependabot[bot]' && github.event_name == 'pull_request' && contains(github.head_ref, 'dependabot/github_actions') }}
+        with:
+          github-token: ${{secrets.github_token}}

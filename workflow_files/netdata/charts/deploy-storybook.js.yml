@@ -1,0 +1,40 @@
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    environment:
+      url: ${{ steps.build-publish.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version:
+          - 18.18
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use node ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install yarn
+        run: npm install -g yarn
+
+      - uses: bitovi/github-actions-storybook-to-github-pages@v1.0.3
+        with:
+          install_command: yarn install # default: npm ci
+          build_command: yarn build-storybook # default: npm run build-storybook
+          path: storybook-static # default: dist/storybook
+          checkout: false # default: true
+          caching: true

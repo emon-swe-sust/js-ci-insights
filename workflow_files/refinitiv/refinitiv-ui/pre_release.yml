@@ -1,0 +1,97 @@
+name: Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version type to bump
+        required: true
+        type: choice
+        options:
+          - prerelease
+          - prepatch
+          - preminor
+          - premajor
+        default: prerelease
+      run-test:
+        description: Run unit test?
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup resources and environment
+        uses: ./.github/actions/setup
+        id: setup
+
+      - name: Install Dependencies
+        run: npm ci --audit=false --fund=false
+
+      - name: Versions
+        run: |
+          node -v
+          npm -v
+
+      - name: Build
+        # Prevent NX caching it should always build
+        run: npm run build -- --skip-nx-cache
+
+  test:
+    name: ${{ format('{0}{1}', !inputs.run-test && 'Skip ' || '', 'Test / All Browsers') }}
+    needs: build
+    uses: ./.github/workflows/test_all_browsers.yml
+    secrets: inherit
+    with:
+      build-prefix: 'Prerelease '
+      skip: ${{ !inputs.run-test }}
+
+  publish:
+    name: Publish
+    needs: test
+    environment: development
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. 0 indicates all history for all branches and tags.
+          # Pulls all commits (needed for Lerna)
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Configure Git User
+        run: |
+          git config --global user.email "RefinitivUIDev@refinitiv.com"
+          git config --global user.name "refinitiv-ui-dev"
+
+      - name: Gather resources and build
+        uses: ./.github/actions/checkout-install-and-build
+
+      - name: Publish to NPM (all packages)
+        if: ${{ inputs.version == 'premajor' }}
+        run: npx lerna publish ${{ inputs.version }} --preid next --dist-tag next --force-publish --include-merged-tags --no-private --no-changelog --yes
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to NPM (modified packages)
+        if: ${{ inputs.version != 'premajor' }}
+        run: npx lerna publish ${{ inputs.version }} --preid next --dist-tag next --include-merged-tags --no-private --no-changelog --yes
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Deprecate Solar Theme on npm
+        run: |
+          DEPRECATION_MESSAGE=$(npm info @refinitiv-ui/solar-theme deprecated)
+          if [[ -z $DEPRECATION_MESSAGE ]]; then npm deprecate @refinitiv-ui/solar-theme "Solar theme is deprecated. Consider migrating to @refinitiv-ui/halo-theme instead."; fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

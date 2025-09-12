@@ -1,0 +1,62 @@
+name: Publish to npm
+
+on:
+    push:
+        branches:
+            - main
+    workflow_run:
+      workflows: [CI]
+      types: [completed]
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v2
+
+            - name: Use Node.js
+              uses: actions/setup-node@v2
+              with:
+                  node-version: "19"
+                  registry-url: "https://registry.npmjs.org"
+
+            - name: Install dependencies using Yarn
+              run: yarn install
+
+            - name: Publish to npm
+              run: npm run npm-publish
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+            - name: Build Vanilla JS
+              run: npm run build:vanilla-js
+
+            - name: Parse the package.json for the version
+              run: |
+                echo 'PACKAGE_JSON<<EOF' >> $GITHUB_ENV
+                cat ./package.json >> $GITHUB_ENV
+                echo 'EOF' >> $GITHUB_ENV
+
+            - name: Create Release
+              id: create_release
+              uses: actions/create-release@v1
+              env:
+                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                tag_name: ${{ fromJson(env.PACKAGE_JSON).version }}
+                release_name: Release ${{ fromJson(env.PACKAGE_JSON).version }}
+                draft: false
+                prerelease: false
+
+            - name: Upload Release Asset
+              id: upload-release-asset
+              uses: actions/upload-release-asset@v1
+              env:
+                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                upload_url: ${{ steps.create_release.outputs.upload_url }}
+                asset_path: ./build/vanilla-js.js
+                asset_name: 'polyfire-min-${{ fromJson(env.PACKAGE_JSON).version }}.js'
+                asset_content_type: application/javascript

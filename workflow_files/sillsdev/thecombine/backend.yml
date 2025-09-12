@@ -1,0 +1,133 @@
+name: backend
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref_protected && github.run_id || github.event.pull_request.number }}
+
+permissions: # added using https://github.com/step-security/secure-workflows
+  contents: read
+
+jobs:
+  test_build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dotnet: ["8.0.x"]
+    steps:
+      # See https://docs.stepsecurity.io/harden-runner/getting-started/ for instructions on
+      # configuring harden-runner and identifying allowed endpoints.
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
+        with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: >
+            *.actions.githubusercontent.com:443
+            aka.ms:443
+            api.github.com:443
+            api.nuget.org:443
+            builds.dotnet.microsoft.com:443
+            dc.services.visualstudio.com:443
+            deb.debian.org:80
+            github.com:443
+            md-hdd-t032zjxllntc.z26.blob.storage.azure.net:443
+            objects.githubusercontent.com:443
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: ${{ matrix.dotnet }}
+      - name: Install ffmpeg
+        uses: FedericoCarboni/setup-ffmpeg@36c6454b5a2348e7794ba2d82a21506605921e3d # v3
+      - name: Run coverage tests
+        run: dotnet test Backend.Tests/Backend.Tests.csproj
+        shell: bash
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          if-no-files-found: error
+          name: coverage
+          path: Backend.Tests/coverage.cobertura.xml
+          retention-days: 7
+      - name: Development build
+        run: dotnet build BackendFramework.sln
+      - name: Release build
+        run: dotnet publish BackendFramework.sln
+      - name: Format check
+        run: dotnet format --verify-no-changes
+
+  upload_coverage:
+    needs: test_build
+    runs-on: ubuntu-latest
+    steps:
+      # See https://docs.stepsecurity.io/harden-runner/getting-started/ for instructions on
+      # configuring harden-runner and identifying allowed endpoints.
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
+        with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            cli.codecov.io:443
+            github.com:443
+            ingest.codecov.io:443
+            keybase.io:443
+            storage.googleapis.com:443
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Download coverage artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: coverage
+      - name: Upload coverage report
+        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.4.3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+          files: coverage.cobertura.xml
+          flags: backend
+          name: Backend
+
+  docker_build:
+    if: ${{ github.event.type }} == "PullRequest"
+    runs-on: ubuntu-latest
+    steps:
+      # See https://docs.stepsecurity.io/harden-runner/getting-started/ for instructions on
+      # configuring harden-runner and identifying allowed endpoints.
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
+        with:
+          disable-sudo: true
+          disable-file-monitoring: true
+          egress-policy: block
+          allowed-endpoints: >
+            *.data.mcr.microsoft.com:443
+            api.nuget.org:443
+            archive.ubuntu.com:80
+            dc.services.visualstudio.com:443
+            deb.debian.org:80
+            github.com:443
+            mcr.microsoft.com:443
+            security.ubuntu.com:80
+      # For subfolders, currently a full checkout is required.
+      # See: https://github.com/marketplace/actions/build-and-push-docker-images#path-context
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Build backend
+        run: |
+          deploy/scripts/build.py --components backend
+        shell: bash
+      - name: Image digest
+        run: |
+          docker image inspect combine_backend:latest -f '{{json .Id}}'
+        shell: bash

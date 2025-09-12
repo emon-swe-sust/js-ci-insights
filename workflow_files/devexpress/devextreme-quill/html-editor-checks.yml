@@ -1,0 +1,79 @@
+name: Html Editor
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  DEVEXTREME_BRANCHES: '["24_1"]'
+
+jobs:
+  set-up-branches:
+    name: devextreme branches setup
+    runs-on: ubuntu-latest
+    outputs:
+      branches: ${{ steps.set-matrix.outputs.branches }}
+    steps:
+      - name: Setup matrix
+        id: set-matrix
+        run: |
+          echo "DevExtreme branches: ${{ toJson(env.DEVEXTREME_BRANCHES) }}"
+          echo "branches=${{ toJson(env.DEVEXTREME_BRANCHES) }}" >> $GITHUB_OUTPUT
+
+  build-quill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Quill repository
+        uses: actions/checkout@v4
+
+      - name: Build package
+        uses: ./.github/actions/quill/steps/build-package
+
+  build-devextreme:
+    needs: [build-quill, set-up-branches]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    name: build ${{ matrix.branch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJson(needs.set-up-branches.outputs.branches) }}
+    steps:
+      - name: Checkout Quill repository
+        uses: actions/checkout@v4
+        with:
+          path: quill-repo
+
+      - name: Build
+        uses: ./quill-repo/.github/actions/html-editor/steps/build
+        with:
+          branch: ${{ matrix.branch }}
+          devextreme-package-directory: ${{ 'devextreme-repo/packages/devextreme' }}
+          devextreme-scss-package-directory: ${{ 'devextreme-repo/packages/devextreme-scss' }}
+
+  qunit:
+    needs: [build-devextreme, set-up-branches]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    name: qunit ${{ matrix.branch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJson(needs.set-up-branches.outputs.branches) }}
+        test-suite: [ui.htmlEditor]
+    steps:
+      - name: Checkout Quill repository
+        uses: actions/checkout@v4
+        with:
+          path: quill-repo
+
+      - name: QUnit tests
+        uses: ./quill-repo/.github/actions/html-editor/steps/qunit-tests
+        with:
+          branch: ${{ matrix.branch }}
+          devextreme-package-directory: ${{ 'devextreme-repo/packages/devextreme' }}
+          test-suite: ${{ matrix.test-suite }}

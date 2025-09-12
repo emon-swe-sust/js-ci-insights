@@ -1,0 +1,44 @@
+name: Lint vscode-extension
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/lint-extension.yml'
+      - 'packages/vscode-extension/src/**'
+  pull_request:
+    paths:
+      - '.github/workflows/lint-extension.yml'
+      - 'packages/vscode-extension/src/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.repository == 'software-mansion/radon-ide'
+    runs-on: ubuntu-latest
+    env:
+      WORKING_DIRECTORY: packages/vscode-extension
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enforce HTTPS for submodules
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: packages/vscode-extension/package-lock.json
+
+      - name: Install node dependencies
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npm ci
+
+      - name: Lint extension
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+        run: npm run lint

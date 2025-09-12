@@ -1,0 +1,50 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# This workflow will install Deno then run `deno lint` and `deno test`.
+# For more information see: https://github.com/denoland/setup-deno
+
+name: Deno
+
+on:
+    push:
+        tags:
+            - v*
+
+permissions:
+    contents: write
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Setup repo
+              uses: actions/checkout@v3
+
+            - name: Set up Deno
+              uses: denoland/setup-deno@v1
+              with:
+                  deno-version: v1.x
+
+            - name: Bundle with Deno
+              run: deno task bundle
+
+            - name: Rename and Upload App.js files
+              run: |
+                  cd dist
+                  for folder in */; do
+                    folder=${folder%*/}
+                    if [ "$folder" != "snippets" ]; then
+                      mv "${folder}/app.js" "${folder}/${folder}.app.js"
+                    fi
+                  done
+
+            - name: Create Release
+              uses: softprops/action-gh-release@v1
+              if: startsWith(github.ref, 'refs/tags/')
+              with:
+                  files: |
+                      dist/**/*.app.js

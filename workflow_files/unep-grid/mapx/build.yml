@@ -1,0 +1,118 @@
+name: MapX CI/CD
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: '0 7 * * 1'  # Monday 7 AM UTC
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: ci
+    env:
+      SCHEDULED_BUILD: ${{ github.event_name == 'schedule' }}
+      PUSH_ENABLED: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+      DOCKER_REGISTRY: fredmoser
+      DOCKER_API_IMAGE: mapx_api
+      DOCKER_APP_IMAGE: mapx_app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # Initialize and build all components
+      - name: Run CI process
+        run: npm run ci
+
+      # Extract version from package.json using jq
+      - name: Get version
+        id: version
+        run: echo "version=$(jq -r '.version' ./app/package.json)" >> $GITHUB_ENV
+
+      # Log version for debugging
+      - name: Log version
+        run: echo "Building version ${{ env.version }}"
+
+      # Set up Docker tags as environment variables
+      - name: Set Docker tags
+        run: |
+          # Set base tags
+          API_TAGS="${DOCKER_REGISTRY}/${DOCKER_API_IMAGE}:${version}"
+          APP_TAGS="${DOCKER_REGISTRY}/${DOCKER_APP_IMAGE}:${version}"
+          
+          # Add latest tag for non-scheduled builds
+          if [[ "$PUSH_ENABLED" == "true" ]]; then
+            API_TAGS="${API_TAGS},${DOCKER_REGISTRY}/${DOCKER_API_IMAGE}:latest"
+            APP_TAGS="${APP_TAGS},${DOCKER_REGISTRY}/${DOCKER_APP_IMAGE}:latest"
+          fi
+          
+          echo "API_TAGS=${API_TAGS}" >> $GITHUB_ENV
+          echo "APP_TAGS=${APP_TAGS}" >> $GITHUB_ENV
+
+      # Docker login only if pushing
+      - name: Docker Login
+        if: env.PUSH_ENABLED == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Single Docker Buildx setup
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build API Image with simplified tags reference
+      - name: Build API Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          platforms: linux/amd64
+          push: ${{ env.PUSH_ENABLED == 'true' }}
+          tags: ${{ env.API_TAGS }}
+          cache-from: type=gha,scope=api-build
+          cache-to: type=gha,mode=max,scope=api-build
+
+      # Build APP Image with simplified tags reference
+      - name: Build APP Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          platforms: linux/amd64
+          push: ${{ env.PUSH_ENABLED == 'true' }}
+          tags: ${{ env.APP_TAGS }}
+          cache-from: type=gha,scope=app-build
+          cache-to: type=gha,mode=max,scope=app-build
+
+      # Create issue on scheduled build failure with proper version reference
+      - name: Create Issue on Failure
+        if: failure() && env.SCHEDULED_BUILD == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Scheduled Build Failed - ${new Date().toISOString().split('T')[0]}`,
+              body: `The scheduled build for MapX has failed.
+
+              - Version: ${{ env.version }}
+              - Workflow Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}
+              
+              Please check the workflow logs for more details.`
+            });

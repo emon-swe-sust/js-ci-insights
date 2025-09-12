@@ -1,0 +1,23 @@
+name: Website
+on:
+  push:
+    branches:
+      [ main ]
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run remote commands
+        id: run
+        uses: fifsky/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          port: ${{ secrets.PORT }}
+          key: ${{ secrets.KEY }}
+          command: |
+            echo ===============================================================
+            cd /www/wwwroot/mcisee.top
+            git pull
+            echo ===============================================================

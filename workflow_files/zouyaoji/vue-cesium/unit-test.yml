@@ -1,0 +1,37 @@
+name: Unit Test
+
+on: pull_request
+
+jobs:
+  build:
+    name: Unit Test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          registry-url: https://registry.npmjs.com/
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8.4.0
+
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      # - name: Test
+      #   run: pnpm test
+
+  dependabot:
+    needs:
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: auto-merge
+        uses: ridedott/dependabot-auto-merge-action@master
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

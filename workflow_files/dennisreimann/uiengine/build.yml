@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  # Run the build for pushes and pull requests targeting master
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Install
+      run: yarn
+    - name: Build
+      run: |
+        yarn run build
+        yarn run docs:build
+        yarn run test-project:build
+        cp -r test/project/dist/test-project docs/dist/test-project
+        cp deploy/404.html docs/dist/404.html
+        cp deploy/gh-pages-spa.js docs/dist/gh-pages-spa.js
+        sed '7i\'$'\n''<script src="/gh-pages-spa.js"></script>'$'\n' docs/dist/index.html > docs/dist/index-modified.html
+        mv docs/dist/index{-modified,}.html
+        sed '7i\'$'\n''<script src="/gh-pages-spa.js"></script>'$'\n' docs/dist/test-project/index.html > docs/dist/test-project/index-modified.html
+        mv docs/dist/test-project/index{-modified,}.html
+      env:
+        CI: true
+    - name: Deploy
+      if: success() && github.ref == 'refs/heads/master'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        publish_dir: ./docs/dist
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        user_name: 'github-actions[bot]'
+        user_email: 'github-actions[bot]@users.noreply.github.com'

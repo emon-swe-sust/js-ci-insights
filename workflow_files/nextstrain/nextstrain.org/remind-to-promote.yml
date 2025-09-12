@@ -1,0 +1,73 @@
+name: remind to promote
+
+on:
+  # Run every hour (a little before the top of the hour), but note that
+  # scripts/remind-to-promote may choose not to check at certain times.
+  schedule:
+    - cron: '48 * * * *'
+
+  # Manually triggered using GitHub's UI
+  workflow_dispatch:
+
+jobs:
+  remind-to-promote:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'package.json'
+      - run: npm ci
+
+        # Use the GitHub Actions cache to store the minimal persistent state we
+        # need (a hash of the state data).  Cache entries aren't durable—they
+        # can disappear by eviction or manual deletion or transient failure—but
+        # the worse that happens is we see duplicate messages in Slack until we
+        # re-cache.
+        #
+        # Since cache entries are immutable once stored but we need to make
+        # updates, we use a unique cache key per workflow run and thus always
+        # store each run's state hash at the end of the run.  We restore from
+        # the cache entry of the lastest previous workflow run since the
+        # current run's unique key won't exist in the cache yet.  This is a
+        # documented workaround to cache immutability.¹  It will grow the cache
+        # size both in number of entries and storage use over time, but that
+        # seems fine.  Entries which haven't been accessed in 7 days will be
+        # evicted, and if we hit the 10 GB¹ total size limit for the repo, the
+        # oldest entries will be evicted first.²
+        #   -trs, 3 Nov 2022
+        #
+        # ¹ https://github.com/actions/cache/blob/main/workarounds.md#update-a-cache
+        # ² https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows#usage-limits-and-eviction-policy
+      - uses: actions/cache@v4
+        with:
+          path: remind-to-promote-state-hash
+          key: remind-to-promote-state-hash-${{ github.run_id }}
+          restore-keys: remind-to-promote-state-hash
+
+      - name: Check if a promotion reminder is appropriate
+        run: ./scripts/remind-to-promote --check | tee remind-to-promote-state
+        env:
+          HEROKU_TOKEN: ${{ secrets.HEROKU_TOKEN_READ_PROTECTED }}
+
+      - id: state-check
+        name: Compare new state to cached state
+        run: |
+          if [[ ! -s remind-to-promote-state ]] || sha256sum --check remind-to-promote-state-hash; then
+            echo should-send=no | tee "$GITHUB_OUTPUT"
+          else
+            echo should-send=yes | tee "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send reminder
+        if: steps.state-check.outputs.should-send == 'yes'
+        run: ./scripts/remind-to-promote --send < remind-to-promote-state
+        env:
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          SLACK_CHANNEL: C01LCTT7JNN #nextstrain-dev
+
+      - name: Updated cached state with new state
+        run: sha256sum remind-to-promote-state | tee remind-to-promote-state-hash

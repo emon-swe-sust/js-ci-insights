@@ -1,0 +1,61 @@
+name: iOS
+on:
+  workflow_call:
+    inputs:
+      name:
+        required: true
+        type: string
+      number:
+        required: true
+        type: string
+      changelog:
+        required: true
+        type: string
+
+jobs:
+  build:
+    timeout-minutes: 30
+    runs-on: macos-15 # macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import signing certificate
+        env:
+          SIGNING_CERTIFICATE_P12_DATA: ${{ secrets.SIGNING_CERTIFICATE_P12_DATA }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          exec .github/scripts/import-certificate.sh
+
+      - name: Import provisioning profile
+        env:
+          PROVISIONING_PROFILE_DATA: ${{ secrets.PROVISIONING_PROFILE_DATA }}
+        run: |
+          exec .github/scripts/import-profile.sh
+
+      - uses: subosito/flutter-action@v2
+
+      - name: Load config
+        run: echo "${{ secrets.CONFIG }}" > lib/config.dart
+
+      - name: Build app
+        env:
+          BUILD_NAME: ${{ inputs.name }}
+          BUILD_NUMBER: ${{ inputs.number }}
+        run: flutter build ipa --export-options-plist=.github/provisioning/ExportOptions.plist --build-number $BUILD_NUMBER --build-name $BUILD_NAME
+
+      - name: Rename build artifact
+        working-directory: build/ios/ipa
+        run: mv tudo.ipa tudo_ios.ipa
+
+      - name: Upload app to App Store Connect
+        env:
+          APP_STORE_CONNECT_USERNAME: ${{ secrets.APP_STORE_CONNECT_USERNAME }}
+          APP_STORE_CONNECT_PASSWORD: ${{ secrets.APP_STORE_CONNECT_PASSWORD }}
+        run: xcrun altool --upload-app -t ios -f "build/ios/ipa/tudo_ios.ipa" -u "$APP_STORE_CONNECT_USERNAME" -p "$APP_STORE_CONNECT_PASSWORD"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: build/ios/ipa/tudo_ios.ipa

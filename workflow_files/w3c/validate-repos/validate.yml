@@ -1,0 +1,45 @@
+name: validate
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Dump GitHub context
+      env:
+        GITHUB_CONTEXT: ${{ toJson(github) }}
+      run: echo "$GITHUB_CONTEXT"
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+    - name: Setup dependencies
+      run: |
+        echo '{"ghToken":"${{ secrets.W3C_GH_TOKEN }}"}' > config.json
+        npm ci --production
+    - name: Run validate.js
+      run: node validate.js > report.json
+    - name: Run extract-rec-track.js
+      run: node extract-rec-track.js > rec-track-repos.json
+    - name: Run extract-horizontal-reviews.js
+      run: node extract-horizontal-reviews.js > hr-repos.json
+    - name: Commit changes
+      run: |
+        git config user.name "w3c-validate-repos-bot"
+        git config user.email "<>"
+        git add report.json rec-track-repos.json hr-repos.json
+        git commit -m "Update report.json, rec-track-repos.json, hr-repos.json"
+        git show
+    - name: Push changes
+      if: github.ref == 'refs/heads/main' && github.event.commits[0].author.name != 'w3c-validate-repos-bot'
+      run: |
+        git remote set-url --push origin https://x-access-token:${{ secrets.W3C_GH_TOKEN }}@github.com/$GITHUB_REPOSITORY
+        git push origin HEAD:main
+    # Run this script last to not interfere with any of the above. The output
+    # goes into the logs only for manual inspection when needed.
+    - name: Run list-unconnected-contributors.js
+      run: node list-unconnected-contributors.js w3c/webrtc-pc

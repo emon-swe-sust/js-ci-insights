@@ -1,0 +1,52 @@
+name: Release
+
+run-name: 'Release from ${{ github.ref_name }}'
+
+on:
+  workflow_dispatch:
+    inputs:
+      type:
+        description: |
+          Select the branch to release from above, then select the version level to bump below.
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+        default: minor
+jobs:
+  bump-version:
+    runs-on: ubuntu-24.04
+
+    outputs:
+      RELEASE_VERSION: ${{ steps.create_tags.outputs.RELEASE_VERSION }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+
+      - run: npm ci
+
+      - name: Bump version and regenerate README
+        id: create_tags
+        run: |
+          # https://github.com/orgs/community/discussions/26560
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          VERSION=$(npm version ${{inputs.type}} --no-git-tag-version)
+          npx oclif readme && node src/format-readme.js
+          git checkout -b release/${VERSION}
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Create release PR
+        run: |
+          git commit \
+           -am "Release of ${VERSION}"
+          git push --set-upstream origin release/${VERSION}
+          gh pr create --base main --head release/${VERSION} --title "Release ${VERSION}" --body "Release of CLI version ${VERSION}"
+          echo "Release version ${VERSION} PR created" >> $GITHUB_STEP_SUMMARY

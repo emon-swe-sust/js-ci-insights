@@ -1,0 +1,91 @@
+name: deploy-job
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      grafana_diagnostics_enabled:
+        required: false
+        type: string
+    secrets:
+      gcp_provider_name:
+        required: true
+      gcp_sa_email:
+        required: true
+      gcp_project_id:
+        required: true
+      gcp_cloudrun_service_name:
+        required: true
+      gcp_cloudrun_service_region:
+        required: true
+      firebase_client_email:
+        required: true
+      firebase_project_id:
+        required: true
+      firebase_private_key_base64:
+        required: true
+      firebase_private_key_base64_gcp_secret_name:
+        required: true
+      grafana_otlp_endpoint:
+        required: true
+      grafana_instance_id:
+        required: true
+      grafana_api_key:
+        required: true
+      grafana_headers:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: ${{ secrets.gcp_provider_name }}
+          service_account: ${{ secrets.gcp_sa_email }}
+
+      - name: 'Set up Cloud SDK'
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ secrets.gcp_project_id }}
+
+      - id: update-secrets
+        uses: nearform-actions/github-action-gcp-secrets@v1
+        with:
+          secrets: |-
+            ${{ secrets.firebase_private_key_base64_gcp_secret_name }}:"${{ secrets.firebase_private_key_base64 }}"
+
+      - id: deploy
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ secrets.gcp_cloudrun_service_name }}
+          region: ${{ secrets.gcp_cloudrun_service_region }}
+          project_id: ${{ secrets.gcp_project_id }}
+          env_vars: |-
+            FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }},
+            FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+            GRAFANA_ENVIRONMENT=${{ inputs.environment }},
+            GRAFANA_DIAGNOSTICS_ENABLED=${{ inputs.grafana_diagnostics_enabled || 'false' }},
+            GRAFANA_OTLP_ENDPOINT=${{ secrets.grafana_otlp_endpoint }},
+            GRAFANA_INSTANCE_ID=${{ secrets.grafana_instance_id }},
+            GRAFANA_API_KEY=${{ secrets.grafana_api_key }}
+            OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.grafana_otlp_endpoint }},
+            OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic ${{ secrets.grafana_headers }}
+
+          secrets: |-
+            FIREBASE_PRIVATE_KEY_BASE64=${{ secrets.firebase_private_key_base64_gcp_secret_name }}:latest,
+          flags: --allow-unauthenticated --timeout=1800
+          source: .

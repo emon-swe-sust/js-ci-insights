@@ -1,0 +1,20 @@
+name: Add comment to community issues
+on:
+  issues:
+    types:
+      - labeled
+jobs:
+  add-comment:
+    if: github.event.label.name == 'community'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Add comment
+        uses: peter-evans/create-or-update-comment@c6c9a1a66007646a28c153e2a8580a5bad27bcfa
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            Thank you for the report. We welcome documentation contributions!
+
+            * For information about how to propose a change, see the [contributing guide](https://github.com/timescale/docs/blob/latest/CONTRIBUTING.md) in our GitHub repository.

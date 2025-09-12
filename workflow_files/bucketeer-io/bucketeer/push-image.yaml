@@ -1,0 +1,284 @@
+name: push-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_e2e:
+        description: "Skip e2e tests"
+        type: boolean
+        default: false
+      skip_sdk_e2e:
+        description: "Skip e2e tests of SDK"
+        type: boolean
+        default: false
+      skip_prd_pr:
+        description: "Skip Production PR"
+        type: boolean
+        default: false
+      skip_release_note:
+        description: "Skip release note"
+        type: boolean
+        default: true
+
+  push:
+    branches:
+      - main
+    tags:
+        - "v*"
+    paths-ignore:
+      - "README.md"
+      - "ui/web-v2/README.md"
+      - "CLA.md"
+      - "CONTRIBUTING.md"
+      - "DEPLOYMENT.md"
+      - ".github/**"
+
+env:
+  GHCR_REGISTRY: ghcr.io/bucketeer-io
+  GAR_REGISTRY: asia-docker.pkg.dev
+  GO_BUILD_CONCURRENCY: 4 # Set the same number of apps to build.
+  NODE_VERSION: "22.12.0"
+
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      IMAGE_TAG: ${{ steps.tag.outputs.value }}
+      REF: ${{ steps.ref.outputs.value }}
+      COMMIT_MESSAGE: ${{ steps.commit_message.outputs.value }}
+      MIGRATION_REQUIRED: ${{ steps.changes.outputs.migration }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+      - name: Store git tag value to output
+        id: tag
+        run: echo "value=$(git describe --tags --always --abbrev=7)" >> $GITHUB_OUTPUT
+      - name: Store git ref value to output
+        id: ref
+        run: echo "value=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
+      - name: Store the first line of commit message
+        id: commit_message
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: echo "value=$(echo "$COMMIT_MESSAGE" | head -n 1)" >> $GITHUB_OUTPUT
+      - name: Store the migration_required value to output
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: changes
+        with:
+          filters: |
+            migration:
+              - 'migration/**'
+
+  go:
+    needs: setup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+      packages: "write"
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: 'go.mod'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install go dependencies
+        run: make vendor
+      - name: Build web and go applications
+        run: |
+          make build-web-console
+          make build-go -j ${{ env.GO_BUILD_CONCURRENCY }}
+          make clean-web-console
+      - name: Add executable permission to go binary files
+        run: chmod +x bin/*
+      - name: Set up docker
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.6.1
+        with:
+          install: true
+      - name: Create Dockerfile of go applications
+        run: |
+          for APP in `ls bin`
+          do
+            ./tools/build/show-dockerfile.sh bin $APP > Dockerfile-app-$APP
+          done
+      - name: Build go application images
+        run: |
+          for APP in `ls bin`
+          do
+            IMAGE=`./tools/build/show-image-name.sh $APP`
+            docker build -f Dockerfile-app-$APP -t bucketeer-$IMAGE:${{ needs.setup.outputs.IMAGE_TAG }} --load .
+          done
+      - name: Build migration image
+        if:  ${{ needs.setup.outputs.MIGRATION_REQUIRED == 'true' }}
+        run: docker build migration/ -t bucketeer-migration:${{ needs.setup.outputs.IMAGE_TAG }} --load
+      - name: Login to GHCR
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push migration image to GHCR
+        if:  ${{ needs.setup.outputs.MIGRATION_REQUIRED == 'true' }}
+        run: |
+          docker tag bucketeer-migration:${{ needs.setup.outputs.IMAGE_TAG }} ${{ env.GHCR_REGISTRY }}/bucketeer-migration:${{ needs.setup.outputs.IMAGE_TAG }}
+          docker push ${{ env.GHCR_REGISTRY }}/bucketeer-migration:${{ needs.setup.outputs.IMAGE_TAG }}
+      - name: Push go application images to GHCR
+        run: |
+          push_func(){
+            IMAGE=`./tools/build/show-image-name.sh $1`
+            docker tag bucketeer-$IMAGE:${{ needs.setup.outputs.IMAGE_TAG }} ${{ env.GHCR_REGISTRY }}/bucketeer-$IMAGE:${{ needs.setup.outputs.IMAGE_TAG }}
+            docker push ${{ env.GHCR_REGISTRY }}/bucketeer-$IMAGE:${{ needs.setup.outputs.IMAGE_TAG }}
+          }
+          pids=()
+          for APP in `ls bin`
+          do
+            push_func "$APP" &
+            pids+=($!)
+          done
+          for pid in "${pids[@]}"; do
+          if wait -n; then
+            :
+          else
+            exit_code=$?
+            echo "Process exited with $exit_code, killing the other processes now."
+            for pid in "${pids[@]}"; do
+              kill -9 "$pid" 2> /dev/null || :
+            done
+            exit "$exit_code"
+          fi
+          done
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          token_format: "access_token"
+          workload_identity_provider: ${{ secrets.GAR_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GAR_SA_MAIL_ADDRESS }}
+      - name: Login to GAR
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ${{ env.GAR_REGISTRY }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+      - name: Push migration image to GAR
+        if:  ${{ needs.setup.outputs.MIGRATION_REQUIRED == 'true' }}
+        run: |
+          docker tag bucketeer-migration:${{ needs.setup.outputs.IMAGE_TAG }} ${{ env.GAR_REGISTRY }}/${{ secrets.GAR_PROJECT }}/bucketeer/bucketeer-migration:${{ needs.setup.outputs.IMAGE_TAG }}
+          docker push ${{ env.GAR_REGISTRY }}/${{ secrets.GAR_PROJECT }}/bucketeer/bucketeer-migration:${{ needs.setup.outputs.IMAGE_TAG }}
+      - name: Push go application images to GAR
+        run: |
+          push_func(){
+            IMAGE=`./tools/build/show-image-name.sh $1`
+            docker tag bucketeer-$IMAGE:${{ needs.setup.outputs.IMAGE_TAG }} ${{ env.GAR_REGISTRY }}/${{ secrets.GAR_PROJECT }}/bucketeer/bucketeer-$IMAGE:${{ needs.setup.outputs.IMAGE_TAG }}
+            docker push ${{ env.GAR_REGISTRY }}/${{ secrets.GAR_PROJECT }}/bucketeer/bucketeer-$IMAGE:${{ needs.setup.outputs.IMAGE_TAG }}
+          }
+          pids=()
+          for APP in `ls bin`
+          do
+            push_func "$APP" &
+            pids+=($!)
+          done
+          for pid in "${pids[@]}"; do
+          if wait -n; then
+            :
+          else
+            exit_code=$?
+            echo "Process exited with $exit_code, killing the other processes now."
+            for pid in "${pids[@]}"; do
+              kill -9 "$pid" 2> /dev/null || :
+            done
+            exit "$exit_code"
+          fi
+          done
+
+  dispatch:
+    needs: [setup, go]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Workflow Dispatch
+        uses: benc-uk/workflow-dispatch@e2e5e9a103e331dad343f381a29e654aea3cf8fc # v1.2.4
+        with:
+          repo: ${{ secrets.CONFIG_REPO }}
+          token: ${{ secrets.REPO_ACCESS_PAT }}
+          workflow: dev-deploy.yaml
+          ref: master
+          inputs: '{"ref": "${{ needs.setup.outputs.REF }}", "image_tag": "${{ needs.setup.outputs.IMAGE_TAG }}", "committer": "${{ github.event.head_commit.author.name }}", "commit_message": "${{ needs.setup.outputs.COMMIT_MESSAGE }}", "commit_url": "${{ github.event.head_commit.url }}", "skip_e2e": "${{ github.event.inputs.skip_e2e }}", "skip_sdk_e2e": "${{ github.event.inputs.skip_sdk_e2e }}", "skip_prd_pr": "${{ github.event.inputs.skip_prd_pr }}", "migration_required": "${{ needs.setup.outputs.MIGRATION_REQUIRED }}"}'
+
+  notify-success-to-slack:
+    needs: [setup, dispatch]
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Slack notification
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            "channel": "${{ secrets.SLACK_CHANNEL_ID }}",
+            "text": "",
+            "blocks": [],
+            "attachments": [
+              {
+                "title": "Image Push Succeeded",
+                "title_link": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                "color": "good",
+                "fields": [
+                  {
+                    "title": "Committer",
+                    "value": "${{ github.event.head_commit.author.name }}"
+                  },
+                  {
+                    "title": "Commit message",
+                    "value": "${{ needs.setup.outputs.COMMIT_MESSAGE }}"
+                  },
+                  {
+                    "title": "Commit URL",
+                    "value": "${{ github.event.head_commit.url }}"
+                  }
+                ]
+              }
+            ]
+
+  notify-failure-to-slack:
+    needs: [setup, go, dispatch]
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Slack notification
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            "channel": "${{ secrets.SLACK_CHANNEL_ID }}",
+            "text": "",
+            "blocks": [],
+            "attachments": [
+              {
+                "title": "Image Push Failed",
+                "title_link": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                "color": "danger",
+                "fields": [
+                  {
+                    "title": "Committer",
+                    "value": "${{ github.event.head_commit.author.name }}"
+                  },
+                  {
+                    "title": "Commit message",
+                    "value": "${{ needs.setup.outputs.COMMIT_MESSAGE }}"
+                  },
+                  {
+                    "title": "Commit URL",
+                    "value": "${{ github.event.head_commit.url }}"
+                  }
+                ]
+              }
+            ]

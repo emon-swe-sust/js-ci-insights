@@ -1,0 +1,125 @@
+name: 'Pull Request'
+
+on: ['pull_request']
+
+# Для расширения доступа Dependabot
+#
+# https://github.com/peter-evans/create-or-update-comment/issues/103
+permissions:
+  pull-requests: write
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node setup
+        uses: ./.github/actions/node-setup
+
+      - run: yarn build
+      - name: Uploading docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: packages/icons/docs/
+
+  deploy_docs:
+    runs-on: ubuntu-latest
+    needs: docs
+    # Skip deploy from forked repo
+    if: github.event.pull_request.base.repo.id == github.event.pull_request.head.repo.id
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download docs artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: docs
+          path: tmp
+
+      - name: Publishing docs to GitHub pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.DEVTOOLS_GITHUB_TOKEN }}
+          commit-message: 'Publish PR ${{ github.event.pull_request.number }}'
+          branch: gh-pages
+          folder: tmp
+          target-folder: pull/${{ github.event.pull_request.number }}
+          clean: true
+          force: false
+
+      - name: Find docs URL comment
+        uses: peter-evans/find-comment@v3
+        id: find_url_comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: <!-- docs_url -->
+
+      - name: Post docs URL to PR
+        if: steps.find_url_comment.outputs.comment-id == 0
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            <!-- docs_url -->
+            ## 👀 Docs deployed
+            See the docs for this PR at https://vkcom.github.io/icons/pull/${{ github.event.pull_request.number }}/
+  size:
+    runs-on: ubuntu-latest
+    env:
+      CI_JOB_NUMBER: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node setup
+        uses: ./.github/actions/node-setup
+
+      - run: yarn workspace @vkontakte/icons-sprite build
+      - uses: andresz1/size-limit-action@v1.8.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          directory: packages/icons/
+          package_manager: yarn
+          # only affects current branch
+          skip_step: install
+          build_script: 'icons-build'
+          script: yarn run size-limit --json
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node setup
+        uses: ./.github/actions/node-setup
+
+      - run: yarn test
+
+  check_dependencies:
+    runs-on: ubuntu-latest
+    name: Check dependencies
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+        shell: bash
+
+      - name: Setup NodeJS
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: YARN_ENABLE_SCRIPTS=false yarn install --immutable --check-cache --check-resolutions
+
+  lint:
+    runs-on: ubuntu-latest
+    name: Check typo
+    steps:
+      - name: Checkout
+        uses: VKCOM/gh-actions/shared/spell-checker-filename@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

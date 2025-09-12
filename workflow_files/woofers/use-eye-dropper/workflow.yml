@@ -1,0 +1,96 @@
+name: useEyeDropper
+
+on: [push]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v4
+    - name: Install + Build
+      uses: ./.github/actions/build
+  test:
+    name: Unit Tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v4
+    - name: Install + Build
+      uses: ./.github/actions/build
+    - name: Test
+      run: pnpm test
+    - name: Upload Coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage
+        path: packages/use-eye-dropper/coverage/*
+  test-coverage:
+    name: Unit Test Coverage
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v4
+    - name: Install
+      uses: ./.github/actions/build
+      with:
+        build: false
+    - name: Download Coverage
+      uses: actions/download-artifact@v4
+      with:
+        name: coverage
+        path: ./packages/use-eye-dropper/coverage
+    - name: Check Test Coverage
+      run: pnpm test:coverage
+  build-demo:
+    name: Build Site
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v4
+    - name: Install + Build
+      uses: ./.github/actions/build
+      with:
+        demo: true
+  test-demo:
+    name: Integration Tests
+    needs: build-demo
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v4
+    - name: Install + Build
+      uses: ./.github/actions/build
+      with:
+        demo: true
+    - name: Test
+      run: pnpm e2e-test:ci
+  publish:
+    name: Publish
+    needs: [test-coverage, test-demo]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+      - name: Install + Build
+        uses: ./.github/actions/build
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
+        run: pnpm package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+      - name: Install + Build Demo
+        uses: ./.github/actions/build
+        with:
+          demo: true
+      - name: Publish Demo
+        uses: JamesIves/github-pages-deploy-action@v4.5.0
+        with:
+          branch: gh-pages
+          folder: packages/website/build/use-eye-dropper
+          commit-message: Updates

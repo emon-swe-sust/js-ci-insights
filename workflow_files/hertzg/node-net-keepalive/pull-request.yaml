@@ -1,0 +1,36 @@
+name: PR
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  lint-commit-message:
+    name: 'Lint commit message'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: ./.github/workflows/actions/setup
+        with:
+          nodeVersion: '*'
+
+      - uses: wagoid/commitlint-github-action@v6
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+
+  test-tsd:
+    name: 'Test: TSD'
+    uses: ./.github/workflows/test-tsd.yaml
+
+  full-with-coverage:
+    name: 'Tests: Unit (+coverage) & Integration'
+    uses: ./.github/workflows/test-lts-matrix.yaml
+    with:
+      testUnit: test-with-coverage
+      testIntegration: test
+    secrets: inherit

@@ -1,0 +1,87 @@
+name: Node.js CI
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+
+  build:
+
+    name: Build
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - run: |
+        npm install
+        gulp make-ts-defs
+        gulp lint
+        gulp bundle:cjs bundle:esm bundle:global
+    - uses: actions/upload-artifact@v4
+      with:
+        name: lib
+        path: lib
+
+  node-test:
+
+    name: Test (Node.js ${{ matrix.node-version }})
+
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: ['16.0.0', '16', '18', '20', '22', '23']
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+    - run: npm uninstall @origin-1/eslint-config
+    - uses: actions/download-artifact@v4
+      with:
+        name: lib
+        path: lib
+    - run: |
+        npm test -- .cjs
+        npm test -- .mjs
+        npm test -- .min.mjs
+        npm test -- .js
+        npm test -- .min.js
+
+  deno-test:
+
+    name: Test (Deno ${{ matrix.deno-version }})
+
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        deno-version: [v1.24, v1.x]
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: denoland/setup-deno@v1
+      with:
+        deno-version: ${{ matrix.deno-version }}
+    - uses: actions/download-artifact@v4
+      with:
+        name: lib
+        path: lib
+    - run: |
+        deno run --allow-env --allow-read test/deno-spec-runner.mjs .mjs
+        deno run --allow-env --allow-read test/deno-spec-runner.mjs .min.mjs
+        deno run --allow-env --allow-read test/deno-spec-runner.mjs .js
+        deno run --allow-env --allow-read test/deno-spec-runner.mjs .min.js

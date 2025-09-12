@@ -1,0 +1,31 @@
+name: Housekeeping
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: cd tools && npm ci
+
+      - name: Housekeeping
+        run: npm run housekeeping -C tools
+
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v4
+        with:
+          message: 'chore: housekeeping [bot]'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Test
+        run: npm run test -C tools

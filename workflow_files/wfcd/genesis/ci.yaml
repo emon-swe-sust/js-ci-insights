@@ -1,0 +1,22 @@
+name: Actions
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version-file: '.nvmrc'
+    - name: Install Dependencies
+      run: npm ci
+    - name: Run linters
+      run: npm run lint
+    - name: Run Tests
+      run: npm test

@@ -1,0 +1,72 @@
+name: Check
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '41 * * * *'
+permissions:
+  contents: write
+jobs:
+  publish:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            release-assets.githubusercontent.com:443
+            registry.npmjs.org:443
+            *.sigstore.dev:443
+      - name: Checkout the repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Install pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          version: 10
+      - name: Install Node.js
+        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3.9.1
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+      - name: Check caniuse-db version
+        id: caniuse
+        run: node ./check.js
+      - name: Check @mdn/browser-compat-data version
+        if: steps.caniuse.outputs.newVersion
+        run: node ./check-mdn-bcd.js
+      - name: Setup git config
+        if: steps.caniuse.outputs.newVersion
+        run: |
+          git config user.name "Auto-Updater"
+          git config user.email "<andrey+caniuse@sitnik.ru>"
+      - name: Install dependencies
+        if: steps.caniuse.outputs.newVersion
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
+      - name: Copy MDN data
+        if: steps.caniuse.outputs.newVersion
+        run: node ./copy-mdn.js
+      - name: Pack Can I Use data
+        if: steps.caniuse.outputs.newVersion
+        run: pnpm run pack
+      - name: Run tests
+        if: steps.caniuse.outputs.newVersion
+        run: pnpm test:unit
+      - name: Commit changes
+        if: steps.caniuse.outputs.newVersion
+        run: node ./commit.js
+      - name: Publish
+        if: steps.caniuse.outputs.newVersion
+        run: ./node_modules/.bin/clean-publish -- --provenance &> publish.log
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Check npm log
+        if: steps.caniuse.outputs.newVersion
+        run: node ./log.js
+      - name: Push changes
+        if: steps.caniuse.outputs.newVersion
+        run: git push --follow-tags

@@ -1,0 +1,21 @@
+name: Unit tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out the repo
+      uses: actions/checkout@v4
+
+    - name: Shared setup
+      uses:  ./.github/actions/shared-action-setup
+
+    - name: Run unit tests
+      run: yarn jest

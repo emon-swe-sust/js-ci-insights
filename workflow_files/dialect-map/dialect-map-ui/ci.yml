@@ -1,0 +1,61 @@
+name: Continuous Integration
+
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "**.md"
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+
+  lint:
+    needs: []
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Set up GitHub Actions"
+        uses: actions/checkout@v4
+      - name: "Set up Node"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: "Install Prettier"
+        run: npm install --global prettier@3.0.1
+      - name: "Check format"
+        run: make check
+
+  test:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Set up GitHub Actions"
+        uses: actions/checkout@v4
+      - name: "Set up Node"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: "Install dependencies"
+        run: npm install-clean
+      - name: "Run tests"
+        run: make test
+
+  build:
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Set up GitHub Actions"
+        uses: actions/checkout@v4
+      - name: "Build Docker image"
+        run: make docker-build

@@ -1,0 +1,53 @@
+name: 'Run'
+on:
+  schedule:
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Browser filter'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency: 
+  group: browserstack
+
+jobs:
+  build:
+    name: 'Run'
+    runs-on: ubuntu-latest
+    steps:
+      - name: check out
+        uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 1
+        
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '^1.20'
+
+      - name: make
+        run: make html-tests-from-existing-sources -j 2
+
+      - name: test
+        run: web-tests-browserstack -browser="${{ github.event.inputs.browser }}"
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+
+      - name: pages
+        run: web-tests-pages
+
+      - name: save
+        run: |
+          # Git config
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add ./web-tests.db
+          git add ./docs
+          git commit --allow-empty -m "run"
+          git push --set-upstream origin main
+

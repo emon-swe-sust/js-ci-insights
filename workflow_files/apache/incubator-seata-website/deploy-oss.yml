@@ -1,0 +1,65 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+name: seata website deploy on oss
+
+on:
+  push:
+    branches:
+      - docusaurus
+  #This schedule only takes effect in the default branch
+  schedule:
+    - cron: '0 */12 * * *'
+
+jobs:
+  Build-Deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js 19.5.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: 19.5.x
+      - name: Build
+        run: |
+          npm install --omit=dev && npm run build
+          mkdir deploy-dist && cp -R build/* deploy-dist/
+          mv .htaccess .asf.yaml *.txt *.html seata-go* deploy-dist/
+      - name: generate sitemap.xml and site.txt
+        # The new generated sitemap for the index form,
+        # in order to ensure consistency with the old version,
+        # here directly to the details of the sitemap (sitemap.0.xml) renamed as a whole sitemap,
+        # if the number of articles increases in the future,
+        # the details of the sitemap will be split into multiple files (sitemap.0.xml,sitemap.1.xml),
+        # you may need to modify.
+        env:
+          ALGOLIA_APIKEY: ${{secrets.ALGOLIA_APIKEY}}
+        run: |
+          mkdir sitemaps && node sitemap.js
+          cp sitemaps/sitemap.0.xml deploy-dist/sitemap.xml
+          cp sitemaps/site.txt deploy-dist/site.txt
+      - name: baidu link submit
+        env:
+          BAIDU_LINK_SUBMIT_TOKEN: ${{secrets.BAIDU_LINK_SUBMIT_TOKEN}}
+        run: node baiduLinkSubmit.js
+      - name: Install Aliyun CLI
+        run: |
+          curl -O https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
+          tar -xzf aliyun-cli-linux-latest-amd64.tgz
+          chmod +x aliyun
+          ./aliyun version
+      - name: Sync to OSS
+        run: ./aliyun oss cp ./deploy-dist oss://seata-website-cn-hongkong/ --meta Cache-Control:"max-age=3600" -r -f -e oss-cn-hongkong.aliyuncs.com --access-key-id ${{ secrets.ACCESS_KEYID }} --access-key-secret ${{ secrets.ACCESS_KEYSECRET }} --region cn-hongkong

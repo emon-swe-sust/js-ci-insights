@@ -1,0 +1,30 @@
+name: Test
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout 🍔🍟🥤
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 😂
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Test 🧪
+        run: |
+          npm ci
+          npm run check-ci
+
+      - name: Upload Artifact ⬆️
+        uses: actions/upload-artifact@v4
+        with:
+          path: ./screenshots/*.png
+          overwrite: true

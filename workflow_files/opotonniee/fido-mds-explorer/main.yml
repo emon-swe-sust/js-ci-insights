@@ -1,0 +1,80 @@
+# Workflow to update MDS blob and JSON in repo
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow every day
+  schedule:
+    - cron: '0 0,6,12,18 * * *'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checks-out repository under $GITHUB_WORKSPACE
+      - uses: actions/checkout@v4
+
+      - name: get remote vendors list
+        env:
+          CASPIO_ID: ${{ secrets.CASPIO_ID }}
+        run: |
+          cd bin
+          chmod +x ./getVendors.sh
+          ./getVendors.sh "$CASPIO_ID"
+          cd -
+          if [ "$(git status -s js/vendors.js | xargs)" != "" ]
+          then
+            echo "UAF vendors list updated"
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+            git add js/vendors.js
+            git commit -m "UAF vendors list updated"
+            git push
+          else
+            echo "No change in UAF vendors list"
+          fi
+
+      - name: get remote mds blob
+        run: |
+          wget -O mds.new https://mds.fidoalliance.org/
+          mv mds.new mds.blob
+
+      - name: commit blob if new
+        run: |
+          if [ "$(git status -s mds.blob | xargs)" != "" ]
+          then
+            echo "MDS updated:"
+            cut -d. -f2 mds.blob | tr '_-' '/+' | tr -d '\n' > mdsBody.b64
+            let b64Size=$(wc -c mdsBody.b64 | awk '{ print $1 }')
+            echo base64 size: ${b64Size}
+            if [ "$((${b64Size} % 4))" == "2" ]
+            then
+              echo -n "==" >> mdsBody.b64
+            fi
+            base64 -d mdsBody.b64 | jq . > mdsBody.json
+            echo -n "let mdsJson=" > js/mds-new.js
+            cat mdsBody.json >> js/mds-new.js
+            sed "s+let mdsJson={+{+" js/mds.js | jq -r ".entries[].metadataStatement.description" > prev.authrs
+            sed "s+let mdsJson={+{+" js/mds-new.js | jq -r ".entries[].metadataStatement.description" > new.authrs
+            MSG="MDS updated $(diff -U0 prev.authrs new.authrs | sed '1,2d' | sed '/^@@ /d' | sed 's+\"+ +g')"
+            rm prev.authrs new.authrs
+            mv js/mds-new.js js/mds.js
+            echo "const LAST_MDS_UPDATE = '$(date --utc --rfc-2822)';" > js/last-update.js
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+            git add mds.blob
+            git add js/mds.js
+            git add js/last-update.js
+            git commit -m "$MSG"
+            git push
+          else
+            echo "no MDS change detected"
+          fi

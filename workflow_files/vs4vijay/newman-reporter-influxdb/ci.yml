@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '20'
+    
+    - id: version
+      name: Get Version
+      run: |
+        set -x
+
+        VERSION=`npm view . version`
+
+        echo "version=${VERSION}" > $GITHUB_OUTPUT
+
+    - name: Install dependencies
+      run: |
+        # npm install
+        npm ci
+
+    - name: Run unit tests
+      run: |
+        set -x
+
+        pwd
+        ls -all
+
+        npm run test
+
+    - name: Create package
+      run: |
+        set -x
+
+        pwd
+        ls -all
+
+        npm pack
+
+    - name: List all files
+      if: always()
+      run: |
+        set -x
+        pwd
+        ls -all
+        tree
+    
+    - name: Upload to Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: newman-reporter-influxdb-${{ steps.version.outputs.version }}
+        path: newman-reporter-influxdb-*.tgz
+        if-no-files-found: error
+
+  github-release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: github_release
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+    - name: Check Version
+      run: |
+        set -x
+
+        echo ${{ needs.build.outputs.version }}
+
+    - uses: actions/download-artifact@v4
+      with:
+        merge-multiple: true
+
+    - name: List all files
+      if: always()
+      run: |
+        set -x
+        pwd
+        ls -all
+        tree
+
+    - name: Create Github Release ${{ needs.build.outputs.version }}
+      uses: softprops/action-gh-release@v2
+      with:
+        name: newman-reporter-influxdb-${{ needs.build.outputs.version }} Release
+        tag_name: ${{ needs.build.outputs.version }}
+        generate_release_notes: true
+        files: |
+          *.tgz
+
+  publish-npm:
+    needs: [github-release]
+    runs-on: ubuntu-latest
+    environment: npm_release
+    steps:
+      # - uses: actions/checkout@v2
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '20'
+          registry-url: https://registry.npmjs.org/
+
+      - name: List all files
+        if: always()
+        run: |
+          set -x
+          pwd
+          ls -all
+          tree
+      
+      - name: Publish to npm registry
+        run: |
+          set -x
+
+          npm publish newman-reporter-influxdb-*.tgz
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.NPM_AUTH_TOKEN}}
+
+  publish-gpr:
+    needs: [github-release]
+    runs-on: ubuntu-latest
+    environment: npm_release
+    steps:
+      # - uses: actions/checkout@v2
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '20'
+          registry-url: https://npm.pkg.github.com/
+          scope: '@vs4vijay'
+
+      - name: List all files
+        if: always()
+        run: |
+          set -x
+          pwd
+          ls -all
+          tree
+      
+      - name: Modify package.json to add @vs4vijay
+        run: |
+          node <<EOF
+          const fs = require('fs').promises;
+          fs.readFile('package.json', 'utf8').then((data) => JSON.parse(data)).then((json) => {
+              json.name = '@$(echo "$GITHUB_REPOSITORY" | sed 's/\/.\+//')/' + json.name;
+              console.info('Package name changed to %s', json.name);
+              return fs.writeFile('package.json', JSON.stringify(json), 'utf8');
+          }).catch(error => {
+              console.error(error);
+              process.exit(1);
+          });
+          EOF
+      
+      # - run: npm ci
+      
+      - run: npm publish --access public newman-reporter-influxdb-*.tgz
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}

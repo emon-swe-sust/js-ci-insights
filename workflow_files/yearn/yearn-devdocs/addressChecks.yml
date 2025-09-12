@@ -1,0 +1,41 @@
+name: Address Checks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # Runs daily at midnight
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies and build
+        run: |
+          bun install
+          bun run build
+
+      - name: Run checks and update data
+        env:
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+        run: |
+          bun run runAddressCheck
+          echo "ALL_CHECKS_PASSED=$(cat all_checks_passed.txt)" >> $GITHUB_ENV
+
+      - name: Create an issue if checks failed
+        if: env.ALL_CHECKS_PASSED != 'true'
+        run: |
+          curl -H "Authorization: Bearer ${{ secrets.ADDRESS_CHECKS }}" \
+          -H "Content-Type: application/json" \
+          -d "$(jq -n --arg title ':robot: Address Checks Failed' --arg body "$(cat issue_body.md)" '{title: $title, body: $body}')" \
+          https://api.github.com/repos/yearn/yearn-devdocs/issues
+          echo "Issue created"

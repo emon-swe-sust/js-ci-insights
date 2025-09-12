@@ -1,0 +1,30 @@
+name: API
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: install modules
+        working-directory: ./web-api
+        run: npm ci
+      - name: execute tests
+        working-directory: ./web-api
+        run: npm run test
+      - name: report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: web-api/report/report.html
+      - name: junit report
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: web-api/report/report.xml
+          fail_on_failure: true

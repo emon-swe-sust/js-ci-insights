@@ -1,0 +1,25 @@
+name: test
+on: [push, pull_request]
+env:
+  CI: true
+jobs:
+  test:
+    name: "Test on Node.js ${{ matrix.node_version }}"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [ 18, 20 ]
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: setup Node ${{ matrix.node_version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node_version }}
+          cache: "yarn"
+      - name: Install
+        run: yarn install
+      - name: Build
+        run: yarn run build
+      - name: Test
+        run: yarn test

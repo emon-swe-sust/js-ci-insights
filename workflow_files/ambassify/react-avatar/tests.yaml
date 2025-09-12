@@ -1,0 +1,22 @@
+name: 'Run tests'
+
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  node-latest:
+    uses: ./.github/workflows/test-node.yaml
+    with:
+      node: latest
+
+  node-18:
+    uses: ./.github/workflows/test-node.yaml
+    with:
+      node: 18
+
+  node-20:
+    uses: ./.github/workflows/test-node.yaml
+    with:
+      node: 20

@@ -1,0 +1,44 @@
+name: Deploy
+
+concurrency: deploy
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: 20
+
+      - name: Install and Build
+        run: |
+          npm install
+          npm run build
+          cd demo
+          npm install
+          npm run build
+          rm -rf node_modules
+
+      - id: npmjsVersion
+        name: Extract version from package.json
+        run: |
+          echo "npmjsVersion=`awk '/version/{gsub(/("|",)/,"",$2);print $2};' package.json`" >> $GITHUB_OUTPUT
+
+      - name: Sync production
+        run: |
+          ./node_modules/@markwylde/ftp-deploy/index.js .github/workflows/deployConfig.js
+        env:
+          TOP_FTP_HOSTNAME: ${{ secrets.top_ftp_server }}
+          TOP_FTP_USERNAME: ${{ secrets.top_ftp_username }}
+          TOP_FTP_PASSWORD: ${{ secrets.top_ftp_password }}
+          SUB_FTP_HOSTNAME: ${{ secrets.sub_ftp_server }}
+          SUB_FTP_USERNAME: ${{ secrets.sub_ftp_username }}
+          SUB_FTP_PASSWORD: ${{ secrets.sub_ftp_password }}

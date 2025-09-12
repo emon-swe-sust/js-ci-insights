@@ -1,0 +1,183 @@
+name: "[Release] - Build Prerelease - Push"
+on:
+  push:
+    branches:
+      - release
+      - hotfix
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: the branch to prerelease from
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  prerelease:
+    name: "Prerelease"
+    runs-on: ubuntu-24.04
+    env:
+      NODE_OPTIONS: "--max-old-space-size=7168"
+    steps:
+      - name: generate token
+        id: generate-token
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.GH_BOT_APP_ID }}
+          private_key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
+      - uses: actions/checkout@v4
+        if: ${{ github.event_name == 'push' }}
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+      - uses: actions/checkout@v4
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        with:
+          ref: ${{ inputs.ref }}
+          token: ${{ steps.generate-token.outputs.token }}
+      - name: Setup git user
+        uses: LedgerHQ/ledger-live/tools/actions/composites/setup-git-user@develop
+      - name: Setup the caches
+        uses: LedgerHQ/ledger-live/tools/actions/composites/setup-caches@develop
+        id: setup-caches
+        with:
+          install-proto: true
+      - name: install dependencies
+        run: pnpm i -D -F "ledger-live" --ignore-scripts
+      - name: Move patch updates to minor for release branch
+        # For more info about why we do this, see this doc:
+        # https://ledgerhq.atlassian.net/wiki/spaces/WALLETCO/pages/4710989838/LL+Incident+Recovery+-+Hotfix+in+all+cases
+        if: ${{ startsWith(github.ref_name, 'release') }}
+        uses: LedgerHQ/ledger-live/tools/actions/composites/adjust-changeset-level@develop
+        with:
+          from_level: patch
+          to_level: minor
+      - name: Move minor updates to patch for hotfix branch
+        # For more info about why we do this, see this doc:
+        # https://ledgerhq.atlassian.net/wiki/spaces/WALLETCO/pages/4710989838/LL+Incident+Recovery+-+Hotfix+in+all+cases
+        if: ${{ startsWith(github.ref_name, 'hotfix') }}
+        uses: LedgerHQ/ledger-live/tools/actions/composites/adjust-changeset-level@develop
+        with:
+          from_level: minor
+          to_level: patch
+      - name: Move major updates to patch for hotfix branch
+        # For more info about why we do this, see this doc:
+        # https://ledgerhq.atlassian.net/wiki/spaces/WALLETCO/pages/4710989838/LL+Incident+Recovery+-+Hotfix+in+all+cases
+        if: ${{ startsWith(github.ref_name, 'hotfix') }}
+        uses: LedgerHQ/ledger-live/tools/actions/composites/adjust-changeset-level@develop
+        with:
+          from_level: major
+          to_level: patch
+      - uses: LedgerHQ/ledger-live/tools/actions/get-package-infos@develop
+        id: desktop-version
+        with:
+          path: ${{ github.workspace }}/apps/ledger-live-desktop
+      - uses: LedgerHQ/ledger-live/tools/actions/get-package-infos@develop
+        id: mobile-version
+        with:
+          path: ${{ github.workspace }}/apps/ledger-live-mobile
+      - name: versioning
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm changeset version
+      - uses: LedgerHQ/ledger-live/tools/actions/get-package-infos@develop
+        id: post-desktop-version
+        with:
+          path: ${{ github.workspace }}/apps/ledger-live-desktop
+      - uses: LedgerHQ/ledger-live/tools/actions/get-package-infos@develop
+        id: post-mobile-version
+        with:
+          path: ${{ github.workspace }}/apps/ledger-live-mobile
+      - name: Add changed files
+        run: |
+          git add .
+      - name: commit (from release branch)
+        if: ${{ startsWith(github.ref_name, 'release') }}
+        uses: planetscale/ghcommit-action@v0.2.9
+        with:
+          commit_message: "chore(prerelease): :rocket: release prerelease [${{ env.LLD }}, ${{ env.LLM }}] [skip ci]"
+          repo: ${{ github.repository }}
+          branch: ${{ github.ref_name }}
+        env:
+          LLD: LLD(${{ steps.post-desktop-version.outputs.version }})
+          LLM: LLM(${{ steps.post-mobile-version.outputs.version }})
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+      - name: commit (from hotfix branch)
+        if: ${{ startsWith(github.ref_name, 'hotfix') }}
+        uses: planetscale/ghcommit-action@v0.2.9
+        with:
+          commit_message: "chore(hotfix): :fire: hotfix prerelease [${{ env.LLD }}, ${{ env.LLM }}] [skip ci]"
+          repo: ${{ github.repository }}
+          branch: ${{ github.ref_name }}
+        env:
+          LLD: LLD(${{ steps.post-desktop-version.outputs.version }})
+          LLM: LLM(${{ steps.post-mobile-version.outputs.version }})
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+      - name: commit (from ${{ inputs.ref }} branch) workflow dispatch
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: planetscale/ghcommit-action@v0.2.9
+        with:
+          commit_message: "chore(prerelease): :rocket: ${{ inputs.ref }} prerelease [LLD(${{ steps.post-desktop-version.outputs.version }}), LLM(${{ steps.post-mobile-version.outputs.version }})] [skip ci]"
+          repo: ${{ github.repository }}
+          branch: ${{ inputs.ref }}
+        env:
+          LLD: LLD(${{ steps.post-desktop-version.outputs.version }})
+          LLM: LLM(${{ steps.post-mobile-version.outputs.version }})
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+      - uses: actions/github-script@v7
+        name: trigger prerelease build for desktop
+        if: ${{ steps.desktop-version.outputs.version != steps.post-desktop-version.outputs.version }}
+        with:
+          github-token: ${{ steps.generate-token.outputs.token }}
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: "ledgerhq",
+              repo: "ledger-live-build",
+              ref: "main",
+              workflow_id: "pre-desktop.yml",
+              inputs: {
+                ref: "${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}",
+              }
+            });
+      - uses: actions/github-script@v7
+        name: trigger prerelease build of mobile
+        if: ${{ steps.mobile-version.outputs.version != steps.post-mobile-version.outputs.version }}
+        with:
+          github-token: ${{ steps.generate-token.outputs.token }}
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: "ledgerhq",
+              repo: "ledger-live-build",
+              ref: "main",
+              workflow_id: "pre-mobile.yml",
+              inputs: {
+                ref: "${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}",
+              }
+            });
+
+
+  prerelease-fail:
+    name: "Prerelease > Failure Reporting"
+    needs: prerelease
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: post to a Slack channel
+        id: slack
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          token: ${{ secrets.SLACK_BOT_USER_OAUTH_ACCESS_TOKEN }}
+          method: chat.postMessage
+          payload: |
+            channel: "C08JQKWS9KK"
+            text: "[Alert] Prerelease failed"
+            blocks: 
+              - type: "section"
+                text:
+                  type: "mrkdwn"
+                  text: "*Prerelease failed*"
+              - type: "section"
+                text:
+                  type: "mrkdwn"
+                  text: "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Workflow run>"

@@ -1,0 +1,83 @@
+name: Main workflow
+
+# The event triggers are configured as following:
+# - on branch main, trigger the workflow on every push
+# - on any pull request, trigger the workflow
+# This is to avoid running the workflow twice on pull requests.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build_lint_and_test:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (uses version in .nvmrc)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Get yarn cache
+        id: yarn-cache
+        run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.yarn-cache.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock', 'patches/*.patch') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Check for unmet constraints (fix w/ "yarn constraints --fix")
+        run: yarn constraints
+
+      - name: Building packages
+        run: yarn build
+
+      - name: Running static type checking
+        run: yarn typecheck
+
+      - name: Running linters and tests
+        run: yarn run jest --projects jest.{eslint,test,ts-test,bundle}.config.js --reporters github-actions
+        env:
+          CI: true
+
+      - name: Building Visual Regression Tests application for UI components
+        run: yarn visual-testing-app:build
+
+      - name: Running Visual Regression Tests for UI components
+      # aa-exec:
+      # ubuntu-24.04, the image used for `ubuntu-latest` as of Oct 14 2024(https://github.com/actions/runner-images/issues/10636),
+      # introduced security measures in its app-armor security  (https://github.com/puppeteer/puppeteer/issues/12818#issuecomment-2247844464)
+      # that made it so that puppeteers chromium installation is not whitelisted,
+      # which made it so that the chromium sandbox is not available and puppeteer errors out,
+      # so we need to specify that we are using app armor's chrome profile when running puppeteer (https://github.com/mermaid-js/mermaid-cli/issues/730#issuecomment-2408615110)
+        run: aa-exec --profile=chrome -- yarn vrt:components
+        timeout-minutes: 20
+        env:
+          PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
+
+
+      - name: Checking bundle size of visual testing app
+        run: yarn bundlesize
+        # env:
+        # NOTE: it seems that currently bundlesize server is having problems
+        # resulting in status code 500. Because of that, the bundlesize script
+        # is not able to handle the response, resulting in the exit code command
+        # to be 0, which makes the test pass.
+        # To keep the bundlesize check, we avoid passing the token to the command.
+        # This results in the script to run and fail in case of error, but no status
+        # code is reported to the github PR.
+        #   BUNDLESIZE_GITHUB_TOKEN: ${{ secrets.BUNDLESIZE_GITHUB_TOKEN }}

@@ -1,0 +1,41 @@
+name: Github Page
+
+on:
+  workflow_run:
+    workflows: ["Pre-release tag"]
+    types: [completed]
+
+jobs:
+  github-page:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        env :
+          CI: true
+        run: |
+          npm pkg delete scripts.prepare
+          npm ci
+
+      - name: Run build Github Page
+        run: |
+          npm run github:page
+
+      - name: Deploy GitHub Page 🚀
+        uses: JamesIves/github-pages-deploy-action@releases/v4
+        with:
+          branch: gh-pages
+          folder: dist
+          force: false
+          clean-exclude: pr-preview/
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

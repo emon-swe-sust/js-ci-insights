@@ -1,0 +1,24 @@
+name: Test Pull Request
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+  
+jobs:
+  call_build:
+    name: Build
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  ember_test:
+    name: Ember Testing
+    needs: call_build
+    uses: ./.github/workflows/ember_test.yml
+    secrets: inherit
+
+  cypress_test:
+    name: Cypress Testing
+    needs: call_build
+    uses: ./.github/workflows/cypress_test.yml
+    secrets: inherit

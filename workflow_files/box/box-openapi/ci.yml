@@ -1,0 +1,145 @@
+# The name of this GH action
+name: CI
+
+# Defines when this action should be run
+on:
+  # Run on any Push
+  push:
+    branches-ignore:
+      - en
+      - en-staging
+      - en-snapshot
+      - jp
+      - jp-partial
+  # Run for PRs on main and staging
+  pull_request:
+    branches: [ main, staging ]
+
+jobs:
+  # The lint job checks that all content is sanitized,
+  # spell checked, and without any obvious dead links
+  lint:
+    # We run this on the latest ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # The following steps are performed for each lint job
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+  # The deploy task actually deploys any changes to the en branch
+  push-to-en:
+    # We run this on the latest ubuntu
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 10
+
+    # The following steps are performed for each job
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Push API specification
+        uses: s0/git-publish-subdir-action@v2.6.0
+        env:
+          REPO: self
+          BRANCH: en
+          FOLDER: openapi
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify other repositories of update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          repository: box/box-postman
+          event-type: openapi-update
+          client-payload: "{}"
+
+      - name: "Trigger Netlify deployment"
+        uses: joelwmale/webhook-action@2.4.1
+        env:
+          WEBHOOK_URL: ${{ secrets.NETLIFY_BOXDEV_WEBHOOK }}
+          data: "{}"
+
+      - name: "Trigger Netlify deployment (Box.dev mirror)"
+        uses: joelwmale/webhook-action@2.4.1
+        env:
+          WEBHOOK_URL: ${{ secrets.NETLIFY_BOXDEV_MIRROR_WEBHOOK }}
+          data: "{}"
+
+      - name: Send Slack using Slack GHA notification
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "Pushed latest OpenAPI changes to `en` branch :rocket:",
+              "icon_url": "https://avatars3.githubusercontent.com/u/8659759?s=200&v=4",
+              "username": "GitHub Actions"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Send Slack using Slack GHA notification
+        uses: slackapi/slack-github-action@v1.27.0
+        if: ${{ failure() }}
+        with:
+          payload: |
+            {
+              "text": "Error running `deploy` job in OpenAPI CI",
+              "icon_url": "https://avatars3.githubusercontent.com/u/8659759?s=200&v=4",
+              "username": "GitHub Actions"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+  # The deploy task actually deploys any changes to the en-staging branch
+  push-to-en-staging:
+    # We run this on the latest ubuntu
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/staging'
+    timeout-minutes: 10
+
+    # The following steps are performed for each job
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Push API specification
+        uses: s0/git-publish-subdir-action@v2.6.0
+        env:
+          REPO: self
+          BRANCH: staging
+          FOLDER: openapi
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "Trigger Netlify deployment"
+        uses: joelwmale/webhook-action@2.4.1
+        env:
+          WEBHOOK_URL: ${{ secrets.NETLIFY_BOXDEV_STAGING_WEBHOOK }}
+          data: "{}"
+
+      - name: Send Slack using Slack GHA notification
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "Pushed latest OpenAPI changes to `en-staging` branch :rocket:",
+              "icon_url": "https://avatars3.githubusercontent.com/u/8659759?s=200&v=4",
+              "username": "GitHub Actions"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Send Slack using Slack GHA notification
+        uses: slackapi/slack-github-action@v1.27.0
+        if: ${{ failure() }}
+        with:
+          payload: |
+            {
+              "text": "Error running `deploy-staging` job in OpenAPI CI",
+              "icon_url": "https://avatars3.githubusercontent.com/u/8659759?s=200&v=4",
+              "username": "GitHub Actions"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

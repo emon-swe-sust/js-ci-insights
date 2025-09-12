@@ -1,0 +1,98 @@
+name: Native packager
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-13, macos-latest, windows-latest]
+        bin: [peergos, peergos.exe]
+        exclude:
+          - os: windows-latest
+            bin: peergos
+          - os: ubuntu-latest
+            bin: peergos.exe
+          - os: ubuntu-24.04-arm
+            bin: peergos.exe
+          - os: macos-latest
+            bin: peergos.exe
+          - os: macos-13
+            bin: peergos.exe
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v4
+    - uses: ilammy/msvc-dev-cmd@v1
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: 23
+    - name: Install the Apple certificate and provisioning profile
+      if: runner.os == 'macos'
+      env:
+        BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+        P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+        KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      run: |
+        # create variables
+        CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+        PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
+        KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+        # import certificate and provisioning profile from secrets
+        echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+        echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+
+        # create temporary keychain
+        security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+        security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+        # import certificate to keychain
+        security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+        security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+        security list-keychain -d user -s $KEYCHAIN_PATH
+
+        # apply provisioning profile
+        mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+        cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+    - name: Build with Ant
+      run: ant -noinput -buildfile build.xml peergos_submodule_sync dist
+    - name: Package for host OS
+      shell: bash
+      run: cd packager && java PackagePeergos.java
+    - name: Package RPM
+      if: runner.os == 'Linux'
+      env:
+        LINUX_TARGET: rpm
+      shell: bash
+      run: cd packager && java PackagePeergos.java
+    - name: Notarise with Apple
+      if: runner.os == 'macos'
+      run: |
+        xcrun notarytool submit ./packager/${{ env.artifact }} --wait --apple-id ${{ secrets.APPLE_ID }} --team-id ${{ secrets.TEAM_ID }} --password ${{ secrets.NOTARISE_PASSWORD }} >> packager/notary.output
+        cd packager && java GetNotaryId.java
+        xcrun stapler staple ${{ env.artifact }}
+    - name: Download notary log from Apple
+      if: runner.os == 'macos'
+      run: |
+        xcrun notarytool log ${{ env.notaryid }} --apple-id ${{ secrets.APPLE_ID }} --team-id ${{ secrets.TEAM_ID }} --password ${{ secrets.NOTARISE_PASSWORD }} developer_log.json
+        cat developer_log.json
+    - name: Extract env var for artifact on Windows
+      if: runner.os == 'Windows'
+      run: type packager\artifact | Out-File -FilePath $env:GITHUB_ENV -Append
+    - name: Upload package artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.artifact }}
+        path: "./packager/${{ env.artifact }}"
+    - name: Upload RPM artifact
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.artifact2 }}
+        path: "./packager/${{ env.artifact2 }}"
+    

@@ -1,0 +1,94 @@
+name: Merge to Main
+
+on:
+  workflow_run:
+    workflows: [Pull Request Closed]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-version:
+    outputs:
+      semanticVersion: ${{ steps.changelog.outputs.version }} # this is without v 1.0.0
+      tag: ${{ steps.changelog.outputs.tag }} # this is with v, v1.0.0
+      clean_changelog: ${{ steps.changelog.outputs.clean_changelog }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - uses: actions/checkout@v5
+      - name: Conventional Changelog Update
+        uses: TriPSs/conventional-changelog-action@5f00b899ccbbcbc112bd6d715d5e76e7a9e4501d # v6.1.0
+        id: changelog
+        with:
+          github-token: ${{ github.token }}
+          output-file: 'CHANGELOG.md'
+          skip-version-file: 'true'
+          skip-commit: 'true'
+          skip-on-empty: 'false'
+          git-push: 'true'
+
+  retag-images:
+    needs: [ semantic-version ]
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        package: [ api, database, frontend ]
+    steps:
+      - name: Tag Docker Images
+        uses: shrink/actions-docker-registry-tag@f04afd0559f66b288586792eb150f45136a927fa # v4
+        with:
+          registry: ghcr.io
+          repository: ${{ github.repository }}/${{ matrix.package }}
+          target: latest
+          tags: |
+            ${{ needs.semantic-version.outputs.semanticVersion }}
+            ${{ needs.semantic-version.outputs.tag }}
+
+  deploys:
+    name: TEST Deployments
+    needs: [retag-images, semantic-version]
+    uses: ./.github/workflows/.deploy.yml
+    secrets: inherit
+    with:
+      autoscaling: true
+      environment: test
+      tag: ${{ needs.semantic-version.outputs.semanticVersion }} # this is without v
+      release_name: pubcode-test
+      params: --set-string api.containers[0].tag="${{ needs.semantic-version.outputs.tag }}" --set-string frontend.containers[0].tag="${{ needs.semantic-version.outputs.tag }}"
+  tests:
+    name: Tests
+    needs: [deploys]
+    uses: ./.github/workflows/.tests.yml
+    with:
+      target: test
+
+  deploys-prod:
+    name: PROD Deployments
+    needs: [semantic-version, tests]
+    uses: ./.github/workflows/.deploy.yml
+    secrets: inherit
+    with:
+      autoscaling: true
+      environment: prod
+      tag: ${{ needs.semantic-version.outputs.semanticVersion }}
+      release_name: pubcode
+      params: --set-string api.containers[0].tag="${{ needs.semantic-version.outputs.tag }}" --set-string frontend.containers[0].tag="${{ needs.semantic-version.outputs.tag }}"
+  github_release:    
+    name: Create Release
+    needs: [semantic-version, deploys-prod]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create Release
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          token: ${{ github.token }}
+          tag_name: ${{ needs.semantic-version.outputs.tag }}
+          name: ${{ needs.semantic-version.outputs.tag }}
+          body: ${{ needs.semantic-version.outputs.clean_changelog }}

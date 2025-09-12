@@ -1,0 +1,22 @@
+name: Lint GitHub Actions Workflows
+on:
+  push:
+    paths:
+    - '.github/workflows/**'
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: "Lint workflow files"
+        uses: docker://docker.mirror.hashicorp.services/rhysd/actionlint:latest
+        with:
+          # Ignore actionlint errors from strict typing for outputs that we use
+          # in our e2e tests.
+          # This error occurs because vault-action's outputs are dynamic but
+          # actionlint expects action.yml to define them.
+          args: >
+            -ignore "property \"othersecret\" is not defined in object type"
+            -ignore "property \"jsonstring\" is not defined in object type"
+            -ignore "property \"jsonstringmultiline\" is not defined in object type"

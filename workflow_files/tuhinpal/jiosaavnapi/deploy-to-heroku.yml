@@ -1,0 +1,25 @@
+name: Deploy to heroku
+
+on:
+  push:
+    branches:
+      - v3
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Development Code
+        uses: actions/checkout@v2
+      - name: Use Node.js 17.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: 16.x
+      - run: npm install
+      - name: Deploy to Heroku
+        uses: akhileshns/heroku-deploy@v3.12.12
+        with:
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: ${{ secrets.HEROKU_APP_NAME }}
+          heroku_email: ${{ secrets.HEROKU_EMAIL }}
+# Recently heroku faced a massive github token leakage. So, this is the best way to deploy with heroku without any critical flaw.

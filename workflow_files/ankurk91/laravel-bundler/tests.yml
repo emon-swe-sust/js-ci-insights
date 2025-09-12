@@ -1,0 +1,39 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+  schedule:
+    - cron: '0 0 16 * *'
+
+jobs:
+  tests:
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+        node-version: [ 20.x, 22.x, 24.x ]
+
+    steps:
+      - name: Clone the repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }} on ${{ matrix.os }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - run: npm install -g pnpm@^10
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run demo:dev
+      - run: pnpm run demo:prod

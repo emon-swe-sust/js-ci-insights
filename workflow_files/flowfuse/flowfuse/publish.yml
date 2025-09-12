@@ -1,0 +1,196 @@
+name: Publish
+on:
+  workflow_dispatch:
+    inputs:
+      localfs_release_name:
+        description: 'localfs package version'
+        required: false
+        default: 'nightly'
+      localfs_ref:
+        description: 'localfs package ref'
+        required: false
+  workflow_run:
+    workflows: 
+      - 'Tests'
+    branches: 
+      - main
+    types: 
+      - completed
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-tests-status:
+    name: Check tests statuses
+    if: |
+      github.ref == 'refs/heads/main' ||
+      ( github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' )
+    runs-on: ubuntu-latest
+    outputs:
+      tests_status: ${{ steps.check-tests-jobs-status.outputs.jobs_status }}
+    steps:
+      - name: Check statuses
+        id: check-tests-jobs-status
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              console.log('✅ Workflow manually dispatched. Skipping tests jobs check. ✅');
+              core.setOutput('jobs_status', 'success');
+              return;
+            }
+
+            const { data } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id
+            });
+
+            const jobsToCheck = [
+              'Backend tests',
+              'Postgres tests',
+              'UI tests'
+            ];
+
+            const relevantJobs = data.jobs.filter(job => jobsToCheck.includes(job.name));
+            const failedJobs = relevantJobs.filter(job => job.conclusion === 'failure');
+            const allSkippedJobs = relevantJobs.every(job => job.conclusion === 'skipped');
+            console.log('Relevant jobs found:', JSON.stringify(relevantJobs, null, 2));
+            
+            if (failedJobs.length > 0) {
+              console.log('🚨 The following tests failed:');
+              await core.summary
+                .addHeading('Failed Tests 🚨');
+              let failedList = '';
+              failedJobs.forEach(job => {
+                console.log(`❌ ${job.name}`);
+                failedList += `- ❌ ${job.name}\n`;
+              });
+              await core.summary
+                .addRaw(failedList)
+                .write();
+              core.setOutput('jobs_status', 'failure');
+            } else if (allSkippedJobs) {
+              console.log('⏩ All tests were skipped ⏩');
+              await core.summary
+                .addHeading('Test Status ⏩')
+                .addRaw('All tests were skipped')
+                .write();
+              core.setOutput('jobs_status', 'skipped');
+            } else {
+              console.log('✅ Required tests passed successfully ✅');
+              await core.summary
+                .addHeading('Test Status ✅')
+                .addRaw('All required tests passed successfully')
+                .write();
+              core.setOutput('jobs_status', 'success');
+            }
+
+  publish:
+    if: |
+      needs.check-tests-status.outputs.tests_status == 'success' && github.ref == 'refs/heads/main'
+    needs: check-tests-status
+    uses: 'flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml@v0.42.0'
+    with:
+      package_name: flowfuse
+      build_package: true
+      publish_package: true
+      package_dependencies: |
+        @flowfuse/driver-localfs=nightly
+    secrets:
+      npm_registry_token: ${{ secrets.NPM_PUBLISH_TOKEN }}
+      sentry_auth_token: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      sentry_organisation: ${{ secrets.SENTRY_ORGANISATION }}
+      sentry_project: ${{ secrets.SENTRY_PROJECT }}
+
+  dispatch_container_build:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate a token
+        id: generate_token
+        uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2.1.0
+        with:
+          app_id: ${{ secrets.GH_BOT_APP_ID }}
+          private_key: ${{ secrets.GH_BOT_APP_KEY }}
+
+      - name: Trigger flowforge container build
+        uses: benc-uk/workflow-dispatch@e2e5e9a103e331dad343f381a29e654aea3cf8fc # v1.2.4
+        with:
+          workflow: flowforge-container.yml
+          repo: flowfuse/helm
+          ref: main
+          token: ${{ steps.generate_token.outputs.token }}
+          inputs: '{"flowforge_ref": "${{ github.ref }}", "flowforge_release_name": "${{ env.release_name }}"}'
+
+  notify-slack:
+    name: Notify on failure
+    if: failure()
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Send notification
+      uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+      with:
+        method: chat.postMessage
+        token: ${{ secrets.SLACK_GHBOT_TOKEN }}
+        payload: |
+          {
+            "channel": "C067BD0377F",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": ":x: FlowFuse npm package publish pipeline failed",
+                  "emoji": true
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "rich_text",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "emoji",
+                        "name": "warning"
+                      },
+                      {
+                        "type": "text",
+                        "text": " Deployment to FFC environments will not happen until this issue is resolved.",
+                        "style": {
+                          "bold": true
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "View Failed Workflow",
+                      "emoji": true
+                    },
+                    "style": "primary",
+                    "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                    "value": "view_workflow"
+                  }
+                ]
+              }
+            ]
+          }

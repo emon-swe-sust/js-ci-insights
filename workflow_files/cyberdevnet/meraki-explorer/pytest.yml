@@ -1,0 +1,38 @@
+name: Pytest
+
+on: [push, pull_request]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10"]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build fastapi
+        run: docker-compose -f dockersmeraki-explorer/docker-compose.yml up -d fastapi
+
+      - uses: addnab/docker-run-action@v3
+        with:
+          registry: gcr.io
+          image: cyberfrollo/pytest
+          options: -v ${{ github.workspace }}:/mount_dir --network container:meraki-explorer-fastapi -e MERAKI_DEMO_API_KEY=${{ secrets.MERAKI_DEMO_API_KEY }}
+          run: |
+            pytest mount_dir/back-end/api_test.py -vvv
+
+  slack:
+    needs: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took,pullRequest # selectable (default: repo,message)
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} # required
+        if: always() # Pick up events even if the job fails or is canceled.}

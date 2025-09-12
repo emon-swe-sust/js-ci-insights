@@ -1,0 +1,25 @@
+name: Release NPM Package
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      packages: write
+
+    steps:
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+          always-auth: true
+      - run: |
+          npm dist-tag add @srgssr/pillarbox-web@$(echo "${{github.ref_name}}" | cut -c 2-) latest
+          exit 0
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,84 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - master
+
+  workflow_dispatch:
+
+jobs:
+  build_deploy:
+    runs-on: ubuntu-latest
+    environment: github-pages
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Create env file 🗃️
+        run: |
+          touch .env
+          echo GATSBY_ENVIRONMENT =${{ secrets.GATSBY_ENVIRONMENT }} >> .env
+          echo GATSBY_LD_CLIENT_ID=${{ secrets.GATSBY_LD_CLIENT_ID }} >> .env
+          echo GATSBY_LD_API_KEY=${{ secrets.GATSBY_LD_API_KEY }} >> .env
+          echo GATSBY_CONTENTFUL_API_KEY=${{ secrets.GATSBY_CONTENTFUL_API_KEY }} >> .env
+          echo GATSBY_CONTENTFUL_DOWNLOAD_LOCAL=${{ secrets.GATSBY_CONTENTFUL_DOWNLOAD_LOCAL }} >> .env
+          echo GATSBY_CONTENTFUL_ENVIRONMENT=${{ secrets.GATSBY_CONTENTFUL_ENVIRONMENT }} >> .env
+          echo GATSBY_CONTENTFUL_HOST=${{ secrets.GATSBY_CONTENTFUL_HOST }} >> .env
+          echo GATSBY_CONTENTFUL_SPACE_ID=${{ secrets.GATSBY_CONTENTFUL_SPACE_ID }} >> .env
+          echo GATSBY_GTM_ID=${{ secrets.GATSBY_GTM_ID }} >> .env
+          echo GATSBY_CONSENSYS_HOST=${{ secrets.GATSBY_CONSENSYS_HOST }} >> .env
+          echo GATSBY_CONTENTFUL_PREVIEW_HOST=${{ secrets.GATSBY_CONTENTFUL_PREVIEW_HOST }} >> .env
+          echo GATSBY_CONTENTFUL_PREVIEW_API_KEY=${{ secrets.GATSBY_CONTENTFUL_PREVIEW_API_KEY }} >> .env
+          echo GATSBY_OSANO_CUSTOMER_ID=${{ secrets.GATSBY_OSANO_CUSTOMER_ID }} >> .env
+          echo GATSBY_OSANO_CCID_ID=${{ secrets.GATSBY_OSANO_CCID_ID }} >> .env
+          echo GH_TOKEN=${{ secrets.GH_TOKEN }} >> .env
+
+      - name: Setup Node 🔧
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Cache Gatsby 📦
+        uses: actions/cache@v4
+        id: cache-gatsby
+        with:
+          path: |
+            .cache
+            public
+          key: ${{ runner.os }}-cache-gatsby-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-cache-gatsby
+
+      - name: Cache Modules 📦
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+          key: ${{ runner.os }}-cache-modules-${{ hashFiles('**/yarn.lock')}}
+          restore-keys: |
+            ${{ runner.os }}-cache-modules-
+
+      - name: Install Dependencies ⏳
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: yarn install --frozen-lockfile
+
+      - name: Build 🔧
+        run: yarn deploy
+        env:
+          CI: true
+
+      - name: Deploy 🚀
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./public

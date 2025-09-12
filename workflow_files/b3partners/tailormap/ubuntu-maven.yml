@@ -1,0 +1,62 @@
+name: Ubuntu Maven build
+
+on:
+ push:
+ pull_request:
+ workflow_dispatch:
+
+jobs:
+  build:
+    name: Ubuntu Java ${{ matrix.java }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        java: [8, 11]
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+      - name: setup database
+        run: |
+          sudo systemctl start postgresql.service
+          psql --version
+          sudo -u postgres psql -d postgres -c 'SELECT Version();' || true
+          sudo -u postgres psql -a -c "CREATE ROLE flamingo4 LOGIN PASSWORD 'flamingo4' SUPERUSER CREATEDB;"
+          sudo -u postgres psql -a -c 'CREATE DATABASE flamingo4;'
+          sudo -u postgres psql -a -c 'ALTER DATABASE flamingo4 OWNER TO flamingo4;'
+      - name: setup geoserver
+        run: |
+          docker-compose -f viewer-commons/docker/geoserver/docker-compose.yml up -d
+          sudo npm install -g wait-on
+          wait-on -t 120000 http-get://localhost:8600/geoserver && echo "docker geoserver is up" || true
+      - name: Priming build with Maven
+        run: mvn install -DskipTests -Dtest.skip.integrationtests=true -B -V -fae
+      - name: Test with Maven
+        run: |
+          mvn -e clean test -B
+          mvn -e verify -B -Pgh-action -pl '!viewer-admin'
+          mvn -e verify -B -Pgh-action -pl ':flamingo-mc,:viewer-admin'
+      - name: Verify Java classfile version
+        run: .jenkins/check-java-binary-version.sh
+      - name: build javadoc
+        run: |
+          mvn javadoc:javadoc
+          mvn javadoc:test-javadoc
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+      - name: Cleanup snapshot cache
+        if: ${{ always() }}
+        # geoserver generates some files that cause the cache generation to fail with EACCES
+        run: |
+          sudo rm -rf /home/runner/work/tailormap/tailormap/viewer-commons/docker/geoserver/geoserver-data/
+          find ~/.m2/repository -name "*SNAPSHOT*" -type d | xargs rm -rf {}

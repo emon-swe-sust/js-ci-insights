@@ -1,0 +1,23 @@
+name: Authentication
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: DevExpress/testcafe-build-system/actions/prepare@main
+        with:
+          node-version: '16'
+
+      - name: Kerberos auth example
+        run: npm run kerberos-auth
+
+      - name: Auth with certificates
+        run: npm run certificate-auth

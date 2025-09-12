@@ -1,0 +1,84 @@
+name: Database Build
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # Every everyday
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: build
+    if: "! contains(toJSON(github.event.commits.*.message), '[skip-ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.REPO_SCOPE }}
+      - id: nodeversion
+        run: echo "NODE=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+      - name: restore Cache
+        uses: actions/cache@master
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ hashFiles('**/yarn.lock') }}
+      - name: Use Node.js ${{steps.nodeversion.outputs.NODE}}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ steps.nodeversion.outputs.NODE }}
+      - name: install
+        run: |
+          yarn
+      - name: create-json secret
+        uses: jsdaniell/create-json@v1.2.2
+        with:
+          name: "key.json"
+          json: ${{ secrets.GDOC_KEY }}
+      - name: Generate db
+        id: dbgen
+        run: |
+          yarn gen
+          yarn validate
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+      - name: Prepare sync image
+        run: |
+          yarn sync:img
+      - name: Sync images in S3
+        run: |
+          aws s3 sync ./SAVE_IMG/ s3://cdn.keycap-archivist.com/keycaps/ --storage-class REDUCED_REDUNDANCY --acl private --no-progress
+      - name: Check Db State
+        id: dbstate
+        run: |
+          yarn remap:img
+          git add db/
+          git add README.md
+          git diff-index HEAD || true
+          git diff-index --quiet HEAD && echo "DIRTY=0" >> $GITHUB_OUTPUT || echo "DIRTY=1" >> $GITHUB_OUTPUT
+      - name: Commit Database update
+        if: steps.dbstate.outputs.DIRTY == '1'
+        env:
+          DISCORD_HOOK: ${{ secrets.DISCORD_HOOK }}
+          GH_REPO_TOKEN: ${{ secrets.REPO_SCOPE }}
+        run: |
+          echo "Need to update the DB"
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          node src/discord-update-report.js || true
+          git add db/
+          git status
+          git commit -am "[skip-ci] Database Synchronization"
+          git push
+          node src/discord-update-revision.js
+      - name: Sync db in S3
+        run: |
+          aws s3 cp ./db/catalog.json s3://cdn.keycap-archivist.com/db/catalog.json --storage-class REDUCED_REDUNDANCY --acl private --no-progress
+      - name: Prune old images
+        run: |
+          yarn prune:img

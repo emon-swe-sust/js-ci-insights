@@ -1,0 +1,64 @@
+name: Operator Onboarding
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  update-ibc-file:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dotenv
+
+      - name: Check if issue has operator-onboarding label
+        id: label-check
+        run: |
+          LABELS_JSON='${{ toJson(github.event.issue.labels) }}'
+          LABEL=$(echo $LABELS_JSON | jq -r '.[] | select(.name == "operator-onboarding").name')
+          if [ "$LABEL" == "operator-onboarding" ]; then
+            echo "LABEL_FOUND=true" >> $GITHUB_ENV
+          else
+            echo "LABEL_FOUND=false" >> $GITHUB_ENV
+          fi
+
+      - name: Validate Input & Add operator to IBC path file
+        id: add_operator
+        if: env.LABEL_FOUND == 'true'
+        run: |
+          OPERATOR_NAME=$(python ./scripts/add_operator_to_path.py ${{ github.event.issue.number }} | tail -n 1)
+          echo "OPERATOR_NAME=$OPERATOR_NAME" >> $GITHUB_ENV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and switch to a new branch
+        if: env.LABEL_FOUND == 'true'
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git checkout -b operator-onboarding-${{ github.event.issue.number }}
+      
+      - name: Commit changes
+        if: env.LABEL_FOUND == 'true'
+        run: |
+          git add -A
+          git commit -m "Add Operator ${OPERATOR_NAME}"  
+      
+      - name: Push changes
+        if: env.LABEL_FOUND == 'true'
+        run: |
+          git push --force --set-upstream origin operator-onboarding-${{ github.event.issue.number }}

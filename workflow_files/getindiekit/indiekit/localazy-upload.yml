@@ -1,0 +1,19 @@
+name: localazy-upload
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - packages/**/locales/en.json
+
+jobs:
+  localazy-upload:
+    name: Upload strings to Localazy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: localazy/upload@v1
+        with:
+          read_key: ${{ secrets.LOCALAZY_READ_KEY }}
+          write_key: ${{ secrets.LOCALAZY_WRITE_KEY }}

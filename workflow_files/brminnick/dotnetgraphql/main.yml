@@ -1,0 +1,37 @@
+name: Solution
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+    branches: 
+      - "*"
+
+jobs:
+
+    Build:
+      runs-on: macos-latest
+
+      steps:
+      - uses: actions/checkout@v1
+        
+      - name: Setup .NET v6.0
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: '6.0.x'
+          include-prerelease: true
+          
+      - name: Setup .NET Core v3.1
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: '3.1.x'
+        
+      - name: Restore NuGet 
+        run: dotnet restore ./Source
+          
+      - name: Build Android
+        run: msbuild ./Source/DotNetGraphQL.Mobile.Android /restore
+
+      - name: Build API
+        run: dotnet build ./Source/DotNetGraphQL.API -c Release

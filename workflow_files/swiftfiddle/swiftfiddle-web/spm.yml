@@ -1,0 +1,42 @@
+name: Update Package.resolved
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: SwiftyLab/setup-swift@latest
+      - name: Update Package.swift.json
+        run: |
+          set -ex
+
+          tempdir=$(mktemp -d)
+          filename="Package.swift"
+          curl -sfL -o "$tempdir/$filename" https://raw.github.com/swiftfiddle/swiftfiddle-lsp/main/Resources/ProjectTemplate/$filename
+          swift package --package-path "$tempdir" dump-package > Resources/$filename.json
+      - name: Build
+        run: |
+          set -ex
+
+          swift package update
+          swift build
+      - name: Create Pull Request
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GH_PAT }}
+          base: "master"
+          commit-message: "Update Swift Packages"
+          title: "Update Swift Packages"
+          add-paths: |
+            Resources/Package.swift.json
+            Package.resolved
+      - name: Enable Pull Request Automerge
+        if: ${{ steps.cpr.outputs.pull-request-url }}
+        run: gh pr merge --merge --auto ${{ steps.cpr.outputs.pull-request-url }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}

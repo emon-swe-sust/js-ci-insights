@@ -1,0 +1,21 @@
+name: Delete old published artefacts
+
+on:
+  schedule:
+    - cron:  '0 3 * * *' # Run every day at 3am
+
+env:
+  MARKET_URL: ${{ secrets.AUTH_MARKET_URL }}
+
+jobs:
+  cleanup:
+    name: Deleting old published artefacts
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - run: npm ci
+    - name: Cleanup
+      run: |
+        cd scripts/ci
+        node ./cleanup.js

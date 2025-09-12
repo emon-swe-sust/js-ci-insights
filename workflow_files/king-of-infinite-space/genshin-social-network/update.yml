@@ -1,0 +1,52 @@
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 6"
+
+env:
+  REF_VER: ${{ vars.REF_VER }}
+  REF_DATE: ${{ vars.REF_DATE }}
+  PERIOD: ${{ vars.PERIOD }}
+  
+jobs:
+  scheduler:
+    if: github.repository_owner == 'King-of-Infinite-Space'
+    runs-on: ubuntu-latest
+    outputs:
+      continue: ${{ steps.step1.outputs.continue }}
+    steps:
+      - id: step1
+        run: |
+          days=$(( ($(date +%s)-$(date +%s --date $REF_DATE))/(3600*24) ))
+          echo "$days days since reference v$REF_VER"
+          continue=$(( days % $PERIOD == 0  ))
+          [[ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]] && continue=1
+          # manual run is allowed regardless of date
+          echo "continue=$continue" >> $GITHUB_OUTPUT
+
+  updater:
+    needs: scheduler
+    if: needs.scheduler.outputs.continue == 1
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v3
+
+      - name: setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: install python packages
+        run: |
+          pip install -r requirements.txt
+
+      - name: execute python script
+        env:
+          MSG_URL: ${{ secrets.MSG_URL }}
+          PAYLOAD1: ${{ secrets.PAYLOAD1 }}
+          NOTION_GENSHIN: ${{ secrets.NOTION_GENSHIN }}
+          URL_ZH: ${{ vars.URL_ZH }}
+          URL_EN: ${{ vars.URL_EN }}
+          DATA_REPO_URL: ${{ vars.DATA_REPO_URL }}
+        run: python ./utils/fetch_data.py

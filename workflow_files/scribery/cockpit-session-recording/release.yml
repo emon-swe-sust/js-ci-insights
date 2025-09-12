@@ -1,0 +1,37 @@
+# Create a GitHub upstream release
+# See README.md.
+name: release
+on:
+  push:
+    tags:
+      # this is a glob, not a regexp
+      - '[0-9]*'
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/cockpit-project/tasks:latest
+      options: --user root
+    permissions:
+      # create GitHub release
+      contents: write
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # https://github.blog/2022-04-12-git-security-vulnerability-announced/
+      - name: Pacify git's permission check
+        run: git config --global --add safe.directory /__w/cockpit-session-recording/cockpit-session-recording
+
+      - name: Workaround for https://github.com/actions/checkout/pull/697
+        run: git fetch --force origin $(git describe --tags):refs/tags/$(git describe --tags)
+
+      - name: Build release
+        run: make dist
+
+      - name: Publish GitHub release
+        uses: cockpit-project/action-release@7d2e2657382e8d34f88a24b5987f2b81ea165785
+        with:
+          filename: "cockpit-session-recording-${{ github.ref_name }}.tar.xz"

@@ -1,0 +1,64 @@
+name: Prepare and Deploy
+
+on: 
+  push:
+    branches:
+      - master
+    paths:
+      - .all-contributorsrc
+      - package.json
+      - package-lock.json
+      - src/**
+      - .github/workflows/prepare-and-deploy.yml
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      - name: Install dependencies
+        run: npm install
+      - name: Build
+        id: build
+        env:
+          GH_PAT: ${{secrets.GH_PAT}}
+        run: npm run run
+
+      - name: Generate token
+        uses: tibdex/github-app-token@v2
+        id: generate-token
+        with:
+          app_id: ${{ secrets.BOT_APP_ID }}
+          private_key: ${{ secrets.BOT_PRIVATE_KEY }}
+
+      - name: Update branch with the folder
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ steps.generate-token.outputs.token }}
+          publish_dir: dist
+          force_orphan: true
+          publish_branch: with-commits
+          enable_jekyll: true
+
+      - name: Invoke workflow
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: Site Deployment
+          repo: ScratchAddons/website-v2
+          token: ${{ steps.generate-token.outputs.token }}
+          inputs: '{ "upload_repo": "false" }'

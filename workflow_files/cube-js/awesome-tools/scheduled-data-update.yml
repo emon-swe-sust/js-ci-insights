@@ -1,0 +1,54 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Scheduled data update
+
+on:
+  workflow_dispatch: null
+  schedule:
+    # * is a special character in YAML so you have to quote this string
+    - cron: "30 10 * * *"
+  # push:
+  #   branches:
+  #     - master
+
+jobs:
+  build:
+    name: Update data on schedule
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: "18.x"
+      - name: Restore cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-${{ hashFiles('**/yarn.lock') }}
+      - name: Install
+        run: yarn install
+      - name: Run update job script
+        run: export ACCESS_TOKEN_GITHUB=${{ secrets.ACCESS_TOKEN_GITHUB }} && export SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }} && sh ./update-copy.sh
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v7 # You can change this to use a specific version
+        with:
+          author_name: Data Update Worker
+          author_email: igor@cube.dev
+          cwd: "."
+          default_author: github_actor
+          message: "chore(copy): update data on schedule"
+          pull: "--no-rebase"
+          push: true
+
+      # - name: Build Next site
+      #   run: sh ./build-site.sh
+      # - name: Install Netlify CLI
+      #   run: npm install -g netlify-cli
+      # - name: Deploy to Netlify
+      #   run: netlify deploy --dir=out --prod
+      #   env:
+      #     NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

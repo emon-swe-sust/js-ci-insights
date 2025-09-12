@@ -1,0 +1,25 @@
+name: Auto approve Dependabot pull requests
+on:
+  pull_request_target:
+    branches: [ main ]
+
+jobs:
+  approve-job:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Approve Pull Request
+        uses: hmarr/auto-approve-action@5d04a5ca6da9aeb8ca9f31a5239b96fc3e003029
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add squash and merge comment to PR
+        uses: actions/github-script@v4
+        with:
+          github-token: ${{ secrets.AUTO_MERGE_DEPENDABOT_PR }}
+          script: |
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '@dependabot squash and merge'
+            })

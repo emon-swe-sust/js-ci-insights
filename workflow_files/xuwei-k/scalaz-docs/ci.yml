@@ -1,0 +1,41 @@
+name: CI
+on:
+  pull_request:
+  push:
+  schedule:
+  - cron: '0 1 * * *'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-java@v5
+      with:
+        java-version: 11
+        distribution: adopt
+    - uses: sbt/setup-sbt@v1
+    - run: sudo apt-get update
+    - run: sudo apt-get install graphviz libegl1 libopengl0
+    - uses: actions/setup-node@v5.0.0
+      with:
+        node-version: '22.12.0'
+    - run: npm install
+    - run: npm ci
+    - run: npm install svgexport -g
+    - run: |
+        wget -nv -O- https://raw.githubusercontent.com/kovidgoyal/calibre/28c3422398e47e802b43dc026c27189ec9ef5050/setup/linux-installer.py |
+        python -c "import sys; main=lambda x,y:sys.stderr.write('Download failed\n'); exec(sys.stdin.read()); main('~/calibre-bin', True)" >/dev/null
+    - run: |
+        export PATH="~/calibre-bin/calibre/:$HOME/calibre-bin/calibre/:$PATH"
+        sbt -v scalazDiagram build
+    - run: find . -name "*.class" | xargs rm -rf
+    - run: find . -name target | xargs rm -rf
+    - name: push to gh-pages
+      uses: JamesIves/github-pages-deploy-action@v4.7.3
+      if: ${{ github.repository_owner == 'xuwei-k' && github.ref == 'refs/heads/master' && github.event_name == 'push' }}
+      with:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        BRANCH: gh-pages
+        FOLDER: honkit/_book/
+        CLEAN: true

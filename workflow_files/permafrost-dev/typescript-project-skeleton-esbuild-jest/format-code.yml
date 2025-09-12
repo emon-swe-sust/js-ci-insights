@@ -1,0 +1,32 @@
+name: Check & fix styling
+
+on:
+  push:
+
+jobs:
+  format-code:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run Prettier
+        run: ./node_modules/.bin/prettier --config prettier.config.js --write *.json ./src/* ./tests/*
+
+      - name: Run ESLint
+        run: ./node_modules/.bin/eslint --config eslint.config.js --fix ./src/**/* ./tests/**/*
+
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Fix styling

@@ -1,0 +1,66 @@
+name: Update ip list
+
+on:
+  workflow_dispatch:
+
+  schedule: 
+    - cron:  '0 2 1,16 * *'
+  
+#  watch:
+#    types: [started]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@main
+      - name: Set up Python
+        uses: actions/setup-python@main
+        with:
+          python-version: '3.x'
+          check-latest: true
+      - name: Install dependencies
+        run:
+          pip install netaddr requests
+
+      - name: generate cn iplist
+        run:
+          python scripts/update_chnip.py
+
+      - name: generate rules
+        run: |
+          for script in ./scripts/generate/*.py; do
+            python "$script" &
+          done
+
+      - name: generate pac file
+        run: |
+          python ./scripts/generate/pac/extract_domains.py
+          ./scripts/generate/pac/gfw-pac.py -f ./chnroute.pac \
+             -p "SOCKS5 localhost:1080; DIRECT" \
+             --proxy-domains=./scripts/generate/pac/proxy-domains.txt \
+             --direct-domains=./scripts/generate/pac/direct-domains.txt \
+             --ip-file=./chnroute-ipv4.txt
+          rm ./scripts/generate/pac/proxy-domains.txt ./scripts/generate/pac/direct-domains.txt
+
+      - name: Add changed files
+        run: |
+          git add chnroute.txt
+          git add chnroute-ipv4.txt
+          git add chnroute-ipv6.txt
+          git add cn.rsc
+          git add ./ruleset/ipv6-cidr.list
+          git add ./ruleset/ipv6-cidr6.list
+          git add chn.acl
+          git add v2ray-config_rule.json
+          git add chnroute.pac 
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+        
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: "Update ${{ steps.date.outputs.date }}"

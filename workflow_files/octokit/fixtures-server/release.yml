@@ -1,0 +1,71 @@
+name: Release
+"on":
+  push:
+    branches:
+      - main
+      - next
+      - beta
+      - v*.x
+# These are recommended by the semantic-release docs: https://github.com/semantic-release/npm#npm-provenance
+permissions:
+    contents: write # to be able to publish a GitHub release
+    issues: write # to be able to comment on released issues
+    pull-requests: write # to be able to comment on released pull requests
+    id-token: write # to enable use of OIDC for npm provenance
+
+jobs:
+  build_matrix:
+    strategy:
+      matrix:
+        os:
+          - windows
+          - macos
+          - ubuntu
+        include:
+          - os: windows
+            build: >-
+              npx caxa --input . --output dist/fixtures-server-win.exe --
+              "{{caxa}}/node_modules/.bin/node" "{{caxa}}/bin/server.js"
+          - os: macos
+            build: >-
+              npx caxa --input . --output dist/fixtures-server-macos --
+              "{{caxa}}/node_modules/.bin/node" "{{caxa}}/bin/server.js"
+          - os: ubuntu
+            build: >-
+              npx caxa --input . --output dist/fixtures-server-linux --
+              "{{caxa}}/node_modules/.bin/node" "{{caxa}}/bin/server.js"
+    runs-on: ${{ matrix.os }}-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: ${{ matrix.build }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{ matrix.os }}
+          path: dist
+  release:
+    name: release
+    needs:
+      - build_matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        id: download
+        with:
+          pattern: build-artifacts-*
+          path: dist
+          merge-multiple: true
+      - run: ls dist
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.OCTOKITBOT_NPM_TOKEN }}

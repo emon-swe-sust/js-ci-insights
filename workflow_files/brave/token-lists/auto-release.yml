@@ -1,0 +1,72 @@
+name: Auto Release
+
+on:
+  workflow_dispatch:
+  schedule:
+    # At 01:00 (1 AM) every day
+    - cron: '0 1 * * *'
+
+env:
+  TOKEN_LISTS_ACTIONS_OR_CI_BUILD: true
+  DAPP_RADAR_PROJECT_ID: ${{ secrets.DAPP_RADAR_PROJECT_ID }}
+  DAPP_RADAR_API_KEY: ${{ secrets.DAPP_RADAR_API_KEY }}
+  API_AUTH_TOKEN_GITHUB: ${{ secrets.API_AUTH_TOKEN_GITHUB }}
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+
+    permissions:
+      # Give the default GITHUB_TOKEN write permission to commit and push the
+      # added or changed files to the repository.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: ${{ github.head_ref }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - run: sudo apt-get update -y
+      - run: sudo apt-get install -y librsvg2-bin libimagequant-dev pkg-config libpng-dev
+      - run: npm install -g yarn
+      - run: yarn --version
+
+      - name: Install dependencies
+        run: yarn
+
+      - name: Bump patch version
+        id: bump-version
+        run: |
+          VERSION=$(npm version patch --no-git-tag-version)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build assets
+        run: yarn start
+
+      - name: Bump version and commit build assets
+        run: |
+          git add data/ build/ package.json
+          git commit -m "ci: update build assets (${{ steps.bump-version.outputs.version }})"
+          git push
+
+      - name: Publish NPM package
+        run: npm run publish-token-package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create release
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        with:
+          tag_name: ${{ steps.bump-version.outputs.version }}
+          generate_release_notes: true
+          make_latest: true

@@ -1,0 +1,29 @@
+# https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+name: Tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  tests_e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x]
+        browser: [chromium, firefox, webkit]
+    name: ${{ matrix.browser }} - Node ${{ matrix.node-version }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npx playwright test --browser ${{ matrix.browser }} --fully-parallel

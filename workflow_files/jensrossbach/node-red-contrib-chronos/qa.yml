@@ -1,0 +1,28 @@
+# Action for quality assurance (checking code with ESLint and running unit tests)
+name: Quality Assurance
+
+# Trigger workflow on pushes to main including Javascript files and any pull requests for main
+on:
+  push:
+    branches: [ main ]
+    paths:    [ "**.js" ]
+  pull_request:
+    branches: [ main ]
+
+# Workflow
+jobs:
+  # Quality assurance job
+  quality-assurance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v1
+        with:
+          node-version: "18.x"
+      - name: Install modules
+        run: npm install
+      - name: Run code linter
+        run: npm run lint
+# disable unit tests until they are updated and passing again
+#      - name: Run unit tests
+#        run: npm test

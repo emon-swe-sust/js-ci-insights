@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the right version of Nodejs
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: npm ci --omit optional
+
+      - name: Check lint & rules
+        run: gulp check
+
+      - name: Check types
+        run: npx tsc --project tsconfig.json
+
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the right version of Nodejs
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: E2E Tests
+        run: . ./build_and_run_e2e.sh
+
+      - name: Upload e2e VRT baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrt-baseline
+          path: test/e2e/vrt/baseline
+
+      - name: Upload e2e VRT report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrt-report
+          path: vrt-report
+
+  e2e-with-all-experiments-enabled:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the right version of Nodejs
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: E2E Tests with all experiments enabled
+        run: . ./build_and_run_e2e.sh all_experiments_enabled
+
+      - name: Upload e2e with all experiments VRT baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-experiments-vrt-baseline
+          path: test/e2e/vrt/baseline
+
+      - name: Upload e2e with all experiments VRT report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-experiments-vrt-report
+          path: vrt-report
+
+  binaries:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the right version of Nodejs
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build binaries
+        run: . ./build_binaries.sh
+
+      - name: Archive binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            dist/*.js
+            dist/*.js.map
+
+  unit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the right version of Nodejs
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: npm ci --omit optional
+
+      - name: Unit Tests
+        run: gulp unit --headless --coverage
+
+      - uses: codecov/codecov-action@v5
+        with:
+          token: 3bd95ad1-098e-45cc-b6c9-4ead17849c96
+          files: ./test/coverage/lcov-unit.info

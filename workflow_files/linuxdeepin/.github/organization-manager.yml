@@ -1,0 +1,24 @@
+name: organization-manager
+on:
+  workflow_dispatch:
+  push:
+    paths: ["organization.yaml", ".github/workflows/organization-manager.yml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  job:
+    # limit push on linuxdeepin/.github master branch
+    if: github.repository == 'linuxdeepin/.github' && github.ref == 'refs/heads/master'
+    name: organization-manager
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: linuxdeepin/action-organization-manager@main
+        with:
+          app_id: 174141
+          installation_id: 23463138
+          private_key: ${{ secrets.APP_PRIVATE_KEY }}
+          config_file: organization.yaml

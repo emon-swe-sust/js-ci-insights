@@ -1,0 +1,312 @@
+name: on pull request
+on: pull_request
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FILES_TO_DELETE: |
+    sudo rm -rf "/usr/share/dotnet"
+    sudo rm -rf "/usr/share/swift"
+    sudo rm -rf "/usr/local/share/boost"
+    sudo rm -rf /opt/ghc
+    sudo rm -rf "/usr/local/share/boost"
+    sudo rm -rf "/usr/local/lib/android/sdk"
+    sudo rm -rf "/opt/hostedtoolcache/Python"
+    sudo rm -rf "/opt/hostedtoolcache/go"
+    sudo rm -rf "/opt/hostedtoolcache/CodeQL"
+    sudo rm -rf "/var/lib/gems"
+    sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+    sudo apt-get clean -y
+    sudo apt-get autoremove -y
+
+jobs:
+  # Stop previous runs
+  stop-previous-run:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.12.1
+        with:
+          access_token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Save necessary env variables to use them in next jobs
+  save-env:
+    runs-on: ubuntu-22.04
+    needs: stop-previous-run
+    if: always()
+    steps:
+      - name: Save env variables
+        id: save-env-variables
+        run: |
+          mkdir -p ./workflow
+          echo "${{ github.event.pull_request.number }}" > ./workflow/prNum
+          echo "${{ github.run_id }}" > ./workflow/runId
+          echo "${{ github.repository }}" > ./workflow/repoFullName
+          echo "${{ github.repository_owner }}" > ./workflow/ownerName
+      - name: Upload artifact
+        id: upload-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: env_for_comment
+          path: workflow/
+
+  # Check if forked master is up to date with origin master in module federation examples repo
+  forked_master_status:
+    runs-on: ubuntu-22.04
+    needs: stop-previous-run
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Check if forked master is up to date
+        id: check-forked-master
+        if: github.repository_owner == 'module-federation'
+        run: |
+          echo "${{ github.repository_owner }}"
+          git remote add base https://github.com/${{github.repository}}
+          git remote -v
+          git fetch --all
+          export FORKED_MASTER_SHA=$(git log -n 1 --pretty=format:"%H" origin/${{ github.event.pull_request.base.ref}})
+          export BASE_MASTER_SHA=$(git log -n 1 --pretty=format:"%H" base/${{ github.event.pull_request.base.ref }})
+          echo "$FORKED_MASTER_SHA"
+          echo "$BASE_MASTER_SHA"
+
+          if [ "$FORKED_MASTER_SHA" == "$BASE_MASTER_SHA" ];
+          then
+            echo "The forked master is up to date with the base master branch"
+            exit 0
+          else
+            echo "The forked master branch is not up to date with the base master branch, Please update your fork!"
+            exit 1
+          fi
+
+  # Setup matrix from changed samples by lerna ls --since origin/master command
+  setup-matrix:
+    runs-on: ubuntu-22.04
+    needs: forked_master_status
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        id: checkout-matrix
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node.js with caching
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: '**/pnpm-lock.yaml'
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Cache Cypress binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-${{ runner.os }}-cypress-13.12.0
+          restore-keys: |
+            cypress-${{ runner.os }}-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+            
+      - name: Set Playwright cache status
+        run: echo "PLAYWRIGHT_CACHE_HIT=${{ steps.playwright-cache.outputs.cache-hit }}" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          echo "Installing all dependencies to populate cache..."
+          pnpm install --frozen-lockfile --prefer-offline
+          
+      - name: Install Cypress
+        run: npx cypress install
+          
+      - name: Install Playwright browsers
+        run: |
+          # Install Playwright browsers for projects that have it as a dependency
+          # This prepares the cache for future migration
+          if command -v playwright &> /dev/null || [ -f "$(npm root -g)/playwright/cli.js" ]; then
+            echo "Installing Playwright browsers..."
+            npx playwright install --with-deps chromium
+          else
+            echo "Playwright not found in dependencies, skipping browser installation"
+          fi
+
+      - name: Create matrix
+        id: set-matrix
+        run: |
+          all="$(pnpm list --filter '*' --only-projects --depth -1 --json)"
+          diff="$(pnpm list --filter '...[origin/master]' --only-projects --depth -1 --json)"
+          matrix="$(node checkChangedWorkspaces.js "$all" "$diff")"
+          echo $matrix
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
+  # Run Cypress e2e tests for changed samples (additionally install deps for all changed samples if there is no any created cache in master branch) + Create artifacts for Cypress screenshots and videos
+  run-e2e-test:
+    needs: [setup-matrix]
+    if: ${{ needs.setup-matrix.outputs.matrix != '{"container":[]}' }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix: ${{fromJson(needs.setup-matrix.outputs.matrix)}}
+    steps:
+      - name: Checkout
+        id: checkout-e2e
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node.js with caching
+        id: setup-node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: '**/pnpm-lock.yaml'
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Restore pnpm cache
+        uses: actions/cache/restore@v4
+        id: pnpm-store-cache
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+          fail-on-cache-miss: false
+
+      - name: Restore Cypress cache
+        uses: actions/cache/restore@v4
+        id: cypress-cache
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-${{ runner.os }}-cypress-13.12.0
+          restore-keys: |
+            cypress-${{ runner.os }}-
+          fail-on-cache-miss: false
+
+      - name: Restore Playwright cache
+        if: matrix.container == 'bi-directional'
+        uses: actions/cache/restore@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-1.54.2
+          restore-keys: |
+            playwright-${{ runner.os }}-
+          fail-on-cache-miss: false
+
+      - name: Install dependencies
+        id: install-deps-e2e
+        env:
+          NODE_OPTIONS: '--max_old_space_size=6144'
+          FORCE_COLOR: 3
+        run: |
+          echo "Installing dependencies from cached pnpm store..."
+          pnpm install --frozen-lockfile --prefer-offline
+          
+          # Verify Cypress if needed
+          if [ "${{ steps.cypress-cache.outputs.cache-hit }}" != "true" ]; then
+            echo "Installing Cypress binary..."
+            npx cypress install
+          else
+            echo "Cypress binary already cached"
+            npx cypress verify || true
+          fi
+          
+      - name: Install Playwright browsers for projects that use it
+        run: |
+          echo "Installing Playwright browsers for projects that use it..."
+          
+          # Install Playwright package first if not already available
+          if ! command -v playwright &> /dev/null; then
+            echo "Installing Playwright package..."
+            npm install -g playwright@^1.54.2
+          fi
+          
+          # Check if we need to install Playwright browsers
+          if [ ! -d "$HOME/.cache/ms-playwright" ] || [ -z "$(ls -A $HOME/.cache/ms-playwright 2>/dev/null)" ]; then
+            echo "Installing Playwright browsers and dependencies..."
+            npx playwright install --with-deps chromium
+          else
+            echo "Playwright browsers already cached, installing system dependencies only..."
+            npx playwright install-deps chromium
+          fi
+
+      - name: Run sample webpack e2e tests
+        timeout-minutes: 30
+        id: run-webpack-e2e-tests
+        run: |
+          node -v
+          pnpm --filter "${{ matrix.container }}" legacy:e2e:ci
+          (lsof -i tcp:3000-3999 -i tcp:4000-4999 -i tcp:8080-8100 | awk 'NR!=1 {print $2}' | xargs -r kill) 2> /dev/null
+
+      - name: Run sample rspack e2e tests
+        timeout-minutes: 30
+        id: run-rspack-e2e-tests
+        run: |
+          node -v
+          pnpm --filter "${{ matrix.container }}" e2e:ci
+          (lsof -i tcp:3000-3999 -i tcp:4000-4999 -i tcp:8080-8100 | awk 'NR!=1 {print $2}' | xargs -r kill) 2> /dev/null
+
+      - name: Create artifacts for test reports
+        id: create-artifacts-test-reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.container }}
+          path: |
+            ${{ matrix.container }}/cypress/results/allure-results
+            ${{ matrix.container }}/playwright-report
+            ${{ matrix.container }}/test-results
+          retention-days: 7

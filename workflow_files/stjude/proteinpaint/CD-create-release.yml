@@ -1,0 +1,181 @@
+name: "Create Release"
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        type: choice
+        description: Release type
+        options:
+          - auto-detect
+          - prerelease
+          - prepatch
+          - preminor
+          - premajor
+
+      include:
+        type: choice
+        description: Include
+        options:
+          - npm packages + Docker image
+          - npm packages only
+
+      build_secret:
+        type: string
+        description: Build secret
+
+jobs:
+  check-user-permissions:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check user permission
+        uses: stjude/proteinpaint/.github/actions/check-user-permissions@master
+        with:
+          BUILD_SECRET: ${{ secrets.BUILD_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_BUILD_SECRET: ${{ github.event.inputs.build_secret }}
+
+  publish-npm:
+    needs: check-user-permissions
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      packages: write
+    timeout-minutes: 20
+    outputs:
+      updated_rust: ${{ steps.version_bump.outputs.updated_rust }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.PAT }}
+
+      - name: Fetch All Tags
+        run: git fetch --all --tags
+
+      - name: Install dependencies for canvas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libcairo2-dev \
+            libpango1.0-dev \
+            libjpeg-dev \
+            libgif-dev \
+            librsvg2-dev     
+
+      # Setup .npmrc file to publish to GitHub Packages
+      - uses: actions/setup-node@v3
+        with:
+          cache: 'npm'
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@sjcrh'
+      - run: npm ci
+
+      - name: Run version bump
+        id: version_bump
+        run: |
+          exclude="";
+
+          if [ "${{ github.event.inputs.include }}" = "npm packages only" ]; then
+            exclude="-x=container";
+          fi
+
+          # NOTE: inputs.release_type may be ignored based on unreleased entries in CHANGELOG
+          . ./build/ci-version-update.sh ${{ github.event.inputs.release_type }} -w $exclude
+          
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          
+          if [[ "$BRANCH" != "master" && "$BRANCH" != "release"* && "$BRANCH" != "prerelease"* ]]; then
+           echo "draft=true" >> $GITHUB_OUTPUT
+           echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "draft=false" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "tag_name=$TAG" >> $GITHUB_OUTPUT
+          
+          ./build/ci-npm-publish.sh "$UPDATED"
+          
+          if [[ "$UPDATED" == *"rust"* ]]; then
+            echo "updated_rust=true" >> $GITHUB_OUTPUT
+          else
+            echo "updated_rust=false" >> $GITHUB_OUTPUT
+          fi
+          
+          CHANGES="[CHANGELOG.md](https://github.com/stjude/proteinpaint/blob/master/CHANGELOG.md)"
+          echo "latest_release_changes=$CHANGES" >> $GITHUB_OUTPUT
+
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_TOKEN }}
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version_bump.outputs.tag_name }}
+          release_name: ${{ steps.version_bump.outputs.tag_name }}
+          body: |
+            ${{ steps.version_bump.outputs.latest_release_changes }}
+          draft: ${{ steps.version_bump.outputs.draft }}
+          prerelease: ${{ steps.version_bump.outputs.prerelease }}
+
+  rust-build:
+    if: needs.publish-npm.outputs.updated_rust == 'true'
+    needs: publish-npm
+    uses: ./.github/workflows/CD-rust-build.yml
+
+  upload-rust-assets:
+    needs: rust-build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Upload rust assets
+        uses: stjude/proteinpaint/.github/actions/upload-rust-assets@master
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+       
+  publish-docker-no-new-rust-module:
+    if: needs.publish-npm.outputs.updated_rust == 'false' && github.event.inputs.include == 'npm packages + Docker image'
+    needs: publish-npm
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Publish docker image
+        uses: stjude/proteinpaint/.github/actions/publish-ppfull-ppserver-image@master
+        with:
+          PAT: ${{ secrets.PAT }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+
+  publish-docker-with-rust-changes:
+    if: needs.publish-npm.outputs.updated_rust == 'true' && github.event.inputs.include == 'npm packages + Docker image'
+    needs: upload-rust-assets
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Download the Rust binaries built by the rust-build workflow
+      - name: Download Rust Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-binaries
+          path: rust-binaries
+
+
+      # Publish Docker image with the Rust binaries included
+      - name: Publish docker image with Rust binaries
+        uses: stjude/proteinpaint/.github/actions/publish-ppfull-ppserver-image@master
+        with:
+          PAT: ${{ secrets.PAT }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}

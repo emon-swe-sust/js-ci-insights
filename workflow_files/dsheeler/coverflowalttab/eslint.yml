@@ -1,0 +1,28 @@
+name: ESLint
+
+on:
+  push:
+    branches: [ 'main' ]
+  pull_request:
+    branches: [ 'main' ]
+
+jobs:
+  eslint:
+    name: Run eslint scanning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      # Required for private repositories by github/codeql-action/upload-sarif
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install
+        run: |
+          npm install eslint
+          npm install @eslint/js @eslint/eslintrc -D
+
+      - name: Lint
+        run: npx eslint .

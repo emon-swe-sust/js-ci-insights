@@ -1,0 +1,336 @@
+name: Tests
+
+on:
+  pull_request:
+
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'support/**'
+
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install
+    runs-on: ${{ matrix.runner }}
+
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: true
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        runner:
+          - ubuntu-22.04
+          - windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+
+      - name: Install dependencies
+        uses: ./.github/workflows/actions/install-node
+
+  build:
+    name: Build
+    runs-on: ${{ matrix.runner }}
+    needs: [install]
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        runner:
+          - ubuntu-22.04
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Restore dependencies
+        uses: ./.github/workflows/actions/install-node
+
+      - name: Build
+        uses: ./.github/workflows/actions/build
+
+  lint:
+    name: ${{ matrix.task.description }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    needs: [install]
+
+    # Disabled due to editorconfig-checker bug
+    # env:
+    # Authorise GitHub API requests for EditorConfig checker binary
+    # https://www.npmjs.com/package/editorconfig-checker
+    # GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        runner:
+          - ubuntu-22.04
+          - windows-latest
+
+        task:
+          - description: Lint Sass
+            name: lint-scss
+            run: npm run lint:scss
+            cache: .cache/stylelint
+
+          - description: Lint JavaScript
+            name: lint-js
+            run: npm run lint:js
+            cache: .cache/eslint
+
+          # Disabled due to editorconfig-checker bug
+          # - description: EditorConfig
+          #   name: lint-editorconfig
+          #   run: npm run lint:editorconfig
+
+          - description: Prettier
+            name: lint-prettier
+            run: npm run lint:prettier
+            cache: .cache/prettier
+
+          - description: TypeScript compiler
+            name: lint-types
+            run: npm run lint:types -- --incremental --pretty
+            cache: '**/*.tsbuildinfo'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Restore dependencies
+        uses: ./.github/workflows/actions/install-node
+
+      - name: Cache linter
+        if: ${{ matrix.task.cache }}
+        uses: actions/cache@v4.2.3
+        with:
+          # Use faster GNU tar for all runners
+          enableCrossOsArchive: true
+          key: ${{ matrix.task.name }}-${{ runner.os }}
+          path: ${{ matrix.task.cache }}
+
+      - name: Run lint task
+        run: ${{ matrix.task.run }}
+
+  test:
+    name: ${{ matrix.task.description }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    needs: [install, build]
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        runner:
+          - ubuntu-22.04
+          - windows-latest
+
+        task:
+          - description: Nunjucks macro tests
+            name: test-macro
+            cache: .cache/jest
+            projects:
+              - Nunjucks macro tests
+
+          - description: JavaScript unit tests
+            name: test-unit
+            cache: .cache/jest
+            coverage: true
+            projects:
+              - JavaScript unit tests
+
+          - description: JavaScript behaviour tests
+            name: test-behaviour
+            cache: .cache/jest
+            coverage: true
+            projects:
+              - JavaScript behaviour tests
+
+          - description: JavaScript component tests
+            name: test-component
+            cache: |
+              .cache/jest
+              .cache/puppeteer
+            projects:
+              - JavaScript component tests
+
+          - description: Accessibility tests
+            name: test-accessibility
+            cache: |
+              .cache/jest
+              .cache/puppeteer
+            projects:
+              - Accessibility tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Restore dependencies
+        uses: ./.github/workflows/actions/install-node
+
+      - name: Restore build
+        uses: ./.github/workflows/actions/build
+
+      - name: Cache task
+        if: ${{ matrix.task.cache }}
+        uses: actions/cache@v4.2.3
+        with:
+          # Use faster GNU tar for all runners
+          enableCrossOsArchive: true
+          key: ${{ matrix.task.name }}-${{ runner.os }}
+          path: ${{ matrix.task.cache }}
+
+      - name: Run test task
+
+        # Use 2x CPU cores for hosted GitHub runners
+        # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#supported-runners-and-hardware-resources
+        run: npx jest --color ${{ format('--coverage={0} --maxWorkers=2 --selectProjects "{1}"', matrix.task.coverage || false, join(matrix.task.projects, '", "')) }}
+
+      - name: Save test coverage
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ matrix.task.description }} coverage (${{ matrix.runner }})
+          path: coverage
+          if-no-files-found: ignore
+
+  verify:
+    name: ${{ matrix.task.description }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    needs: [install, build]
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        runner:
+          - ubuntu-22.04
+          - windows-latest
+
+        task:
+          - description: Verify package build
+            name: test-build-package
+            run: npm run build:package
+
+          - description: Verify distribution build
+            name: test-build-release
+            run: npm run build:release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Restore dependencies
+        uses: ./.github/workflows/actions/install-node
+
+      - name: Restore build
+        uses: ./.github/workflows/actions/build
+
+      - name: Run verify task
+        run: ${{ matrix.task.run }}
+
+  package:
+    name: Export ${{ matrix.conditions }}, Node.js ${{ matrix.node-version }}
+    runs-on: ubuntu-22.04
+    needs: [install, build]
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        node-version:
+          - 12 # Node.js 12.20+ uses package exports with subpath patterns
+          - 18 # Node.js 17+ cannot use package exports with trailing slashes
+          - 20
+
+        conditions:
+          - require
+          - import
+
+        include:
+          - conditions: require
+            node-version: 12.18 # Node.js 12.18 uses package exports with trailing slashes
+
+    env:
+      # Node.js conditions override from "require" to "import" etc
+      # https://nodejs.org/api/cli.html#-c-condition---conditionscondition
+      FLAGS: ${{ matrix.conditions != 'require' && format(' --conditions {0}', matrix.conditions) || '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Restore build
+        uses: ./.github/workflows/actions/build
+
+      - name: Change Node.js version
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - run: node --eval "console.log(require.resolve('govuk-frontend'))"${{ env.FLAGS }}
+        working-directory: packages/govuk-frontend
+
+      - run: node --eval "console.log(require.resolve('govuk-frontend/package.json'))"${{ env.FLAGS }}
+        working-directory: packages/govuk-frontend
+
+      - run: node --eval "console.log(require.resolve('govuk-frontend/dist/govuk/components/accordion/accordion.bundle.js'))"${{ env.FLAGS }}
+        working-directory: packages/govuk-frontend
+
+      - run: node --eval "console.log(require.resolve('govuk-frontend/dist/govuk/components/accordion/accordion.bundle.mjs'))"${{ env.FLAGS }}
+        working-directory: packages/govuk-frontend
+
+      - run: node --eval "console.log(require.resolve('govuk-frontend/dist/govuk/i18n.mjs'))"${{ env.FLAGS }}
+        working-directory: packages/govuk-frontend
+
+  regression:
+    name: Percy
+    needs: [install, build]
+
+    # Run existing "Percy screenshots" workflow
+    # (after install and build have been cached)
+    uses: ./.github/workflows/screenshots.yml
+    secrets: inherit
+
+  generate-diff-package:
+    name: Diff changes to npm package
+    needs: [install]
+
+    permissions:
+      pull-requests: write
+
+    # Run existing "Diff changes to npm package" workflow
+    # (after only install has been cached)
+    uses: ./.github/workflows/diff-change-to-package.yaml
+
+  generate-stats:
+    name: Stats comment
+    needs: [install]
+
+    permissions:
+      pull-requests: write
+
+    # Run existing "Stats comment" workflow
+    # (after only install has been cached)
+    uses: ./.github/workflows/stats-comment.yml
+
+  bundler-integrations:
+    name: Bundler integrations
+    needs: [install, build]
+
+    # Run existing "Bundler integrations" workflow
+    # (after install and build have been cached)
+    uses: ./.github/workflows/bundler-integrations.yml

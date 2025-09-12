@@ -1,0 +1,57 @@
+name: Recycling
+
+# TODO: ideally closing a PR would stop any runs of the ci workflow on the same
+#       PR first.
+# TODO: delete tagged images from Docker Hub
+
+on:
+  pull_request:
+    types: closed
+
+env:
+  IBMCLOUD_API_KEY: ${{ secrets.IBMCLOUD_API_KEY }}
+  IBMCLOUD_API_URL: ${{ vars.IBMCLOUD_API_URL }}
+  IBMCLOUD_CLUSTER_NAME: ${{ vars.IBMCLOUD_CLUSTER_NAME }}
+  IBMCLOUD_REGION: ${{ vars.IBMCLOUD_REGION }}
+
+jobs:
+  delete-ibm-cloud:
+    runs-on: ubuntu-latest
+    steps:
+    -
+      name: Checkout
+      uses: actions/checkout@v3
+    -
+      name: Prepare env for resource deletion
+      run: echo "PULL_REQUEST_NUMBER=$(jq .pull_request.number ${GITHUB_EVENT_PATH})" >> $GITHUB_ENV
+    -
+      name: Prepare env for resource deletion, step 2
+      run: |
+        echo "K8S_PORTAL_RESOURCE_NAME=portal-js-pr-${PULL_REQUEST_NUMBER}" >> $GITHUB_ENV
+        echo "K8S_STYLEGUIDE_RESOURCE_NAME=styleguide-pr-${PULL_REQUEST_NUMBER}" >> $GITHUB_ENV
+    -
+      name: Install ibmcloud CLI
+      run: |
+        curl -fsSL https://clis.cloud.ibm.com/install/linux | sh
+        ibmcloud plugin install container-service
+    -
+      name: Login to IBM Cloud
+      run: |
+        ibmcloud login -a ${IBMCLOUD_API_URL} -r ${IBMCLOUD_REGION} --apikey ${IBMCLOUD_API_KEY}
+        ibmcloud ks cluster config --cluster ${IBMCLOUD_CLUSTER_NAME}
+    -
+      name: Delete portal.js resources from K8s
+      run: |
+        set +e
+        kubectl --namespace dev delete --ignore-not-found ingress/portal-js-pr-${PULL_REQUEST_NUMBER}
+        kubectl --namespace dev delete --ignore-not-found secret/pr-${PULL_REQUEST_NUMBER}.portal-js.dev.eanadev.org
+        kubectl --namespace dev delete --ignore-not-found service/portal-js-pr-${PULL_REQUEST_NUMBER}
+        kubectl --namespace dev delete --ignore-not-found deployment/portal-js-pr-${PULL_REQUEST_NUMBER}
+    -
+      name: Delete style guide resources from K8s
+      run: |
+        set +e
+        kubectl --namespace dev delete --ignore-not-found ingress/styleguide-pr-${PULL_REQUEST_NUMBER}
+        kubectl --namespace dev delete --ignore-not-found secret/pr-${PULL_REQUEST_NUMBER}.styleguide.dev.eanadev.org
+        kubectl --namespace dev delete --ignore-not-found service/styleguide-pr-${PULL_REQUEST_NUMBER}
+        kubectl --namespace dev delete --ignore-not-found deployment/styleguide-pr-${PULL_REQUEST_NUMBER}

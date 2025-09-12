@@ -1,0 +1,53 @@
+name: Publish
+
+on:
+  push:
+    branches: [ master ]
+env:
+  GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true  # Fetch Hugo themes (true OR recursive)
+          fetch-depth: 0    # Fetch all history for .GitInfo and .Lastmod
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+          hugo-version: 'latest'
+          extended: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install PostCSS Dependencies
+        run: |
+          npm init -y
+          npm install postcss postcss-cli autoprefixer
+
+      - name: Build
+        run: hugo --minify
+
+      - name: Auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/654303510937/locations/global/workloadIdentityPools/goadesign-deploy-pool/providers/goadesign-deploy-provider'
+          service_account: 'goa-design-deploy@goa-design.iam.gserviceaccount.com'
+
+      - name: Deploy
+        uses: google-github-actions/upload-cloud-storage@v2
+        with:
+          path: public
+          destination: goa.design
+          parent: false

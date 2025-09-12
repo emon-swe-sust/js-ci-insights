@@ -1,0 +1,140 @@
+name: hugo CI
+on:
+  #  schedule:
+  #    - cron: '30 8 1-7 * 5' # 每月的第一个星期五，UTC 08:30（北京时间 16:30）触发
+  push: # push的时候触发
+    branches: # 那些分支需要触发
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest # 镜像市场
+    steps:
+      - name: checkout # 步骤的名称
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: clone git submodule
+        run: |
+          git submodule update --init --recursive
+
+      - name: 配置 search 搜索参数替换
+        uses: falnyr/replace-env-vars-action@master
+        env:
+          ALGOLIA_SEARCH_API_KEY: ${{ secrets.ALGOLIA_SEARCH_API_KEY }}
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+        with:
+          filename: config.io/_default/params.zh-cn.toml
+
+      - name: 配置 comment 参数替换
+        uses: falnyr/replace-env-vars-action@master
+        env:
+          VALINE_ENABLE: ""
+          GITALK_ENABLE: true
+          GITALK_CLIENT_ID: ${{ secrets.GITALK_CLIENT_ID }}
+          GITALK_SECRET: ${{ secrets.GITALK_TOKEN }}
+        with:
+          filename: config.io/_default/params.toml
+
+
+      - name: 配置参数icp
+        uses: NicoG60/simple-template-renderer@v1
+        with:
+          input: config.io/_default/params.toml
+        env:
+          ICP: ""
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: '0.144.0'
+          extended: true # 启用 extended
+
+      - name: Build
+        run: hugo --configDir config.io
+
+      - name: Build leetcode book
+        run: hugo --config book.leetcode.toml
+
+      - name: 复制 leetcode book 资源到 public
+        run: |
+          mkdir public/leetcode
+          cp -r public.book.leetcode/* public/leetcode
+
+      - name: Build wiki book
+        run: hugo --config book.wiki.toml
+
+      - name: 复制 wiki book 资源到 public
+        run: |
+          mkdir public/wiki
+          cp -r public.book.wiki/* public/wiki
+
+      - name: Build linux book
+        run: hugo --config book.linux.toml
+
+      - name: 复制 linux book 资源到 public
+        run: |
+          mkdir public/linux
+          cp -r public.book.linux/* public/linux
+
+      - name: Build english book
+        run: hugo --config=book.english.toml
+
+      - name: 复制 english book 资源到 public
+        run: |
+          mkdir public/english
+          cp -r public.book.english/* public/english
+
+      - name: Build kubernetes book
+        run: hugo --config book.kubernetes.toml
+
+      - name: 复制 kubernetes book 资源到 public
+        run: |
+          mkdir public/kubernetes
+          cp -r public.book.kubernetes/* public/kubernetes
+
+
+      #      - name: Build ielts book
+      #        run: hugo --config book.ielts.toml
+      #
+      #      - name: 复制 ielts book 资源到 public
+      #        run: |
+      #          mkdir public/ielts
+      #          cp -r public.book.ielts/* public/ielts
+
+      - name: Build http book
+        run: hugo --config book.http.toml
+
+      - name: 复制 http book 资源到 public
+        run: |
+          mkdir public/http
+          cp -r public.book.http/* public/http
+
+      - name: 复制 明日黄花 资源到 public
+        run: |
+          mkdir public/mrhh
+          cp -r public.book.mrhh/* public/mrhh
+
+      - name: set up python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.x' # Version range or exact version of a Python version to use, using SemVer's version range syntax
+          architecture: 'x64' # optional x64 or x86. Defaults to x64 if not specified
+
+      - name: python 脚本，先删除索引再重新上传索引， gitalk issue init
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install --upgrade 'algoliasearch>=3.0,<4.0'
+          pip install --upgrade pip
+          python init-gitalk-issue.py ${{ secrets.TOKEN }} xiaobinqt xiaobinqt.github.io ${{ secrets.ALGOLIA_APP_ID }} ${{ secrets.ALGOLIA_ADMIN_API_KEY }}
+
+      - name: Deploy to github pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          personal_token: ${{ secrets.TOKEN }} # personal_token 这里新建一个 https://github.com/settings/tokens
+          PUBLISH_BRANCH: gh-pages  # 推送到当前 gh-pages 分支
+          PUBLISH_DIR: ./public  # hugo 生成到 public 作为跟目录
+          commit_message: ${{ github.event.head_commit.message }}
+
+

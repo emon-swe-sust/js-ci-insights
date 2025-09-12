@@ -1,0 +1,69 @@
+# This is a GitHub workflow YAML file
+# see https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions
+#
+# If you want to update this file it's recommended to use a YAML validator
+# https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml
+# configured to validate with https://json.schemastore.org/github-workflow.json
+#
+# This workflow is responsible to perform various checks related to the codebase,
+# For every push to main or on a pull request, it
+# - ensures there is no eslint error on files
+# - ensures there is no test failing
+# - uploads code coverage from tests to codecov
+#
+# If all these steps are passing and there is a secrets.NPM_TOKEN and version in package.json
+# is not already published, workflow published the package on npm.
+
+name: main
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+        node: [22.13.1]
+    runs-on: ${{ matrix.os }}
+    name: test on ${{ matrix.os }} and node ${{ matrix.node }}
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install node modules
+        run: npm install
+      - name: Run ESLint
+        run: npm run eslint
+      - name: Run tests
+        run: npm run test
+
+  release:
+    needs: [test]
+    if: success() && github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    name: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+      - name: Install node modules
+        run: npm install
+      - name: Publish package
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: env.NPM_TOKEN != null
+        run: node ./.github/workflows/publish_package.mjs
+      - name: Ensure GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node ./.github/workflows/github_release.mjs

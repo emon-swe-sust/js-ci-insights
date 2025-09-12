@@ -1,0 +1,59 @@
+name: Build and Deploy
+on: [push, pull_request, pull_request_target]
+jobs:
+  yamllint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@master
+
+    - name: Yamllint
+      uses: ibiqlik/action-yamllint@v3
+      with:
+        file_or_dir: games/*.yaml originals/*.yaml schema/*.yaml
+      env:
+        GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@master
+
+    - name: Install poetry
+      uses: abatilo/actions-poetry@v4.0.0
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        cache: 'poetry'
+
+    - name: Build
+      run: |
+        make ci
+        test 6000 -lt $(cat _build/index.html | wc -l)
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Minify
+      run: make min
+
+    - uses: actions/upload-pages-artifact@v3
+      with:
+        path: _build
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

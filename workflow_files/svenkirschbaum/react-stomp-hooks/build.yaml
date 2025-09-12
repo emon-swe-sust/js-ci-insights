@@ -1,0 +1,17 @@
+name: build
+on:
+  push:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - run: npm ci
+      - run: (cd example && npm install)
+      - run: npm run build
+      - run: (cd example && npm test)
+      - run: (cd example && npm run build)

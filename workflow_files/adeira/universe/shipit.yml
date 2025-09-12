@@ -1,0 +1,38 @@
+name: Shipit
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  CI: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          # Number of commits to fetch. 0 indicates all history for all branches and tags (Shipit requires it).
+          fetch-depth: 0
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 20.19.4
+          cache: 'yarn'
+
+      - name: Install Yarn dependencies
+        run: yarn install --immutable
+
+      - name: Prepare Shipit
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_SHIPIT_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H 'github.com' >> ~/.ssh/known_hosts
+
+      - name: Run Shipit
+        run: yarn monorepo-babel-node src/monorepo-shipit/bin/shipit.js --config-dir=src/monorepo-shipit/config --committer-name=adeira-github-bot --committer-email=mrtnzlml+adeira-github-bot@gmail.com

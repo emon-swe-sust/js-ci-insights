@@ -1,0 +1,160 @@
+name: Launcher
+run-name: Auto Update Version
+
+on:
+  schedule:
+    - cron: 0 16 * * *
+  workflow_dispatch:
+
+jobs:
+  update:
+    name: Update Launcher
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - abbr: HMCL
+            github: https://github.com/HMCL-dev/HMCL
+          - abbr: PCL2
+            github: https://github.com/Hex-Dragon/PCL2
+          - abbr: FCL
+            github: https://github.com/FCL-Team/FoldCraftLauncher
+          - abbr: ColorMC
+            github: https://github.com/Coloryr/ColorMC
+            device: Windows|macOS|Linux
+          - abbr: XMCL
+            github: https://github.com/Voxelum/x-minecraft-launcher
+          - abbr: PCL2 社区版
+            github: https://github.com/PCL-Community/PCL2-CE
+          - abbr: Betacraft
+            github: https://github.com/betacraftuk/betacraft-launcher
+          - abbr: Prism
+            github: https://github.com/PrismLauncher/PrismLauncher
+          - abbr: LauncherX
+            github: https://github.com/corona-studio/projbobcat
+          - abbr: Fluent Launcher
+            github: https://github.com/Xcube-Studio/Natsurainko.FluentLauncher
+    steps:
+      - uses: actions/checkout@main
+      - name: Handle files
+        id: handle
+        run: |
+          git pull --rebase
+          API=`echo ${{ matrix.github }} | sed 's/:\/\/github\.com\//:\/\/api.github.com\/repos\//g' | sed 's/$/\/releases/g'`
+          wget -O latest.json $API/latest || echo '{"tag_name":""}' > latest.json
+          wget -O releases.json $API
+          if [ '${{ matrix.device }}' ]; then
+            DEVICE_LIST=`echo '${{ matrix.device }}' | sed 's/|/\\\\|/g'`
+            sed -n '/\('"$DEVICE_LIST"'\)Launcher/,/]/p' data/launcher.jsonc > launcher.jsonc
+          else
+            cp data/launcher.jsonc launcher.jsonc
+          fi
+      - name: Get ${{ matrix.abbr }} version
+        id: get
+        run: |
+          # Get Last Stable ${{ matrix.abbr }}
+          LAST_STABLE_VERSION=`sed -n '/"${{ matrix.abbr }}"/,/"version":/p' launcher.jsonc | sed -n '$p' | sed 's/^.*:\s*"v\?\|",$//gi' | sed 's/\./\\\\./g'`
+          
+          # Get Last Dev ${{ matrix.abbr }}
+          LAST_DEV_VERSION=`sed -n '/"${{ matrix.abbr }}"/,/}/p' launcher.jsonc | sed -n '/"dev":/,/"version":/p' | sed -n '$p' | sed 's/^.*:\s*"v\?\|"$//gi' | sed 's/\./\\\\./g'`
+          
+          # GET Latest Stable ${{ matrix.abbr }}
+          if [ '${{ matrix.abbr }}' = HMCL ]; then
+            LATEST_STABLE_VERSION=`cat releases.json | sed -n '/"tag_name":\s*"release-/p' | sed -n 1p | sed 's/^.*release-\|",$//g' | sed 's/\./\\\\./g'`
+          else
+            LATEST_STABLE_VERSION=`cat latest.json | jq .tag_name | sed 's/^"v\?\|"$//gi' | sed 's/\./\\\\./g'`
+          fi
+          if [ ${#LATEST_STABLE_VERSION} = 0 ]; then
+            unset LAST_STABLE_VERSION
+          fi
+          
+          # GET Latest Dev ${{ matrix.abbr }}
+          if [ "$LAST_DEV_VERSION" ]; then
+            LATEST_DEV_VERSION=`cat releases.json | sed -n '/"tag_name":/p' | sed -n 1p | sed 's/^.*:\s*"v\?\|",$//gi' | sed 's/\./\\\\./g'`
+            if [[ '${{ matrix.abbr }}' = HMCL && "$LATEST_DEV_VERSION" = release-* ]]; then
+              LATEST_DEV_VERSION=`cat releases.json | sed -n '/"tag_name": "[^r]/p' | sed -n 1p | sed 's/^.*:\s*"v\?\|",$//gi' | sed 's/\./\\\\./g'`
+            fi
+            if [ "$LATEST_DEV_VERSION" = "$LATEST_STABLE_VERSION" ]; then
+              unset LATEST_DEV_VERSION
+            fi
+          fi
+          
+          # Remove Needless Files
+          rm latest.json releases.json launcher.jsonc
+          
+          # Output
+          echo "last_stable_version=$LAST_STABLE_VERSION" >> $GITHUB_OUTPUT
+          echo "last_dev_version=$LAST_DEV_VERSION" >> $GITHUB_OUTPUT
+          echo "latest_stable_version=$LATEST_STABLE_VERSION" >> $GITHUB_OUTPUT
+          echo "latest_dev_version=$LATEST_DEV_VERSION" >> $GITHUB_OUTPUT
+      - name: Modify launcher.jsonc
+        id: modify
+        run: |
+          LAST_STABLE_VERSION='${{ steps.get.outputs.last_stable_version }}'
+          LAST_DEV_VERSION='${{ steps.get.outputs.last_dev_version }}'
+          LATEST_STABLE_VERSION='${{ steps.get.outputs.latest_stable_version }}'
+          LATEST_DEV_VERSION='${{ steps.get.outputs.latest_dev_version }}'
+          if [ '${{ matrix.device }}' ]; then
+            DEVICE_STRING=' [${{ matrix.device }}]'
+          else
+            DEVICE_STRING=''
+          fi
+          if [ "$LATEST_STABLE_VERSION" ]; then
+            if [ "$LAST_STABLE_VERSION" != "$LATEST_STABLE_VERSION" ]; then
+              sed -i '/beta/!s/\([/"v_-]\)'"$LAST_STABLE_VERSION"'\(\.[a-z]\|["/-]\)/\1'"$LATEST_STABLE_VERSION"'\2/gi' data/launcher.jsonc
+              LAST_STABLE_VERSION=`echo $LAST_STABLE_VERSION | sed 's/\\\\././g'`
+              LATEST_STABLE_VERSION=`echo $LATEST_STABLE_VERSION | sed 's/\\\\././g'`
+              CHANGELOG_E='  ${{ matrix.abbr }}(stable): '"$LAST_STABLE_VERSION => $LATEST_STABLE_VERSION$DEVICE_STRING"
+            fi
+          fi
+          if [ "$LATEST_DEV_VERSION" ]; then
+            if [ "$LAST_DEV_VERSION" != "$LATEST_DEV_VERSION" ]; then
+              sed -i 's/\([/"v_-]\)'"$LAST_DEV_VERSION"'\(\.[a-z]\|["/-]\)/\1'"$LATEST_DEV_VERSION"'\2/gi' data/launcher.jsonc
+              LAST_DEV_VERSION=`echo $LAST_DEV_VERSION | sed 's/\\\\././g'`
+              LATEST_DEV_VERSION=`echo $LATEST_DEV_VERSION | sed 's/\\\\././g'`
+              if [ "$CHANGELOG_E" ]; then
+                CHANGELOG_E="${CHANGELOG_E}"'#n  ${{ matrix.abbr }}(dev): '"$LAST_DEV_VERSION => $LATEST_DEV_VERSION$DEVICE_STRING"
+              else
+                CHANGELOG_E='  ${{ matrix.abbr }}(dev): '"$LAST_DEV_VERSION => $LATEST_DEV_VERSION$DEVICE_STRING"
+              fi
+            fi
+          fi
+          if [ "$CHANGELOG_E" ]; then
+            CHANGELOG=`echo "$CHANGELOG_E" | sed 's/#n/\n/g'`
+            echo ===============================================================
+            echo "$CHANGELOG"
+            echo ===============================================================
+          fi
+          MESSAGE='modify: update ${{ matrix.abbr }}
+          
+          [Auto] Update Launcher Version:
+          '"$CHANGELOG
+          (Time: `date +'%F %X %Z'`)"
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)  # To define the separator
+          echo "message<<EOF"$'\n'"$MESSAGE"$'\n'EOF >> $GITHUB_OUTPUT  # For the multi-line output
+      - name: Commit & Push
+        id: commit_and_push
+        uses: EndBug/add-and-commit@main
+        with:
+          default_author: github_actions
+          message: ${{ steps.modify.outputs.message }}
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: update
+    steps:
+      - name: Run remote commands
+        id: run
+        uses: fifsky/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          port: ${{ secrets.PORT }}
+          key: ${{ secrets.KEY }}
+          command: |
+            echo ===============================================================
+            cd /www/wwwroot/mcisee.top
+            git pull
+            echo ===============================================================

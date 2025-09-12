@@ -1,0 +1,43 @@
+on:
+  pull_request:
+    branches:
+    - main 
+  push:
+    branches:
+    - main
+
+name: Source Code Health
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: '20.11.0'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Lint
+      run: npm run lint
+
+    - name: Test
+      run: npm run test:coverage
+
+    - name: Build
+      run: npm run build
+
+    - name: Check dist directory
+      run: |
+        FILES=$(git status -s dist/)
+        if [ -n "$FILES" ]; then
+          echo "You need to include the changes in the dist folder, execute: npm run build and commit the changes in the dist folder"
+          echo "Uncommitted files:"
+          echo "$FILES"
+          echo "Diff content:"
+          git diff dist/
+          exit 1
+        fi

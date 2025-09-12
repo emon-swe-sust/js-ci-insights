@@ -1,0 +1,43 @@
+name: dvlp
+
+on: push
+
+env:
+  PNPM_CACHE_FOLDER: .pnpm-store
+  HUSKY: 0 # Bypass husky commit hook for CI
+
+jobs:
+  build_deploy:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20', '22', '23']
+    runs-on: ${{ matrix.os }}
+    name: Install, build, and test (OS ${{ matrix.os }} - Node ${{ matrix.node }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 'Install pnpm'
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'pnpm'
+
+      - name: 'Install dependencies'
+        run: pnpm --frozen-lockfile --no-optional install
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test:unit
+        timeout-minutes: 1
+        run: pnpm run test
+
+      - name: Test:integration
+        run: pnpm run test:integration

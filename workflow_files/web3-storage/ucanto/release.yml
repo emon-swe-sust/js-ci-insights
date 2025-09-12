@@ -1,0 +1,58 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      releases_created: ${{steps.release.outputs.releases_created}}
+    steps:
+      - name: Running Release Please
+        uses: google-github-actions/release-please-action@v3
+        id: release
+        with:
+          command: manifest
+          token: ${{secrets.GITHUB_TOKEN}}
+          default-branch: main
+          config-file: .github/release-please-config.json
+          manifest-file: .github/release-please-manifest.json
+          release-type: node
+
+  publish:
+    name: Publish
+    needs: release
+    if: ${{needs.release.outputs.releases_created}}
+    runs-on: ubuntu-latest
+    steps:
+      # The logic below handles the npm publication:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install
+        uses: pnpm/action-setup@v4
+
+      - name: Setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          registry-url: https://registry.npmjs.org/
+          cache: 'pnpm'
+
+      - name: Build
+        run: |
+          pnpm install
+          pnpm run --if-present build
+
+      - name: Publish
+        run: pnpm -r publish --access=public
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}

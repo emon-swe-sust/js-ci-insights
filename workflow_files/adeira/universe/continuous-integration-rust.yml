@@ -1,0 +1,81 @@
+on:
+  merge_group:
+    types:
+      - checks_requested
+  pull_request:
+    # We do not run tests on master as the changes were already tested when opening a PR,
+    # and we require every PR to be up-to-date before merging it to master.
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  rust-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        manifest:
+          - 'src/x/Cargo.toml'
+
+    steps:
+      # https://github.com/actions/checkout
+      - uses: actions/checkout@v4.2.2
+
+      # https://github.com/dorny/paths-filter
+      - uses: dorny/paths-filter@v3.0.2
+        id: paths-filter
+        with:
+          filters: |
+            src:
+              - 'src/x/**'
+
+      # https://github.com/dtolnay/rust-toolchain
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.paths-filter.outputs.src == 'true'
+        with:
+          components: clippy, rustfmt
+
+      # Cargo fmt
+      - run: cargo fmt --all --check --verbose --message-format=human --manifest-path ${{ matrix.manifest }}
+        if: steps.paths-filter.outputs.src == 'true'
+
+      # Cargo clippy
+      # `--all-targets` + `--all-features` (in order to also check tests and non-default crate features)
+      - run: cargo clippy --locked --all-targets --all-features --manifest-path ${{ matrix.manifest }}
+        if: steps.paths-filter.outputs.src == 'true'
+
+      # Cargo test
+      - run: cargo test --no-fail-fast --manifest-path ${{ matrix.manifest }} --color always
+        if: steps.paths-filter.outputs.src == 'true'
+
+      # https://github.com/actions-rs/cargo
+      # TODO: replace with `--include-ignored` once it's in stable Rust Compiler
+      # TODO: how to run integration tests better? (they have extra platform requirements)
+      # - name: Run all IGNORED tests
+      #   uses: actions-rs/cargo@v1.0.3
+      #   with:
+      #     command: test
+      #     args: >-
+      #       --no-fail-fast
+      #       --manifest-path ${{ matrix.manifest }}
+      #       --target ${{ matrix.target }}
+      #       -- --ignored
+
+  # The purpose of this job is to wait for the completion of the `rust-test` jobs (matrix)
+  # and evaluate whether the run was successful or not. This is useful when configuring the
+  # required jobs in GitHub UI (we can require just this one job instead of all the jobs in
+  # the test matrix).
+  rust-test-results:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs: [rust-test]
+    steps:
+      - run: |
+          result="${{ needs.rust-test.result }}"
+          if [[ $result == "success" || $result == "skipped" ]]; then
+            exit 0
+          else
+            exit 1
+          fi

@@ -1,0 +1,17 @@
+name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+        with:
+          fetch-depth: 1
+      - name: Setup Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: 14.15.1
+      - name: Installing dependencies
+        run: npm install
+      - name: Running tests
+        run: npm test

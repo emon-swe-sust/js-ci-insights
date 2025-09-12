@@ -1,0 +1,86 @@
+name: Test suite
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+  pull_request:
+
+jobs:
+  lint:
+    name: StandardJS lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Cache NPM dependencies
+        id: cache-npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: v3-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            v3-npm-
+
+      - name: Run lint
+        run: |
+          cd test-proxy
+          npm install
+          npm run setup
+          npm run lint
+
+  tests:
+    name: Meteor tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      # CACHING
+      - name: Install Meteor
+        id: cache-meteor-install
+        uses: actions/cache@v4
+        with:
+          path: ~/.meteor
+          key: v3-meteor-${{ hashFiles('.meteor/versions') }}
+          restore-keys: |
+                v3-meteor-
+
+      - name: Cache NPM dependencies
+        id: cache-meteor-npm
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: v3-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+                v3-npm-
+
+      - name: Cache Meteor build
+        id: cache-meteor-build
+        uses: actions/cache@v3
+        with:
+          path: |
+            .meteor/local/resolver-result-cache.json
+            .meteor/local/plugin-cache
+            .meteor/local/isopacks
+            .meteor/local/bundler-cache/scanner
+          key: v3-meteor_build_cache-${{ github.ref }}-${{ github.sha }}
+          restore-key: |
+            v3-meteor_build_cache-
+
+      - name: Setup meteor
+        uses: meteorengineer/setup-meteor@v1
+        with:
+          meteor-release: '2.8.1'
+
+      - name: Run tests
+        run: |
+          cd test-proxy
+          meteor npm install
+          meteor npm run setup
+          meteor npm run test

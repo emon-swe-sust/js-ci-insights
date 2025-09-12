@@ -1,0 +1,36 @@
+name: Client CI
+
+# Testing on all branches
+on:
+  workflow_dispatch:
+#   push:
+#     branches: [ main ]
+#   pull_request:
+#     branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        # Testing on multiple node versions
+        node-version: [16.x]
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+        # Running the build operation to test if it works
+      - name: Run NPM Build
+        working-directory: ./client
+        run: |
+          npm i -f
+          npm run build --if-present
+        # Test if test cases are written
+      - name: Run NPM Test
+        working-directory: ./client
+        run: npm test --passWithNoTests

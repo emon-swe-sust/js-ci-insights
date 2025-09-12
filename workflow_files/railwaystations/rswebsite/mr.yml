@@ -1,0 +1,17 @@
+name: Pull Request
+on: [pull_request]
+jobs:
+  build-php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate composer.json and composer.lock
+        run: composer validate
+      - name: Install composer dependencies
+        run: composer install --prefer-dist --no-progress --no-suggest
+      - name: Install npm dependencies
+        run: npm ci
+      - name: Check formatting
+        run: npm run format-check
+      - name: Run npm build
+        run: npm run build

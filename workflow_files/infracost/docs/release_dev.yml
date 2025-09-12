@@ -1,0 +1,19 @@
+on:
+  workflow_dispatch:
+  workflow_call:
+
+name: "Release dev"
+
+jobs:
+  release-dev:
+    uses: ./.github/workflows/upload_assets.yml
+    with:
+      aws-region: us-east-2
+      domain: www.dev.infracost.io
+      infracost-dashboard-api-endpoint: https://dashboard.api.infracost.io
+      infracost-dashboard-endpoint: https://dashboard.infracost.io
+      gtm-container-id: GTM-5CXPGVL9
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.DEV_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.DEV_AWS_SECRET_ACCESS_KEY }}
+      INFRACOST_DOCS_API_TOKEN: ${{ secrets.INFRACOST_DOCS_API_TOKEN }}

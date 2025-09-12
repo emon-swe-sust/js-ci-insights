@@ -1,0 +1,33 @@
+name: Test
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node: ['18', '20', '22']
+      max-parallel: 1
+
+    name: Node ${{ matrix.node }} Test
+    steps:
+      - name: Check out code
+        uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5 # v2.7.0
+
+      - name: Setup Node
+        uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3.8.2
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install Node Modules
+        run: npm install
+      - name: Build package
+        run: npm run build
+      - name: Run tests
+        env:
+          SANDBOX_API_KEY: ${{ secrets.SANDBOX_API_KEY }}
+        run: npm test

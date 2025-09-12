@@ -1,0 +1,40 @@
+# Publishes a package to npm when a GitHub release is created
+name: Publish npm
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to assign to the published package'
+        type: string
+        required: true
+
+env:
+  # be sure to also update these in other workflows
+  DENO_DIR: deno_dir
+  DENO_VERSION: "1.42.3"
+
+permissions: {}
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@041b854f97b325bd60e53e9dc2de9cb9f9ac0cba
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: Build package
+        run: deno task build-npm-package ${{ github.event.release.tag_name }} ${{ inputs.version }}
+
+      # Setup .npmrc file to publish to npm
+      - uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c
+        with:
+          node-version: '16.x'
+          registry-url: 'https://registry.npmjs.org'
+      - run: cd npmPackage && npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

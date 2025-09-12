@@ -1,0 +1,34 @@
+name: ci
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Node ${{ matrix.node-version }} / TS ${{ matrix.ts-version }} / React ${{ matrix.react-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x]
+        ts-version: ['3.9', '4.1', '5.0']
+        react-version: ['16']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install TypeScript ${{ matrix.ts-version }}
+        run: npm install typescript@${{ matrix.ts-version }}
+
+      - name: Install React ${{ matrix.react-version }}
+        run: npm install react@${{ matrix.react-version }}
+
+      - run: npm run lint
+      - run: npm test

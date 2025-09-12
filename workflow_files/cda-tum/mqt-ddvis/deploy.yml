@@ -1,0 +1,33 @@
+name: Server Deployment
+on:
+  push:
+    branches:
+      - main
+
+env:
+  DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+  KNOWN_HOSTS: ${{ secrets.KNOWN_HOSTS }}
+  CDA_HOST_NAME: tueicda-cda.srv.mwn.de
+  CDA_USER_NAME: web-user
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH via the stored Action Secrets
+        run: |
+          mkdir -p ~/.ssh
+          echo "${KNOWN_HOSTS}" >> ~/.ssh/known_hosts
+          echo "${DEPLOY_KEY}" > ~/.ssh/deploy.key
+          chmod 600 ~/.ssh/deploy.key
+          cat >>~/.ssh/config <<END
+          Host deploy
+           HostName ${CDA_HOST_NAME}
+           User ${CDA_USER_NAME}
+           IdentityFile ~/.ssh/deploy.key
+          END
+      - name: Check out the source
+        run: ssh deploy 'cd /var/www/cda/app/ddvis/ && git fetch && git reset --hard origin/main && git submodule update --init --recursive'
+      - name: Install the dependencies
+        run: ssh deploy 'cd /var/www/cda/app/ddvis/ && npm install'

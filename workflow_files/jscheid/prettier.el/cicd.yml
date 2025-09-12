@@ -1,0 +1,225 @@
+# * cicd.yml --- CI/CD for prettier-el
+
+# Based on makem.sh's template at
+# <https://github.com/alphapapa/makem.sh/blob/master/test.yml>
+
+# Based on Steve Purcell's examples at
+# <https://github.com/purcell/setup-emacs/blob/master/.github/workflows/test.yml>,
+# <https://github.com/purcell/package-lint/blob/master/.github/workflows/test.yml>.
+
+# * License:
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# * Code:
+
+# Note: for the time being, name can't be changed without the old
+# workflow sticking around indefinitely.  Should rename this to
+# something more accurate once this is fixed.  See
+# <https://github.community/t/is-there-a-way-to-delete-or-hide-old-renamed-workflows/16281/15>
+name: "CI"
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        emacs_version:
+          - 27.1
+          - 28.2
+          - 29.1
+          - snapshot
+    outputs:
+      tarball_name: "${{ steps.upload.outputs.tarball_name }}"
+    steps:
+      - uses: purcell/setup-emacs@master
+        with:
+          version: ${{ matrix.emacs_version }}
+
+      - uses: actions/checkout@v2
+
+      - name: Install Yarn
+        run: npm install -g yarn
+
+      - uses: c-hive/gha-yarn-cache@v2
+        if: ${{ !env.ACT }}
+
+      - name: Initialize sandbox
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          retry_wait_seconds: 20
+          max_attempts: 5
+          retry_on: error
+          command: |
+            SANDBOX_DIR=$(mktemp -d) || exit 1
+            echo "SANDBOX_DIR=$SANDBOX_DIR" >> $GITHUB_ENV
+            ./makem.sh -vv --sandbox=$SANDBOX_DIR --install-deps --install-linters
+
+      # The "all" rule is not used, because it treats compilation warnings
+      # as failures, so linting and testing are run as separate steps.
+
+      - name: Install JavaScript dependencies
+        run: |
+          yarn
+          cd test-stable && yarn && cd ..
+          cd test-v2 && yarn && cd ..
+
+      - name: Install additional packages
+        run: sudo apt-get -y install aspell python3 python3-setuptools texinfo ruby
+
+      - name: Install pandoc 2
+        run: |
+          curl -LO https://github.com/jgm/pandoc/releases/download/2.9.2.1/pandoc-2.9.2.1-1-amd64.deb
+          sudo dpkg -i pandoc-2.9.2.1-1-amd64.deb
+
+      - name: Install panflute
+        run: sudo pip3 install 'panflute==1.12.5'
+
+      - name: Install prettier-ruby dependencies
+        run: sudo gem install bundler prettier_print syntax_tree syntax_tree-haml syntax_tree-rbs
+
+      - name: Lint
+        run: ./makem.sh -vv --sandbox=$SANDBOX_DIR lint-checkdoc lint-compile lint-declare lint-package lint-regexps
+
+      - name: Set version suffix for PRs
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "VERSION_SUFFIXES=${{ github.run_number }}.-4" >> $GITHUB_ENV
+
+      - name: Build and Test
+        if: always() # Run test even if linting fails.
+        id: build
+        run: |
+          set -x
+          make
+          ./makem.sh -vv --sandbox=$SANDBOX_DIR test
+          version=$(awk 'END {gsub(/"/, "", $3); print $3}' < dist/prettier-pkg.el)
+          tarball_name="prettier-${version}.tar"
+          tar cf "${tarball_name}"  --transform="s,^dist/,prettier-${version}/," dist/*
+          ls -ld "${tarball_name}"
+          echo "::set-output name=tarball_name::${tarball_name}"
+
+      - name: Upload build
+        if: matrix.emacs_version == '27.1'
+        uses: actions/upload-artifact@v3
+        with:
+          path: "${{ steps.build.outputs.tarball_name }}"
+          name: "${{ steps.build.outputs.tarball_name }}"
+
+      - name: Set build output
+        if: matrix.emacs_version == '27.1'
+        id: upload
+        run: |
+          echo "::set-output name=tarball_name::${{ steps.build.outputs.tarball_name }}"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+      - name: Download build
+        id: download
+        uses: actions/download-artifact@v3
+        with:
+          name: "${{ needs.build.outputs.tarball_name }}"
+
+      - name: Unpack tarball
+        run: |
+          set -eou pipefail
+          mkdir -p dist
+          tar xf ${{ steps.download.outputs.download-path }}/${{ needs.build.outputs.tarball_name }} \
+            --strip-components=1 \
+            --exclude=prettier-pkg.el \
+            --directory=dist
+
+      - name: Get commit message
+        run: |
+          set -eou pipefail
+          echo 'commit_message<<GITHUB_ENV_EOF' >> $GITHUB_ENV
+          curl \
+            --silent \
+            --show-error \
+            --header "Accept: application/vnd.github.v3+json" \
+            --header "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.sha }}" \
+            | jq --raw-output .commit.message >> $GITHUB_ENV
+          echo GITHUB_ENV_EOF >> $GITHUB_ENV
+
+      - name: Get configuration
+        run: |
+          set -eou pipefail
+          version=$(
+            grep '^;; Version' dist/prettier.el | head -1 | cut -d ' ' -f3
+          )
+          response_code=$(
+            curl \
+              --silent \
+              --show-error \
+              --header "Accept: application/vnd.github.v3+json" \
+              --header "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              --output /dev/null \
+              --write-out "%{http_code}" \
+              "https://api.github.com/repos/${{ github.repository }}/git/ref/tags/v${version}"
+          )
+          if [ "$response_code" == '404' ]; then
+            echo "version=${version}" >> $GITHUB_ENV
+            echo "master_tag_name=v${version}" >> $GITHUB_ENV
+            echo "release_tag_name=release-${version}" >> $GITHUB_ENV
+            echo "tag_message=Version ${version}" >> $GITHUB_ENV
+          fi
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist
+          publish_branch: release
+          commit_message: ${{ env.commit_message }}
+          tag_name: ${{ env.release_tag_name }}
+          tag_message: ${{ env.tag_message }}
+
+      - name: Create release
+        if: env.master_tag_name != ''
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.master_tag_name }}
+          release_name: ${{ env.master_tag_name }}
+          body: |
+            See `CHANGELOG.md`
+          draft: false
+          prerelease: false
+
+      - name: Upload release tarball
+        if: env.master_tag_name != ''
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.download.outputs.download-path }}
+          asset_name: "${{ needs.build.outputs.tarball_name }}"
+          asset_content_type: application/x-tar
+# Local Variables:
+# eval: (outline-minor-mode)
+# End:

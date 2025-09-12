@@ -1,0 +1,119 @@
+#   Copyright 2019 Marc Nuri San Felix
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: Install
+        run: npm install
+      - name: Pretest
+        run: npm run pretest
+      - name: Test
+        run: NODE_OPTIONS=--experimental-vm-modules npm test
+      - name: SonarCloud
+        run: |
+          ./node_modules/.bin/sonar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_SCANNER_OPTS: "-server"
+  linux-build:
+    name: Linux Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: Install Snap
+        # Not needed for this job just to verify it can be installed for use in the publishing workflow
+        run: |
+          sudo apt update && sudo apt-get install snapd
+          sudo chown root:root / # Snapcraft requires '/' to be root owned
+          sudo snap install snapcraft --classic
+      - name: Install
+        run: npm install
+      - name: Build
+        run: npm run build:linux
+      - name: CI Artifact for AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: electronim-linux-x86_64.AppImage
+          path: dist/electronim-linux-x86_64.AppImage
+  macos-build:
+    name: macOS Build
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: macOS requirements
+        run: |
+          brew install python-setuptools
+      - name: Install
+        run: npm install
+      - name: Install macOS only requirement (Electron Builder)
+        run: npm install dmg-license
+      - name: Build
+        run:  npm run build:mac
+  windows-build:
+    name: Windows Build
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: Install
+        run: npm install
+      - name: Build
+        run: npm run build:win
+      - name: Prepare Chocolatey
+        run: node .\utils\prepare-chocolatey.js
+      - name: Choco Script tests
+        run: |
+          powershell
+          choco pack --version=$(node -p "require('./package').version") build-config/electronim.nuspec
+          choco install electronim -dvy -s .
+      - name: CI Artifact for exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: electronim-win-x64.exe
+          path: dist/electronim-win-x64.exe
+

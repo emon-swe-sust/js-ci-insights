@@ -1,0 +1,32 @@
+name: Demo
+"on":
+  schedule:
+    - cron: "0 3 * * *"
+  push:
+jobs:
+  file-sync:
+    name: File Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./
+        name: "Simple"
+        with:
+          DRY_RUN: true
+          FILE_PATTERNS: |
+            ^README.md$
+            ^.github/workflows/sync-.*
+          TARGET_REPOS: |
+            adrianjost/files-sync-target:main
+          GITHUB_TOKEN: ${{ secrets.SYNCED_GITHUB_TOKEN }}
+      - uses: ./
+        name: "With custom roots"
+        with:
+          DRY_RUN: true
+          FILE_PATTERNS: |
+            .*\.js
+          TARGET_REPOS: |
+            adrianjost/files-sync-target
+          SRC_ROOT: "/src/"
+          TARGET_ROOT: "/target/"
+          GITHUB_TOKEN: ${{ secrets.SYNCED_GITHUB_TOKEN }}

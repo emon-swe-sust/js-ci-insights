@@ -1,0 +1,63 @@
+name: 'ci'
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'releases/*'
+
+jobs:
+  semantic-pull-request:
+    uses: VeryGoodOpenSource/very_good_workflows/.github/workflows/semantic_pull_request.yml@v1
+
+  styling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Format
+        run: npm run check_format
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install dependencies
+        run: npm ci
+      - name: Test
+        run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test (100% requirement on 100% file)
+        uses: ./
+        with:
+          path: './fixtures/lcov.100.info'
+      - name: Test (90% requirement on 95% file)
+        uses: ./
+        with:
+          path: './fixtures/lcov.95.info'
+          min_coverage: 90
+      - name: Test (100% requirement on 95% file)
+        uses: ./
+        with:
+          path: './fixtures/lcov.95.info'
+          exclude: '**/*_observer.dart'
+      - name: Test (100% requirement on 95% file with excludes)
+        uses: ./
+        with:
+          path: './fixtures/lcov.95.info'
+          exclude: '**/whatever.dart **/*_observer.dart **/does_not_matter.dart'
+
+  spell-check:
+    uses: VeryGoodOpenSource/very_good_workflows/.github/workflows/spell_check.yml@v1
+    with:
+      includes: |
+        **/*.md
+        .*/**/*.md
+      modified_files_only: false

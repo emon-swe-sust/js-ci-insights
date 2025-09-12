@@ -1,0 +1,31 @@
+name: Build
+on:
+  push:
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 23
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Check out source code
+        uses: actions/checkout@v4
+
+      - name: Build
+        run:  bun install && bun run build
+
+      - name: Tests
+        run: bun test

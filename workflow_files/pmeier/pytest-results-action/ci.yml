@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-env
+
+      - name: Format the code
+        run: npm run format
+
+      - name: Check format
+        run: |
+          if [ "$(git diff | wc -l)" -gt "0" ]; then
+            echo "Code format is not correct. Please run \`npm run format\` and commit the results."
+            exit 1
+          fi
+
+  build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-env
+
+      - name: Install node modules
+        run: npm clean-install
+
+      - name: Build the project
+        run: npm run build
+
+      - name: Check synchronicity
+        id: sync
+        run: |
+          if [ "$(git diff | wc -l)" -gt "0" ]; then
+            echo "dist/ is out of sync with src/. Please run \`npm run build\` and commit the results."
+            exit 1
+          fi
+
+  integration-smoke-test:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-env
+
+      - name: Setup pytest
+        run: uv pip install pytest
+
+      - name: Run tests
+        run: uv run pytest --junit-xml=test-results.xml || true
+
+      - name: Summarize test results
+        uses: ./
+        with:
+          path: test-results.xml

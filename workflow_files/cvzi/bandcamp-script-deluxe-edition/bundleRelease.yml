@@ -1,0 +1,35 @@
+name: bundleRelease
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths-ignore:
+    - 'dist/**'
+jobs:
+  singleDomain:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: git config
+      run: |
+        git config --global user.name github-actions
+        git config --global user.email 41898282+github-actions[bot]@users.noreply.github.com
+        git pull
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: create release version in dist/
+      run: |
+        npm install
+        npm run build:release
+        npm run build:singledomain
+    - name: check singledomain build
+      run: |
+        grep -F "Bandcamp script (bandcamp.com only)" dist/release-bandcamp.com-only.user.js
+        grep -F "https://*.bandcamp.com/*" dist/release-bandcamp.com-only.user.js
+    - name: commit & push
+      run: |
+        git add dist/
+        git commit -m "Created release bundle" || true
+        git push

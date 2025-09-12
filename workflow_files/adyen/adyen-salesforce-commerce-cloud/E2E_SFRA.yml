@@ -1,0 +1,70 @@
+name: E2E For SFRA
+
+on:
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  e2e-sfra5:
+    uses: ./.github/workflows/E2E_template.yml
+    with:
+      sfra_version: 'v5.3.0'
+      node_version: '14'
+    secrets:
+      SFCC_USERNAME: ${{ secrets.SFCC_USERNAME }}
+      SFCC_PASSWORD: ${{ secrets.SFCC_PASSWORD }}
+      SFCC_HOSTNAME: ${{ secrets.SFCC_HOSTNAME_SFRA5 }}
+      SFCC_CODE_VERSION: ${{ secrets.SFCC_CODE_VERSION_SFRA5 }}
+      SFCC_STOREFRONT_URL: ${{ secrets.SFCC_STOREFRONT_URL_SFRA7 }}
+      SERVICE_ACCOUNT_SSH_KEY: ${{ secrets.SERVICE_ACCOUNT_SSH_KEY }}
+      SANDBOX_HTTP_AUTH_USERNAME: ${{ secrets.SANDBOX_HTTP_AUTH_USERNAME }}
+      SANDBOX_HTTP_AUTH_PASSWORD: ${{ secrets.SANDBOX_HTTP_AUTH_PASSWORD }}
+      PAYPAL_USERNAME: ${{ secrets.PAYPAL_USERNAME }}
+      PAYPAL_PASSWORD: ${{ secrets.PAYPAL_PASSWORD }}
+      AMAZONPAY_USERNAME: ${{ secrets.AMAZONPAY_USERNAME }}
+      AMAZONPAY_PASSWORD: ${{ secrets.AMAZONPAY_PASSWORD }}
+      GOOGLEPAY_USERNAME: ${{ secrets.GOOGLEPAY_USERNAME }}
+      GOOGLEPAY_PASSWORD: ${{ secrets.GOOGLEPAY_PASSWORD }}
+
+  e2e-sfra6:
+    uses: ./.github/workflows/E2E_template.yml
+    with:
+      sfra_version: 'v6.1.0'
+      node_version: '14'
+    secrets:
+      SFCC_USERNAME: ${{ secrets.SFCC_USERNAME }}
+      SFCC_PASSWORD: ${{ secrets.SFCC_PASSWORD }}
+      SFCC_HOSTNAME: ${{ secrets.SFCC_HOSTNAME_SFRA6 }}
+      SFCC_CODE_VERSION: ${{ secrets.SFCC_CODE_VERSION_SFRA6 }}
+      SFCC_STOREFRONT_URL: ${{ secrets.SFCC_STOREFRONT_URL_SFRA6 }}
+      SERVICE_ACCOUNT_SSH_KEY: ${{ secrets.SERVICE_ACCOUNT_SSH_KEY }}
+      SANDBOX_HTTP_AUTH_USERNAME: ${{ secrets.SANDBOX_HTTP_AUTH_USERNAME }}
+      SANDBOX_HTTP_AUTH_PASSWORD: ${{ secrets.SANDBOX_HTTP_AUTH_PASSWORD }}
+      PAYPAL_USERNAME: ${{ secrets.PAYPAL_USERNAME }}
+      PAYPAL_PASSWORD: ${{ secrets.PAYPAL_PASSWORD }}
+      AMAZONPAY_USERNAME: ${{ secrets.AMAZONPAY_USERNAME }}
+      AMAZONPAY_PASSWORD: ${{ secrets.AMAZONPAY_PASSWORD }}
+      GOOGLEPAY_USERNAME: ${{ secrets.GOOGLEPAY_USERNAME }}
+      GOOGLEPAY_PASSWORD: ${{ secrets.GOOGLEPAY_PASSWORD }}
+
+  e2e-sfra7:
+    uses: ./.github/workflows/E2E_template.yml
+    with:
+      sfra_version: 'v7.0.0'
+      node_version: '18'
+    secrets:
+      SFCC_USERNAME: ${{ secrets.SFCC_USERNAME }}
+      SFCC_PASSWORD: ${{ secrets.SFCC_PASSWORD }}
+      SFCC_HOSTNAME: ${{ secrets.SFCC_HOSTNAME_SFRA7 }}
+      SFCC_CODE_VERSION: ${{ secrets.SFCC_CODE_VERSION_SFRA7 }}
+      SFCC_STOREFRONT_URL: ${{ secrets.SFCC_STOREFRONT_URL_SFRA7 }}
+      SERVICE_ACCOUNT_SSH_KEY: ${{ secrets.SERVICE_ACCOUNT_SSH_KEY }}
+      SANDBOX_HTTP_AUTH_USERNAME: ${{ secrets.SANDBOX_HTTP_AUTH_USERNAME }}
+      SANDBOX_HTTP_AUTH_PASSWORD: ${{ secrets.SANDBOX_HTTP_AUTH_PASSWORD }}
+      PAYPAL_USERNAME: ${{ secrets.PAYPAL_USERNAME }}
+      PAYPAL_PASSWORD: ${{ secrets.PAYPAL_PASSWORD }}
+      AMAZONPAY_USERNAME: ${{ secrets.AMAZONPAY_USERNAME }}
+      AMAZONPAY_PASSWORD: ${{ secrets.AMAZONPAY_PASSWORD }}
+      GOOGLEPAY_USERNAME: ${{ secrets.GOOGLEPAY_USERNAME }}
+      GOOGLEPAY_PASSWORD: ${{ secrets.GOOGLEPAY_PASSWORD }}

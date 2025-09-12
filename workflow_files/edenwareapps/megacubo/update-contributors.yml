@@ -1,0 +1,37 @@
+name: Add All Contributors
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-contributors:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 'lts/*'
+
+      - name: Install all-contributors-cli
+        run: npm install -g all-contributors-cli
+
+      - name: Configure Git
+        run: |
+          git config user.email "efox.web@gmail.com"
+          git config user.name "EdenwareApps"
+          git fetch origin
+          git reset --soft origin/master
+
+      - name: Add contributor
+        run: |
+          npx all-contributors add ${{ github.actor }} code
+          git commit -am "docs: add all contributors" || echo "No changes to commit"
+          git push origin master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

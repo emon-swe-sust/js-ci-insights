@@ -1,0 +1,23 @@
+name: Submit agama-web-ui
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths:
+      # run only when a web frontend source is changed
+      - web/**
+
+  # allow running manually
+  workflow_dispatch:
+
+jobs:
+  update_staging:
+    uses: ./.github/workflows/obs-staging-shared.yml
+    # pass all secrets
+    secrets: inherit
+    with:
+      install_packages: obs-service-node_modules
+      package_name: agama-web-ui
+      service_file: web/package/_service

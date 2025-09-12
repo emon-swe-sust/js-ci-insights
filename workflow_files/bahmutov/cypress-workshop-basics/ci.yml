@@ -1,0 +1,60 @@
+name: ci
+on: push
+jobs:
+  # test main CI specs in one job
+  # and test the answers in another job
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 🛎
+        uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+
+      - name: Print versions 🖨️
+        run: node -v
+
+      # https://github.com/cypress-io/github-action
+      - name: Run Cypress tests 🧪
+        uses: cypress-io/github-action@v5
+        with:
+          config-file: 'cypress.ci-config.js'
+          start: 'npm start'
+          wait-on: 'http://localhost:3000'
+
+  test-answers:
+    runs-on: ubuntu-24.04
+    strategy:
+      # when one test fails, DO NOT cancel the other
+      # containers, because this will kill Cypress processes
+      # leaving the Dashboard hanging ...
+      # https://github.com/cypress-io/github-action/issues/48
+      fail-fast: false
+      matrix:
+        # run N copies of the current job in parallel
+        containers: [1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - name: Checkout 🛎
+        uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+
+      # https://github.com/cypress-io/github-action
+      - name: Test answers 🤔
+        uses: cypress-io/github-action@v6
+        with:
+          start: 'npm start'
+          wait-on: 'http://localhost:3000'
+          # run every answer spec file
+          config: 'specPattern=cypress/e2e/*/answer*.js'
+          # record the test results to Cypress Dashboard
+          record: true
+          parallel: true
+          group: Answers
+          tag: answers
+        env:
+          CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}

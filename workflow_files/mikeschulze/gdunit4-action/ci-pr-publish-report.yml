@@ -1,0 +1,70 @@
+name: 'Publish Test Report'
+on:
+  workflow_run:
+    workflows: ['ci-pr', 'ci-master']  # runs after workflows
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      workflow_run_id:
+        description: 'ID of the workflow run to download artifacts from.'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+jobs:
+  publish-reports:
+    runs-on: ${{ matrix.dotnet-version == 'net7.0' && 'ubuntu-22.04' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        godot-version: ['4.2', '4.2.1', '4.2.2', '4.3', '4.4']
+        godot-status: ['stable']
+        dotnet-version: ['', 'net7.0', 'net8.0']
+        gdunit-version: ['master', 'latest', 'v4.2.0']
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: artifact_gdUnit4_${{ matrix.gdunit-version }}_Godot${{ matrix.godot-version }}${{ matrix.dotnet-version }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: MikeSchulze/gdUnit4-action
+          run-id: ${{ github.event.inputs.workflow_run_id || github.event.workflow_run.id }}
+
+      - name: 'Publish Test Results'
+        if: ${{ matrix.dotnet-version == '' }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: report_gdUnit4_${{ matrix.gdunit-version }}-Godot${{ matrix.godot-version }}
+          # using artifact to download is broken since download-artifact@v4 see https://github.com/dorny/test-reporter/issues/363
+          # We do the download manually on step `Download artifacts`
+          #artifact: artifact_gdUnit4_Godot${{ matrix.godot-version }}-${{ matrix.godot-status }}${{ matrix.gdotnet-version }}
+          path: './home/runner/work/gdUnit4-action/gdUnit4-action/reports/**/results.xml'
+          reporter: java-junit
+          fail-on-error: 'false'
+          fail-on-empty: 'false'
+          use-actions-summary: 'false'
+
+      - name: 'Publish Test Adapter Results'
+        if: ${{ matrix.dotnet-version != '' }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: report_gdUnit4_${{ matrix.gdunit-version }}-Godot${{ matrix.godot-version }}-${{ matrix.dotnet-version }}
+          # using artifact to download is broken since download-artifact@v4 see https://github.com/dorny/test-reporter/issues/363
+          # We do the download manually on step `Download artifacts`
+          #artifact: artifact_gdUnit4_Godot${{ matrix.godot-version }}-${{ matrix.godot-status }}${{ matrix.gdotnet-version }}
+          path: './home/runner/work/gdUnit4-action/gdUnit4-action/reports/*.xml'
+          reporter: dotnet-trx
+          fail-on-error: 'false'
+          fail-on-empty: 'false'
+          use-actions-summary: 'false'

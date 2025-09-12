@@ -1,0 +1,30 @@
+name: "Develop branch workflow"
+
+on:
+  push:
+    branches:
+      - "develop"
+      - "release-*"
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-jsorolla-workflow.yml
+
+  test:
+    uses: ./.github/workflows/test.yml
+    needs: build
+
+  deploy-docker:
+    uses: ./.github/workflows/deploy-docker-jsorolla.yml
+    needs: test
+    with:
+      cli: python3 ./docker/docker-build.py push
+    secrets: inherit
+
+  deploy-web:
+    uses: opencb/java-common-libs/.github/workflows/publish-test-report-workflow.yml@develop
+    needs: build
+    with:
+      target_path: /var/www/html/iva/builds/${{ needs.build.outputs.version }}
+      content: build-folder
+    secrets: inherit

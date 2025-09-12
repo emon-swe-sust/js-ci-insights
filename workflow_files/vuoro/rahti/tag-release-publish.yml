@@ -1,0 +1,45 @@
+name: Tag, Release, & Publish
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout your updated source code
+      - uses: actions/checkout@v3
+
+        # If the version has changed, create a new git tag for it.
+      - name: Tag
+        id: autotagger
+        uses: butlerlogic/action-autotag@1.1.2
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+        # The remaining steps all depend on whether or  not
+        # a new tag was created. There is no need to release/publish
+        # updates until the code base is in a releaseable state.
+
+        # Create a github release
+        # This will create a snapshot of the module,
+        # available in the "Releases" section on Github.
+      - name: Release
+        id: create_release
+        if: steps.autotagger.outputs.tagcreated == 'yes'
+        uses: actions/create-release@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.autotagger.outputs.tagname }}
+          release_name: ${{ steps.autotagger.outputs.tagname }}
+      
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

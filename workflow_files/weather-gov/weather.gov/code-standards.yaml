@@ -1,0 +1,368 @@
+name: code standards
+on:
+  pull_request:
+  merge_group:
+
+jobs:
+  should-test:
+    name: check if we should run tests
+    runs-on: ubuntu-latest
+    outputs:
+      "no": ${{ steps.skip-tests.outputs.no }}
+      "yes": ${{ steps.skip-tests.outputs.yes }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: list files that have changed from main
+        id: diff
+        run: echo "diff=$(git diff --name-only origin/main)" | tr "\n" "\t" >> $GITHUB_OUTPUT
+
+      - name: determine whether to skip tests
+        id: skip-tests
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // The paths that are exempt from testing. If all of the changed
+            // files are in these paths, we can skip tests completely.
+            const exemptPaths = [
+              "docs/",
+              "scripts/",
+              ".bp-config/",
+            ];
+
+            // Get the list of changed files from the previous step and turn it
+            // into something we can work with.
+            const changedFiles = ${{ toJSON(steps.diff.outputs.diff) }}
+              .split("\t")
+              .filter(value => value.length > 0);
+
+            // Determine whether to skip tests. We will skip tests if it is true
+            // for EVERY FILE that they are in ANY of the exempted paths.
+            const skipTests = changedFiles.every(file => exemptPaths.some(path => file.startsWith(path)));
+
+            // Set the output so other jobs can use it. If we are skipping
+            // tests, add an annotation so we know, and list out the files that
+            // were changed. This may be helpful for debugging if things go
+            // sideways later on.
+            core.setOutput('no', skipTests);
+            core.setOutput('yes', !skipTests);
+            if(skipTests) {
+              core.notice(`Skipping tests. Modified files are:\n* ${changedFiles.join("\n* ")}`);
+            }
+
+  php-lint:
+    name: PHP lint
+    runs-on: ubuntu-latest
+    needs: [should-test]
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+      - name: lint PHP
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/php-lint
+
+  js-lint:
+    name: JS lint
+    runs-on: ubuntu-latest
+    needs: [should-test]
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+      - name: lint Javascript
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/javascript-lint
+
+  js-component-tests:
+    name: JS Component Tests
+    runs-on: ubuntu-latest
+    needs: [should-test]
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+      - name: run Javascript component tests
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/javascript-component-tests
+
+  style-lint:
+    name: SCSS lint
+    runs-on: ubuntu-latest
+    needs: [should-test]
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+      - name: lint styles
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/style-lint
+
+  interop-layer-unit-tests:
+    name: interop layer unit tests
+    runs-on: ubuntu-latest
+    needs: [should-test]
+    defaults:
+      run:
+        working-directory: ./api-interop-layer/
+
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+      - name: setup node
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: install dependencies
+        if: needs.should-test.outputs.yes == 'true'
+        run: npm ci
+      - name: test
+        if: needs.should-test.outputs.yes == 'true'
+        run: npm test
+      - name: store coverage output
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: interop-coverage-report
+          path: ./api-interop-layer/coverage/clover.xml
+          retention-days: 1
+      - name: store coverage HTML
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: interop-coverage-html
+          path: ./api-interop-layer/coverage/
+          retention-days: 1
+
+  build-drupal-image:
+    name: build Drupal image
+    runs-on: ubuntu-latest
+    needs: [should-test]
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+
+      - name: build drupal
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/build-drupal-image
+
+  populate-database:
+    name: populate database
+    runs-on: ubuntu-latest
+    needs: [build-drupal-image, should-test]
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+      - name: populate database
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/populate-database
+
+  php-tests:
+    name: PHP tests
+    runs-on: ubuntu-latest
+    needs: [populate-database, should-test]
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+
+      - name: setup site
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/setup-site
+
+      - name: run unit tests
+        if: needs.should-test.outputs.yes == 'true'
+        run: |
+          curl http://localhost:8081/play/e2e
+          make backend-test
+
+      - name: store coverage output
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: drupal-coverage-report
+          path: .coverage/clover.xml
+          retention-days: 1
+
+      - name: store coverage HTML
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: drupal-coverage-html
+          # This is necessary because the action interprets this single entity
+          # starting with a dot as hidden. This is a bug in the action.
+          #   https://github.com/actions/upload-artifact/issues/618
+          include-hidden-files: true
+          path: .coverage/
+          retention-days: 1
+
+  merge-code-coverage:
+    name: merge coverage
+    runs-on: ubuntu-latest
+    needs: [php-tests, interop-layer-unit-tests, should-test]
+
+    steps:
+      - name: get Drupal coverage output
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: drupal-coverage-report
+      - name: rename
+        if: needs.should-test.outputs.yes == 'true'
+        run: mv clover.xml drupal.xml
+      - name: get interop layer coverage output
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: interop-coverage-report
+      - name: rename
+        if: needs.should-test.outputs.yes == 'true'
+        run: mv clover.xml interop.xml
+      - name: setup PHP
+        if: needs.should-test.outputs.yes == 'true'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: uopz
+      - name: install combine library
+        if: needs.should-test.outputs.yes == 'true'
+        run: composer require kavinsky/clover-merge
+      - name: combine reports
+        if: needs.should-test.outputs.yes == 'true'
+        run: ./vendor/bin/clover-merge merge -o combined.xml drupal.xml interop.xml
+      - name: store coverage output
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-coverage-report
+          path: combined.xml
+          retention-days: 1
+
+  min-code-coverage:
+    name: "90% code coverage"
+    runs-on: ubuntu-latest
+    needs: [merge-code-coverage, should-test]
+
+    steps:
+      - name: get combined coverage output
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: combined-coverage-report
+
+      - name: 90% code coverage
+        if: needs.should-test.outputs.yes == 'true'
+        id: test-coverage
+        uses: johanvanhelden/gha-clover-test-coverage-check@v1
+        with:
+          percentage: 90
+          filename: combined.xml
+          metric: statements
+
+  accessibility-tests:
+    name: accessibility tests
+    runs-on: ubuntu-latest
+    needs: [populate-database, should-test]
+
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+      - name: setup site
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/setup-site
+      - name: run automated accessibility tests
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/accessibility-tests
+
+  browser-tests:
+    name: browser tests
+    runs-on: ubuntu-latest
+    needs: [populate-database, should-test]
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
+    steps:
+      - name: checkout
+        if: needs.should-test.outputs.yes == 'true'
+        uses: actions/checkout@v4
+      - name: setup site
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/setup-site
+      - name: run browser tests (Playwright)
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/browser-tests-playwright
+
+  merge-reports:
+    # Merge reports after playwright-tests, even if some shards have failed
+    if: ${{ !cancelled() }} && needs.should-test.outputs.yes == 'true'
+    needs: [browser-tests]
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download blob reports from GitHub Actions Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge into HTML Report
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-report--attempt-${{ github.run_attempt }}
+          path: playwright-report
+          retention-days: 14
+
+  page-load-time-tests:
+    name: page load time tests
+    runs-on: ubuntu-latest
+    needs: [populate-database, should-test]
+    if: needs.should-test.outputs.yes == 'true'
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup site
+        if: needs.should-test.outputs.yes == 'true'
+        uses: ./.github/actions/setup-site
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: test load times
+        run: npx playwright test load-times
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: dependency review
+        uses: actions/dependency-review-action@v4

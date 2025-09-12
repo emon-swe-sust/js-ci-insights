@@ -1,0 +1,90 @@
+# This workflow builds a xar archive, deploys it into exist and execute its test suites.
+# It also includes code for using semantic-release to upload packages as part of GitHub releases
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: exist-db CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+       fail-fast: false
+       matrix:  
+         exist-version: [release, latest]
+         node-version: ['22']
+    # TODO: see #563 could still be usefull for gulp builds 
+    # services:
+    #   # Label used to access the service container
+    #   exist:
+    #     image: existdb/existdb:${{ matrix.exist-version}}
+    #     ports:
+    #       - 8080:8080
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      # Install dependencies and build EXPath Package
+      - name: Install node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Run npm CI
+        run: npm ci
+      
+      - name: Build frontend Using node.js ${{ matrix.node-version }} and build EXPath Package
+        run: npm run build
+
+      - name: Start eXist-db Docker Container
+        run: docker run --rm --name exist --volume $(pwd)/build:/exist/autodeploy:ro --publish 8080:8080 --detach existdb/existdb:${{ matrix.exist-version }}
+
+      - name: Wait for eXist-db Startup
+        run: timeout 90 sh -c 'until nc -z $0 $1; do sleep 3; done' localhost 8080
+
+      - name: Run Cypress Integration Tests
+        run: npx cypress run
+
+      - name: Upload Cypress Screenshots (on failure)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cypress-screenshots-${{ matrix.exist-version }}-${{ matrix.node-version }}
+          path: cypress/screenshots
+
+      # Test run video was always captured, so this action uses "always()" condition
+      - name: Upload Cypress Videos
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cypress-videos-${{ matrix.exist-version }}-${{ matrix.node-version }}
+          path: cypress/videos
+
+  # TODO: Add upload to dockerhub   
+  # release:
+  #   name: Release
+  #   runs-on: ubuntu-latest
+  #   needs: build
+  #   if: github.ref == 'refs/heads/main'
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #       with:
+  #         fetch-depth: 0
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v2
+  #       with:
+  #         node-version: 14
+  #         cache: 'npm'
+  #     - name: Install dependencies
+  #       run: npm ci
+  #     - name: Create package
+  #       run: npm run build
+  #     - name: Release
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: npx semantic-release

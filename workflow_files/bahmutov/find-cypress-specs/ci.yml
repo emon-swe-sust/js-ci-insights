@@ -1,0 +1,167 @@
+name: ci
+on:
+  push:
+    branches:
+      - main
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout 🛎
+        uses: actions/checkout@v4
+
+      - name: Run tests 🧪
+        # https://github.com/cypress-io/github-action
+        uses: cypress-io/github-action@v6
+        env:
+          DEBUG: 'cypress:server:specs'
+
+      - name: Check production dependencies 💎
+        # remove OR once dependencies don't trigger an alert
+        run: npm run prod-deps || true
+
+      # prints all specs
+      - name: Demo found specs 💻
+        run: npm run demo
+
+      - name: Print specs sorted by last modified date
+        run: npm run demo-sorted-by-modified
+
+      - name: Print dependencies between tests and utils 💻
+        run: npm run deps
+
+      # module and import support
+      - name: Test module support
+        run: npm run demo-tests
+        working-directory: test-modules
+
+      # prints all specs and tests inside each spec
+      - name: Demo test names 💻
+        run: npm run demo-names
+
+      - name: Demo test names in Markdown format 💻
+        run: npm run demo-names-markdown
+
+      - name: Demo test names in Markdown format and put into job summary 💻
+        run: npm run demo-names-markdown >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Demo component test names 🧩
+        run: npm run demo-component
+
+      - name: Demo tags 💻
+        run: npm run demo-tags
+
+      - name: Demo test names and tags 💻
+        run: npm run demo-names-and-tags
+
+      - name: Demo pending tests only 💻
+        run: npm run demo-skipped-tests
+
+      - name: Demo count skipped tests 💻
+        run: npm run demo-count-skipped-tests
+
+      - name: Demo names in json output 💻
+        run: npm run demo-names-json
+
+      - name: Demo tags in json output 💻
+        run: npm run demo-tags-json
+
+      - name: Demo with custom cypress config 💻
+        run: npm run demo-custom-cypress-config
+
+      - name: Print specs changed against the main branch 🌳
+        run: npm run print-changed-specs
+
+      - name: Count the specs changed against the main branch 🌳
+        run: npm run count-changed-specs
+
+      - name: Load cypress.config.ts 🤘
+        run: npm run demo-tests --prefix test-ts
+      - name: Test cypress.config.ts project
+        run: npm test --prefix test-ts
+
+      - name: Load cypress.config.ts with import keyword 🤘
+        run: npm run demo-tests --prefix test-ts-import
+      - name: Test cypress.config.ts project with import keyword
+        run: npm test --prefix test-ts-import
+
+      - name: Trace TS path aliases demo
+        run: npm run deps --prefix test-ts-aliases
+
+      - name: Test cypress.json project (Cypress v9)
+        run: npm run demo-tests --prefix test-json
+
+      - name: Show finding specs by part of the test title
+        run: node ./bin/find.js --grep "something" --set-gha-outputs
+
+      - name: Test parsing broken JS file 🐞
+        run: npm run test-names --prefix test-parsing-error
+
+      - name: Test exclusive tests ↗️
+        run: npm run demo-exclusive
+
+      - name: Count all tags, including required
+        run: npm run count-all-tags
+
+      - name: Unit tests 🧪
+        run: npm test
+
+      - name: Find tests in subfolder
+        run: npm run demo-subfolder
+
+      - name: Confirm we can run specs in subfolder
+        uses: cypress-io/github-action@v6
+        with:
+          # we have already installed all dependencies above
+          install: false
+          config-file: mocks/my-app/e2e/cypress.config.js
+
+      - name: Count all tests 📊
+        run: npm run demo-test-counts
+
+      - name: Show specs with tags
+        id: find-tagged
+        run: node ./bin/find --tagged @user --set-gha-outputs
+      - name: Print the found specs with tags
+        run: |
+          echo '${{ steps.find-tagged.outputs.taggedSpecsN }} Specs with tests tagged user' >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.find-tagged.outputs.taggedSpecs }}' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create HTML test report
+        run: npm run test-report
+      - name: Save HTML test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: report/index.html
+
+      - name: Deploy HTML test report to GH Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: report
+
+      - name: Publish the static report as static page
+        if: github.ref == 'refs/heads/main'
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Semantic Release 🚀
+        uses: cycjimmy/semantic-release-action@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          branch: main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

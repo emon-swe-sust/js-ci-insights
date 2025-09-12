@@ -1,0 +1,67 @@
+name: Release For Macos
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release'
+        required: true
+        default: 'v0.0.3'
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Build wheels - x86_64
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64-apple-darwin
+          args: --release --out dist --strip
+          sccache: 'true'
+      # - name: Install built wheel - x86_64
+      #   run: |
+      #     pip install pikpak-webdav --no-index --find-links dist --force-reinstall
+      #     pikpak-webdav --help
+      - name: Build wheels - universal2
+        uses: PyO3/maturin-action@v1
+        with:
+          target: universal2-apple-darwin
+          args: --release --out dist --strip
+          sccache: 'true'
+      # - name: Install built wheel - universal2
+      #   run: |
+      #     pip install pikpak-webdav --no-index --find-links dist --force-reinstall
+      #     pikpak-webdav --help
+      - name: Upload wheels
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheels
+          path: dist
+          if-no-files-found: error
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: apple-darwin-bin
+          path: target/release/pikpak-webdav
+          if-no-files-found: error
+      - name: Archive binary
+        run: |
+          cd target/release
+          tar czvf pikpak-webdav-${{ github.event.inputs.tag }}.apple-darwin.tar.gz pikpak-webdav
+          shasum -a 256 pikpak-webdav-${{ github.event.inputs.tag }}.apple-darwin.tar.gz > pikpak-webdav-${{ github.event.inputs.tag }}.apple-darwin.tar.gz.sha256
+          cd -
+      - name: Upload binary to GitHub Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/release/pikpak-webdav*.tar.gz
+          file_glob: true
+          overwrite: true
+          tag: "refs/tags/${{ github.event.inputs.tag }}"
+  

@@ -1,0 +1,58 @@
+name: Generate TV playlist and EPG
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - config.json
+      - src
+      - .github/workflows/ci.yml
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 21
+          cache: "npm"
+      - name: Generate files
+        run: |
+          npm install
+          npm run start
+          git clone --depth 1 -b master https://github.com/iptv-org/epg.git
+          cd epg
+          npm install
+          npm run grab -- --channels=../bin/channels.xml --output=../bin/guide.xml
+          cd ..
+          rm -rf epg
+      - name: Install ffprobe
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: ffmpeg
+          version: 1.0
+      - name: Install linuxbrew
+        uses: Homebrew/actions/setup-homebrew@master
+      - name: Install m3u-checker and ffprobe
+        run: |
+          brew install ghokun/tap/m3u-checker
+      - name: Probe streams
+        run: |
+          cd bin
+          m3u-checker --playlist playlist.m3u --file REPORT.md
+      - name: Commit and push
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes"
+          else
+            git config --global user.name github-actions
+            git config --global user.email github-actions@github.com
+            git add bin/*
+            git commit -m "Update playlist and EPG"
+            git push
+          fi

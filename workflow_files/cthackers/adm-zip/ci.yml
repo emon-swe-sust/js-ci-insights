@@ -1,0 +1,32 @@
+name: Linux build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        # mocha nolonger supports node 10
+        node-version: [12.x, 14.x, 16.x, 18.x, 20.x, 21.x]
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install
+        run: |
+          npm install
+
+      - name: Run Tests
+        run: |
+          npm test

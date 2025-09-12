@@ -1,0 +1,40 @@
+name: Build frontend
+
+on:
+  #push:
+  #  branches: [ master ]
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Update Site Status"]
+    types:
+      - completed
+
+jobs:
+  build:
+    name: Build frontend
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [16.x]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v2
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    - name: Npm install
+      run: npm ci
+    - name: Run build
+      run: npm run build --if-
+    - name: Deploy to gh-pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.TOKEN_ARGON_BOT }}
+        publish_dir: ./build
+        cname: argon-showcase.solstice23.top
+        force_orphan: true
+        user_name: 'github-actions[bot]'
+        user_email: 'github-actions[bot]@users.noreply.github.com'

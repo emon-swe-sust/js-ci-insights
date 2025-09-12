@@ -1,0 +1,21 @@
+name: Publish Latest
+on:
+  push:
+    branches:
+      - main
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18.x"
+          cache: "yarn"
+      - run: yarn install --immutable
+      - run: npm config set @airswap:registry https://registry.npmjs.org/
+      - run: npm config set //registry.npmjs.org/:_authToken ${{ secrets.NPM_TOKEN }}
+      - run: npx lerna run compile --concurrency=1
+      - run: npx lerna publish from-package --yes
+

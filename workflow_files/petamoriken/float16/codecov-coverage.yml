@@ -1,0 +1,41 @@
+name: Codecov
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.actor != 'dependabot[bot]')
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install dependencies
+        run: yarn --frozen-lockfile
+      - run: yarn build:lib
+        env:
+          NODE_ENV: test
+
+      - run: yarn coverage
+
+      - uses: codecov/codecov-action@v5
+        with:
+          flags: unittests

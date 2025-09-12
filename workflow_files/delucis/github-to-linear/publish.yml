@@ -1,0 +1,51 @@
+name: Publish
+
+env:
+  WEB_EXT_SOURCE_DIR: dist
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  submit:
+    name: Submit
+    strategy:
+      fail-fast: false
+      matrix:
+        command:
+          - Firefox
+          - Chrome
+    environment: ${{ matrix.command }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js 18.x
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v2
+
+      - name: Install Dependencies
+        run: pnpm i
+
+      - name: Build and submit to Mozilla
+        if: matrix.command == 'Firefox'
+        run: pnpm build && npx web-ext-submit@7
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+
+      - name: Build and submit to Google
+        if: matrix.command == 'Chrome'
+        run: pnpm build:chrome && cd $WEB_EXT_SOURCE_DIR && npx chrome-webstore-upload-cli@2 upload --auto-publish
+        env:
+          EXTENSION_ID: ${{ secrets.EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}

@@ -1,0 +1,79 @@
+name: Docs to PDF
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "website/**"
+      - "!website/static/un-transparency-protocol.pdf"
+
+jobs:
+  docs-to-pdf:
+    name: Generates PDF file from docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "write"
+      actions: "read"
+    concurrency:
+      group: pdf
+      cancel-in-progress: true
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: yarn
+
+      - name: Install fs-extra
+        # Workaround: docs-to-pdf expects fs-extra at runtime,
+        # but the package only includes type definitions.
+        # This step installs fs-extra globally until the package
+        # is updated to include it as a proper dependency.
+        # You can track the progress here: https://github.com/jean-humann/docs-to-pdf/pull/484
+        run: npm install -g fs-extra
+
+      - name: Install dependencies
+        run: npm install -g docs-to-pdf
+
+      - name: Generate PDF
+        run: |
+          echo "waiting for two minutes for GitHub pages to be deployed..."
+          sleep 120 && echo "Done!"
+          npx docs-to-pdf --initialDocURLs="https://uncefact.github.io/spec-untp/docs/about/" \
+          --contentSelector="article" \
+          --paginationSelector="a.pagination-nav__link.pagination-nav__link--next" \
+          --excludeSelectors=".breadcrumbs,.theme-edit-this-page" \
+          --excludePaths="/docs/implementations/" \
+          --excludeURLs="https://uncefact.github.io/spec-untp/docs/about/Meetings,https://uncefact.github.io/spec-untp/docs/about/FAQ" \
+          --outputPDFFilename="website/static/un-transparency-protocol.pdf" \
+          --coverTitle="UN Transparency Protocol" \
+          --coverImage="https://uncefact.github.io/spec-untp/img/home-hero.jpg" \
+          --cssStyle="body { font-size: 13px !important; } h1 { font-size: 40px !important; } h2 { font-size: 26px !important; } h3 { font-size: 20px !important; } h4 { font-size: 13px !important; }" \
+          --puppeteerArgs="--no-sandbox,--disable-setuid-sandbox"
+
+      #https://github.com/actions/create-github-app-token?tab=readme-ov-file#configure-git-cli-for-an-apps-bot-user
+      - name: Get GitHub App User ID
+        id: get-user-id
+        run: echo "user-id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      - run: |
+          git config --global user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
+          git config --global user.email '${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com'
+      - name: commit pdf
+        run: |
+          git add website/static/un-transparency-protocol.pdf
+          git commit -m "chore: update PDF file"
+          git push

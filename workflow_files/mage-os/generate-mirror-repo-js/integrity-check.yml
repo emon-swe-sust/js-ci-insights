@@ -1,0 +1,65 @@
+name: "[workflow call] Check integrity of given mirror repo"
+
+on:
+  workflow_call:
+    inputs:
+      repo:
+        description: 'The composer repository url'
+        required: true
+        type: string
+    secrets:
+      COMPOSER_AUTH:
+        required: true
+jobs:
+  compute-matrix:
+      runs-on: ubuntu-latest
+      outputs:
+        matrix: ${{ steps.supported-version.outputs.matrix }}
+      steps:
+        - uses: actions/checkout@v3
+        - uses: mage-os/github-actions/supported-version@main
+          with:
+            kind: all
+          id: supported-version
+
+  integrity-check:
+    name: ${{ matrix.magento }}
+    needs: [compute-matrix]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Create MageOS ${{ matrix.magento }} Project
+        uses: ./.github/actions/checkout-magento
+        with:
+          repository-url: ${{ inputs.repo }}
+          install-directory: ${{ github.workspace }}/mageos
+          magento-version: ${{ matrix.magento }}
+          composer-version: ${{ matrix.composer }}
+          composer-auth: ${{ secrets.COMPOSER_AUTH }}
+          php-version: ${{ matrix.php }}
+          sample-data: 'true'
+
+      - name: Create Magento ${{ matrix.magento }} Project
+        uses: ./.github/actions/checkout-magento
+        with:
+          repository-url: 'https://repo.magento.com/'
+          install-directory: ${{ github.workspace }}/magento
+          magento-version: ${{ matrix.magento }}
+          composer-version: ${{ matrix.composer }}
+          composer-auth: ${{ secrets.COMPOSER_AUTH }}
+          php-version: ${{ matrix.php }}
+          sample-data: 'true'
+
+      # Integrity checks
+      - run: node src/integrity-test/validate-package-versions-match.js ${{ github.workspace }}/mageos/vendor ${{ github.workspace }}/magento/vendor
+        name: Package Versions Validate
+
+      # Ignore composer.json, composer.log, generated composer autoload files and files in var/cache that start with `mage---`
+      - run: diff -rq -x "*composer*" -x "*autoload*" -x "*mage---*" -x "debug.log" -x ".git" ${{ github.workspace }}/magento ${{ github.workspace }}/mageos
+        if: always()
+        name: Files Integrity Check

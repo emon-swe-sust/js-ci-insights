@@ -1,0 +1,32 @@
+name: Release For New Electron Version
+
+on:
+  workflow_dispatch:
+    inputs:
+        version:
+          description: Electron version to use with "v" prefix (e.g. v30.0.0)
+          required: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    with:
+      electron-version: ${{ github.event.inputs.version }}
+  tag_new_version:
+    runs-on: ubuntu-latest
+    environment: deps-releaser
+    needs: test
+    steps:
+      - name: Generate GitHub App token
+        uses: electron/github-app-auth-action@384fd19694fe7b6dcc9a684746c6976ad78228ae # v1.1.1
+        id: generate-token
+        with:
+          creds: ${{ secrets.DEPS_RELEASER_GH_APP_CREDS }}
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+      # Tag here, the publish-npm.yml workflow will trigger on the new tag and do the publish
+      - name: Push New Tag
+        run: |
+          git tag ${{ github.event.inputs.version }}
+          git push origin ${{ github.event.inputs.version }}

@@ -1,0 +1,28 @@
+name: Publish Package to npmjs
+on:
+ release:
+   types: [created]
+
+jobs:
+ build:
+   runs-on: ubuntu-latest
+   permissions:
+     contents: read
+     id-token: write
+   steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+    - uses: actions/setup-node@v5.0.0
+      with:
+        node-version: '22.x'
+        # required for credentials to be taken in account
+        registry-url: 'https://registry.npmjs.org'
+    - name: Install latest npm
+      run: npm install -g npm
+    - name: Yarn install
+      run: yarn install
+    - name: Test
+      run: yarn test
+    - name: Publish
+      run: npm publish --provenance --access public
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

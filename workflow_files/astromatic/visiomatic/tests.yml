@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  push:
+    paths:
+      - 'src/visiomatic/server/**'
+      - 'tests/**'
+  pull_request:
+    paths:
+      - 'src/visiomatic/server/**'
+      - 'tests/**'
+  workflow_dispatch:
+
+jobs:
+#############################
+# Build and test Python API #
+#############################
+  test:
+    continue-on-error: false
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+        python-version: [ '3.10', '3.11', '3.12', '3.13' ]
+    name: Test Python ${{ matrix.python-version }} API
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install .[test]
+
+      - name: Run tests and collect coverage
+        run: |
+          mypy -p visiomatic
+          coverage run
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+

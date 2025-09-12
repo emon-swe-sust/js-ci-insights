@@ -1,0 +1,83 @@
+name: release-current-version
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  run-test:
+    name: Run Tests
+    uses: platformatic/meraki/.github/workflows/test.yml@main
+
+  # Create a tag and a release draft from the tag, then we publish the release. 
+  prepare-release:
+    name: Prepare release tag with current version
+    needs: run-test
+    runs-on: ubuntu-latest
+    outputs:
+      TAG: v${{ steps.tag-name.outputs.TAG }}
+    steps: 
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: get current version
+      id: get-current-version
+      run: |
+        echo "CURRENT_VERSION=`cat package.json | jq -r .version`" >> $GITHUB_OUTPUT
+      shell: bash
+    - name: Bump version and push tag
+      id: tag_version
+      uses: mathieudutour/github-tag-action@v6.2
+      with:
+        tag_prefix: v
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        custom_tag: ${{ steps.get-current-version.outputs.CURRENT_VERSION }}
+    - name: Export TAG Parameter
+      id: tag-name
+      run: |
+        echo "TAG=`cat package.json | jq -r .version`" >> $GITHUB_OUTPUT
+      shell: bash
+
+  create-draft:
+    needs: prepare-release
+    name: Create Draft Release
+    uses: platformatic/meraki/.github/workflows/release-draft.yml@main
+    with:
+      tag_name: ${{ needs.prepare-release.outputs.TAG }}
+      apply_win_sign: true
+    secrets: inherit
+
+  release:
+    needs: create-draft
+    name: Release 
+    runs-on: ubuntu-latest
+    steps:  
+    - name: Get last Draft
+      id: last_release
+      uses: InsonusK/get-latest-release@v1.1.0 # https://github.com/InsonusK/get-latest-release
+      with:
+        myToken: ${{ secrets.GITHUB_TOKEN }}
+        exclude_types: "release|prerelease"
+        view_top: 1
+
+    - name: "Print draft info"
+      run: |
+          echo "Releasing:"
+          echo "id: ${{ steps.last_release.outputs.id }}"
+          echo "name: ${{ steps.last_release.outputs.name }}"
+          echo "tag_name: ${{ steps.last_release.outputs.tag_name }}"
+          echo "created_at: ${{ steps.last_release.outputs.created_atd }}"
+
+    - name: "Publish Release"
+      uses: eregon/publish-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        release_id: ${{ steps.last_release.outputs.id }}
+
+    - name: Edit Release
+      uses: irongut/EditRelease@v1.2.0
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        id: ${{ steps.last_release.outputs.id }}
+        name: "Platformatic Meraki ${{ steps.last_release.outputs.TAG }}"
+
+

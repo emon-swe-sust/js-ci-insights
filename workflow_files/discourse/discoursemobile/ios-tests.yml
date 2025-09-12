@@ -1,0 +1,55 @@
+name: ios-tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  ios-tests:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          cache: yarn
+          node-version-file: .node-version
+
+      - name: Install Yarn dependencies
+        run: yarn --prefer-offline
+
+      - name: Install macOS dependencies
+        run: |
+          brew tap wix/brew
+          brew install applesimutils
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Install CocoaPods
+        run: cd ios ; pod install ; cd -
+
+      - name: Detox build
+        run: yarn detox build --configuration ios.sim.release
+
+      - name: Detox iPhone tests
+        run: yarn detox test --configuration ios.sim.release --cleanup --record-logs all
+
+      - name: Detox iPad tests
+        run: yarn detox test --configuration ios.sim.release --cleanup --record-logs all -n 'iPad (10th generation)'
+
+      - name: Upload artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detox-artifacts
+          path: artifacts

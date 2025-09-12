@@ -1,0 +1,57 @@
+# This workflow will
+# - Check code syntax
+# - Run E2E tests and publish its results
+
+name: E2E Workflow
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  eslint:
+    name: ESLint verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: ESLint check
+        run: |
+          npm ci
+          npm run eslint
+
+  cypress-run:
+    name: Test execution
+    runs-on: ubuntu-latest
+    container: cypress/browsers:node14.17.0-chrome91-ff89
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install project
+        run: |
+          npm ci
+          $(npm bin)/cypress cache path
+          $(npm bin)/cypress cache list
+          $(npm bin)/cypress verify
+
+      - name: Run E2E tests
+        run: |
+          npm run test:chrome
+
+          mkdir public
+          cp -r cypress/videos public/videos
+          npm run report:merge
+          npm run report:generate
+        continue-on-error: false
+
+      - name: Deploy report
+        uses: peaceiris/actions-gh-pages@v3.9.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'

@@ -1,0 +1,27 @@
+name: CI check
+
+on:
+  pull_request_target:
+    branches: [main]
+    paths:
+      - '**.py'
+  workflow_dispatch:
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  ruff-linter:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+      - uses: chartboost/ruff-action@v1
+        with:
+          args: 'check --config ruff.toml --diff'

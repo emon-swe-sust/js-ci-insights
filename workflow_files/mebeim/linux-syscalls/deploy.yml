@@ -1,0 +1,46 @@
+# Build static website (DB and whatever else) under www/ and deploy its contents
+# to Github Pages
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ["master"]
+
+  # Allow running this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: python3 -m pip install --upgrade fonttools[woff]
+      - name: Build web DB
+        run: ./scripts/build_web_db.py
+      - name: Build web fonts
+        run: ./scripts/build_web_fonts.sh
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './www'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

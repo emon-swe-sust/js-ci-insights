@@ -1,0 +1,68 @@
+name: Test and deploy CI
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      test_matrix: ${{ steps.config.outputs.test }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get matrices configuration
+        id: config
+        run: |
+          # TEST MATRIX
+          echo "[]" \
+          | jq  '. + [{name:"api"}]' \
+          | jq  '. + [{name:"apiv2"}]' \
+          | jq  '. + [{name:"app"}]' \
+          | jq  '. + [{name:"admin"}]' \
+          | jq  '. + [{name:"lib"}]' > test.json
+
+          echo "Test matrix"
+          cat test.json
+          echo "test=$(jq -c < test.json)" >> $GITHUB_OUTPUT
+
+  test:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: ${{ fromJSON(needs.prepare.outputs.test_matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tests
+        uses: jenseng/dynamic-uses@v1
+        with:
+          uses: ./.github/actions/run-tests-${{matrix.app.name}}
+          with: '{"branch_name": "${{ github.ref_name }}", "CC_TEST_REPORTER_ID": "${{ secrets.CC_TEST_REPORTER_ID }}" }'
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clever-tools
+        run: npm install -g clever-tools
+
+      - name: Merge main in deploy-ci
+        run: git push --force origin HEAD:deploy-ci
+
+      - name: Watch deployment
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        run: ./devops/scripts/cc-watch-deploy.sh ${{ vars.CC_ORGANIZATION_ID }} ${{ vars.CC_APP_ID_CI_SNU_ALL }} ${{ github.sha }}

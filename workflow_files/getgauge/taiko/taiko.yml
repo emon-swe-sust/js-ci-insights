@@ -1,0 +1,184 @@
+name: taiko
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  unit-tests:
+    name: Unit tests - ${{ matrix.os }} - ${{ matrix.node_version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        node_version: ['20']
+        os: [ubuntu-22.04, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use NodeJS ${{ matrix.node_version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Setup Biome
+        uses: biomejs/setup-biome@v2
+        with:
+          version: latest
+      - name: install
+        run: npm install
+      - name: install browser dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y  libnss3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libxcomposite1 \
+            libcups2 \
+            libxrandr2 \
+            libpangocairo-1.0-0 \
+            libgtk-3-0 \
+            libdrm-dev \
+            libgbm-dev \
+            libasound-dev
+      - name: unit-tests
+        run: |
+          biome ci
+          npm test
+
+  functional-tests:
+    needs: unit-tests
+    name: FTs - NodeJS ${{ matrix.node_version }} & ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        node_version: ['20']
+        os: [ubuntu-22.04, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use NodeJS ${{ matrix.node_version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: install browser dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libxcomposite1 \
+            libcups2 \
+            libxrandr2 \
+            libpangocairo-1.0-0 \
+            libgtk-3-0 \
+            libdrm-dev \
+            libgbm-dev \
+            libasound-dev
+      - name: functional-tests
+        run: npm run test-functional
+
+      - name: Upload html report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ft-reports-${{ matrix.os }}-${{ matrix.node_version }}
+          path: test/functional-tests/reports/html-report
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ft-logs-${{ matrix.os }}-${{ matrix.node_version }}
+          path: test/functional-tests/logs
+
+  functional-tests-headful:
+    needs: unit-tests
+    name: FT in linux-headful
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use NodeJS 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: install browser dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+              libnss3 \
+              libatk1.0-0 \
+              libatk-bridge2.0-0 \
+              libxcomposite1 \
+              libcups2 \
+              libxrandr2 \
+              libpangocairo-1.0-0 \
+              libgtk-3-0 \
+              libdrm-dev \
+              libgbm-dev \
+              libasound-dev
+      - name: install xvfb
+        run: sudo apt install xvfb
+      - name: functional-tests-headful
+        env:
+          headless: false
+          TAIKO_HIGHLIGHT_ON_ACTION: false
+        run: xvfb-run npm run test-functional
+      - name: Upload html report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ft-reports-linux-headful
+          path: test/functional-tests/reports/html-report
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ft-logs-linux-headful
+          path: test/functional-tests/logs
+
+  docs-tests:
+    needs: unit-tests
+    name: Docs tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use NodeJS 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: install
+        run: npm install
+      - name: install browser dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libxcomposite1 \
+            libcups2 \
+            libxrandr2 \
+            libpangocairo-1.0-0 \
+            libgtk-3-0 \
+            libdrm-dev \
+            libgbm-dev \
+            libasound-dev
+      - name: test-docs
+        run: npm run test-docs
+      - name: Upload html report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: docs-tests-reports
+          path: test/docs-tests/gauge/reports/html-report
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: docs-tests-logs
+          path: test/docs-tests/gauge/logs

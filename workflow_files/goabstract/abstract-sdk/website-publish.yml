@@ -1,0 +1,19 @@
+name: Publish Web Site
+
+on:
+  push:
+    branches:
+      - "docs"
+
+jobs:
+  Core:
+    uses: ./.github/workflows/shared_checks.yml
+    secrets: inherit
+
+  Website:
+    needs:
+      - Core
+    uses: ./.github/workflows/shared_website.yml
+    with:
+      publish: true
+    secrets: inherit

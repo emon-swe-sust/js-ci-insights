@@ -1,0 +1,32 @@
+name: NodeJS with Gulp
+
+on:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [16.x]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: build
+        run: |
+          npm config set registry http://registry.cnpmjs.org
+          npm config set registry http://registry.npm.taobao.org
+          npm config set strict-ssl false
+          npm cache clean --force
+          npm install --force
+          npm run build

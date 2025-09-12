@@ -1,1 +1,0 @@
-### TOPU TECH UPDATES

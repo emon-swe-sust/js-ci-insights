@@ -1,0 +1,122 @@
+on:
+  push:
+  # branches: [master]
+  pull_request:
+
+name: CI
+jobs:
+  flatpak-builder:
+    name: Flatpak Builder
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+        cache: [use-cache, no-cache]
+        restore: [cache-restored, no-cache-restored]
+        exclude:
+          - arch: aarch64
+            cache: no-cache
+          - arch: aarch64
+            restore: no-cache-restored
+          - cache: no-cache
+            restore: cache-restored
+    steps:
+      - uses: actions/checkout@v4
+      # Docker is required by the docker/setup-qemu-action which enables emulation
+      - name: Install deps
+        if: ${{ matrix.arch != 'x86_64' }}
+        run: |
+          # Use the static binaries because it's unable to use a package manager 
+          curl https://download.docker.com/linux/static/stable/x86_64/docker-26.0.0.tgz --output ./docker.tgz
+          tar xzvf docker.tgz
+          mv docker/* /usr/bin
+      - name: Set up QEMU
+        if: ${{ matrix.arch != 'x86_64' }}
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: ./flatpak-builder
+        with:
+          bundle: org.example.MyApp.Devel-${{ matrix.cache }}-${{ matrix.restore }}.flatpak
+          manifest-path: ./flatpak-builder/tests/test-project/org.example.MyApp.yaml
+          cache: ${{ matrix.cache == 'use-cache' }}
+          restore-cache: ${{ matrix.restore == 'cache-restored' }}
+          cache-key: flatpak-builder-${{ github.sha }}-${{ matrix.restore }}
+          arch: ${{ matrix.arch }}
+          verbose: true
+      # TODO: setup a flat-manager before and use it later here
+      #- uses: ./flat-manager
+      #  with:
+      #    repository: elementary
+      #    flat-manager-url: https://flatpak-api.elementary.io
+      #    token: some_very_hidden_token
+
+  flatpak-builder-stop-at:
+    name: Flatpak Builder Stop At
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./flatpak-builder
+        with:
+          manifest-path: ./flatpak-builder/tests/test-project/org.example.MyApp.yaml
+          stop-at-module: testproject
+          cache: false
+          verbose: true
+
+  flatpak-builder-cache-hit:
+    name: Flatpak Builder Cache Hit
+    runs-on: ubuntu-latest
+    needs: flatpak-builder
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./flatpak-builder
+        with:
+          bundle: org.example.MyApp.Devel-cache-hit.flatpak
+          manifest-path: ./flatpak-builder/tests/test-project/org.example.MyApp.yaml
+          cache-key: flatpak-builder-${{ github.sha }}-no-cache-restored
+          verbose: true
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: yarn install --also=dev
+        working-directory: flatpak-builder
+      - run: yarn test
+        working-directory: flatpak-builder
+
+  eslint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+      - run: yarn install --also=dev
+        working-directory: flatpak-builder
+      - run: yarn run eslint .
+        working-directory: flatpak-builder
+      - run: yarn install --also=dev
+        working-directory: flat-manager
+      - run: yarn run eslint .
+        working-directory: flat-manager

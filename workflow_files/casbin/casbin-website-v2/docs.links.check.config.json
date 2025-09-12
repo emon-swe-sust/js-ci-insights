@@ -1,0 +1,28 @@
+{
+    "ignorePatterns": [
+        {
+            "pattern": "^(?!https?:\/\/)"
+        },
+        {
+            "pattern": "^https://codeigniter.com/"
+        },
+        {
+            "pattern": "^https://www.thinkphp.cn/"
+        },
+        {
+            "pattern": "^https://virgool.io/@a3dho3yn"
+        },
+        {
+            "pattern": "^https://blog.csdn.net"
+        },
+        {
+            "pattern": "^https://kns.cnki.net"
+        },
+        {
+            "pattern": "^https://learnku.com"
+        },
+        {
+            "pattern": "^http://www.cnblogs.com"
+        }
+    ]
+}

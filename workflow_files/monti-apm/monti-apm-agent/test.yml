@@ -1,0 +1,60 @@
+name: Test
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        meteorRelease:
+          - '--release 1.4.4.6'
+          - '--release 1.5.4.1'
+          - '--release 1.6.0.1'
+          - '--release 1.7.0.5'
+          - '--release 1.8.1'
+          - '--release 1.8.3'
+          - '--release 1.9.1'
+          - '--release 1.10.2'
+          - '--release 1.11'
+          - '--release 1.12.1'
+          - '--release 2.1.1'
+          - '--release 2.2'
+          - '--release 2.3.2'
+          - '--release 2.4.1'
+          - '--release 2.5.6'
+          - '--release 2.6.1'
+          - '--release 2.7.3'
+          - '--release 2.8.2'
+          - '--release 2.9.0'
+          - '--release 2.10.0'
+          - '--release 2.11.0'
+          - '--release 2.12'
+          - '--release 2.13.3'
+          - '--release 2.14'
+          - '--release 2.15'
+          - '--release 2.16'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: '22.x'
+
+      - name: Install Dependencies
+        run: |
+          curl https://install.meteor.com | /bin/sh
+          npm i -g @zodern/mtest
+
+      - name: Run Tests
+        run: |
+          # Fix using old versions of Meteor
+          export NODE_TLS_REJECT_UNAUTHORIZED=0
+
+          mtest --package ./ --once ${{ matrix.meteorRelease }}

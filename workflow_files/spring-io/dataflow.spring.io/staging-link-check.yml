@@ -1,0 +1,60 @@
+name: Staging Link Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sitecheck:
+    name: Link Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Check Links
+        uses: jvalkeal/link-check@v0.0.2
+        id: sitelinkcheck
+        with:
+          fail: true
+          config: >
+            {
+              "paths": [
+                "https://dataflow-staging.apps.pcfone.io",
+                "https://dataflow-staging.apps.pcfone.io/docs/2.9.0.SNAPSHOT",
+                "https://dataflow-staging.apps.pcfone.io/docs/2.7.x",
+                "https://dataflow-staging.apps.pcfone.io/docs/2.6.x"
+              ],
+              "recurse": true,
+              "concurrency": 10,
+              "skip": [
+                "^data:image",
+                "^http://localhost:9393",
+                "^https://localhost:9393",
+                "^http://localhost:9090",
+                "^http://localhost:3000",
+                "^http://localhost:15672",
+                "^http://localhost:7577",
+                "^http://localhost:8086",
+                "^http://192.168.99.100",
+                "^http://stateless.co",
+                "^http://docs.spring.io/spring-cloud-dataflow/docs/current/reference/htmlsingle/",
+                "^http://127.0.0.1:$%7BSERVICE",
+                "^http://127.0.0.1:${SERVICE_PORT}/dashboard",
+                "^http://localhost:9411/zipkin",
+                "^http://localhost:9021/",
+                "^http://your-zipkin-hostname:9411/zipkin"
+              ],
+              "throttlelimit": 1,
+              "throttleinterval": 800,
+              "throttle": [
+                "^https://github.com",
+                "^https://github.githubassets.com"
+              ]
+            }
+      - name: Slack Notification
+        uses: rtCamp/action-slack-notify@v2
+        if: ${{ failure() }}
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_MESSAGE: ${{ toJson(fromJson(steps.sitelinkcheck.outputs.results).brokenLinks) }}
+          SLACK_TITLE: Link Check Failures https://dataflow-staging.apps.pcfone.io
+          SLACK_COLOR: danger
+          SLACK_FOOTER: Sent from Github Actions

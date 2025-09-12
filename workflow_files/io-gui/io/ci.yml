@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'images/**'
+  push:
+    paths-ignore:
+      - 'docs/**'
+      - 'images/**'
+
+jobs:
+  lint:
+    name: "Building"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v4
+      - name: Install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+      - name: Install pnpm
+        run: npm install -g pnpm@latest-10
+      - name: Install packages
+        run: pnpm install
+      - name: Bundling
+        run: pnpm bundle
+      - name: Running tests
+        run: pnpm test

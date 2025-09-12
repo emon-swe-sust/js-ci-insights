@@ -1,0 +1,23 @@
+---
+name: Unit Test
+on:
+  push: {}
+defaults:
+  run:
+    shell: bash
+jobs:
+  build:
+    runs-on: ['hyperenv', 'medium-eu-west-1']
+    strategy:
+      matrix:
+        node: ['18', '20', '22']
+    name: Node.js ${{ matrix.node }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node }}
+        cache: npm
+    - run: |
+        npm ci
+        npm test

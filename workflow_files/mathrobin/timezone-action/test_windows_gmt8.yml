@@ -1,0 +1,26 @@
+name: Test Windows
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  page_build:
+  release:
+    types:
+      - created
+jobs:
+  test_windows_gmt8:
+    runs-on: windows-latest
+    name: Test GMT +8 on Windows
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - run: yarn config set -H enableImmutableInstalls false
+      - name: Set Timezone to +8 (With input)
+        uses: ./
+        with:
+          timezoneWindows: 'Singapore Standard Time'
+      - run: yarn install
+      - run: yarn test

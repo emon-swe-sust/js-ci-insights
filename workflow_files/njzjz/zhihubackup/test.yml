@@ -1,0 +1,23 @@
+name: Test Python package
+
+on:
+  - push
+  - pull_request
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    - run: pip install -e .[test]
+    - name: Test
+      run: pytest --cov tests/
+      env:
+        ZHIHU_COOKIE: ${{ secrets.ZHIHU_COOKIE }}
+    - uses: codecov/codecov-action@v4
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

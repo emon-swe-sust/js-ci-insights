@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.friendlyName }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        arch:
+          - x64
+        include:
+          - os: ubuntu-latest
+            friendlyName: Linux
+            platform: linux
+          - os: ubuntu-22.04
+            arch: x64
+            friendlyName: Linux (LTS)
+            platform: linux
+          - os: macos-13
+            arch: x64
+            friendlyName: macOS
+            platform: darwin
+          - os: macos-latest
+            arch: arm64
+            friendlyName: macOS
+            platform: darwin
+          - os: windows-latest
+            friendlyName: Windows
+            platform: win32
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and build dependencies
+        run: npm clean-install --no-progress
+
+      - name: Workaround node-gyp issue 2915
+        if: matrix.os == 'macos-13'
+        run: python3 -m pip install setuptools
+      - name: Workaround node-gyp issue 2915
+        if: matrix.os == 'macos-latest'
+        run: brew install python-setuptools
+
+      - name: Rebuild native dependencies
+        run: node scripts/rebuild --force --arch ${{ matrix.arch }}
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Create production bundle
+        run: npm run rollup
+        env:
+          npm_config_arch: ${{ matrix.arch }}
+
+      - name: Run main/renderer tests
+        if: matrix.platform != 'linux'
+        run: npm test
+        shell: bash
+
+      - name: Run main/renderer tests with coverage report
+        if: matrix.platform == 'linux'
+        run: xvfb-run --auto-servernum --server-num=1 npm run coverage
+
+      - name: Send coverage report to Coveralls
+        if: matrix.platform == 'linux'
+        continue-on-error: true
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ github.token }}

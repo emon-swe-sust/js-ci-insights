@@ -1,0 +1,85 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Publish release when a new tag is pushed
+
+on:
+  push:
+    tags: ['*']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Get the release version from the GitHub tag
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\/v/}
+
+      - name: write the release version into the IPUZZLER_RELEASE_VERSION environment variable
+        run: echo "VITE_IPUZZLER_BUILD_VERSION=${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_ENV
+
+      - name: install yarn
+        run: npm install yarn
+
+      - name: yarn install
+        run: yarn install
+
+      - name: run tests
+        run: yarn test
+
+      - name: build using vite
+        run: yarn build --if-present -- --mode=production
+      
+      - name: Updage gh-pages build info
+        run: node publish.js
+
+      - name: Create Draft Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          release_name: v${{ steps.get_version.outputs.VERSION }}
+          draft: true
+          prerelease: false
+
+      - uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/js/ipuzzler-${{ steps.get_version.outputs.VERSION }}.js
+          asset_name: ipuzzler-${{ steps.get_version.outputs.VERSION }}.js
+          asset_content_type: text/javascript
+
+      - uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/js/ipuzzler-${{ steps.get_version.outputs.VERSION }}.umd.js
+          asset_name: ipuzzler-${{ steps.get_version.outputs.VERSION }}.umd.js
+          asset_content_type: text/javascript
+
+      - uses: eregon/publish-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          release_id: ${{ steps.create_release.outputs.id }}
+
+      - name: Publish iPuzzler website to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages
+          enable_jekyll: true

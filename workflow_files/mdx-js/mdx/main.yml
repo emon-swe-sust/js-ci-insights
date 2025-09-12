@@ -1,0 +1,46 @@
+jobs:
+  small:
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 1
+    name: test / ${{matrix.os}} / ${{matrix.node}}
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: ${{matrix.node}}
+      - run: npm ci
+      - run: npm run test-api
+    strategy:
+      matrix:
+        include:
+          - node: lts/hydrogen
+            os: ubuntu-latest
+        node:
+          - node
+        os:
+          - macos-latest
+          - windows-latest
+  full:
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 1
+    name: full build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: node
+      - run: npm ci
+      - run: npm test
+      - uses: codecov/codecov-action@v5
+name: main
+on:
+  - pull_request
+  - push

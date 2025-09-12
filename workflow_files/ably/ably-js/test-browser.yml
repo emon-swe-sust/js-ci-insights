@@ -1,0 +1,48 @@
+name: Test browser
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test-browser:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: 'recursive'
+      - name: Reconfigure git to use HTTP authentication
+        run: >
+          git config --global url."https://github.com/".insteadOf
+          ssh://git@github.com/
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: 20.x
+      - run: npm ci
+      - name: Install Playwright browsers and dependencies
+        run: npx playwright install --with-deps
+      - env:
+          PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
+        run: npm run test:playwright
+      - name: Generate private API usage reports
+        run: npm run process-private-api-data private-api-usage/*.json
+      - name: Save private API usage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-api-usage-${{ matrix.browser }}
+          path: |
+            private-api-usage
+            private-api-usage-reports
+      - name: Upload test results
+        if: always()
+        uses: ably/test-observability-action@v1
+        with:
+          server-auth: ${{ secrets.TEST_OBSERVABILITY_SERVER_AUTH_KEY }}
+          path: './junit'

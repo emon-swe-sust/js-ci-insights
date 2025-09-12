@@ -1,0 +1,38 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -U sphinx
+          pip install furo
+          pip install --upgrade myst-parser
+          pip install sphinxcontrib-mermaid
+          pip install sphinx-copybutton
+          pip install sphinx-inline-tabs
+          pip install sphinx_last_updated_by_git
+          pip install sphinx_design
+          pip install sphinx-comments
+          pip install setuptools
+          pip install sphinxcontrib-images
+      - name: Build
+        run: |
+          make html
+      - name: GitHub Pages action
+        uses: peaceiris/actions-gh-pages@v3.9.3
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}} 
+          publish_dir: build/html
+          

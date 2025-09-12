@@ -1,0 +1,181 @@
+name: Test and deploy
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint-python:
+    name: Lint Python code
+    runs-on: ubuntu-latest
+    steps:
+      - id: checkout
+        name: Checkout
+        uses: actions/checkout@v4
+
+      - id: setup-python
+        name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pipenv'
+
+      - id: install-pipenv
+        name: Install pipenv
+        run: curl https://raw.githubusercontent.com/pypa/pipenv/master/get-pipenv.py | python
+        shell: bash
+
+      - id: install-python-dependencies
+        name: Install Python dependencies
+        run: pipenv sync --dev
+        shell: bash
+
+      - id: lint
+        name: Lint
+        run: pipenv run flake8 ./
+
+  test-python:
+    name: Test Python code
+    runs-on: ubuntu-latest
+    steps:
+      - id: checkout
+        name: Checkout
+        uses: actions/checkout@v4
+
+      - id: setup-python
+        name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pipenv'
+
+      - id: install-pipenv
+        name: Install pipenv
+        run: curl https://raw.githubusercontent.com/pypa/pipenv/master/get-pipenv.py | python
+        shell: bash
+
+      - id: install-python-dependencies
+        name: Install Python dependencies
+        run: pipenv install --dev
+        shell: bash
+
+      - id: cache-playwright
+        name: Cache Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright/
+          key: ${{ runner.os }}-browsers
+
+      - id: install-playwright
+        name: Install Playwright
+        run: pipenv run python -m playwright install
+        shell: bash
+
+      - id: test
+        name: Run tests
+        run: pipenv run xvfb-run pytest tests -sv --cov -n auto --vcr-record=none
+        shell: bash
+        env:
+            IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+            IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+            IA_COLLECTION: ${{ secrets.IA_COLLECTION }}
+
+  static-type-check:
+    name: Static type check
+    runs-on: ubuntu-latest
+    steps:
+      - id: checkout
+        name: Checkout
+        uses: actions/checkout@v4
+
+      - id: setup-python
+        name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pipenv'
+
+      - id: install-pipenv
+        name: Install pipenv
+        run: curl https://raw.githubusercontent.com/pypa/pipenv/master/get-pipenv.py | python
+        shell: bash
+
+      - id: install-python-dependencies
+        name: Install Python dependencies
+        run: pipenv sync --dev
+        shell: bash
+
+      - id: mypy
+        name: mypy
+        run: pipenv run mypy ./
+
+  build:
+    name: Build release candidate
+    runs-on: ubuntu-latest
+    needs: [lint-python, test-python, static-type-check]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - id: setup-python
+        name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pipenv'
+
+      - id: install-pipenv
+        name: Install pipenv
+        run: curl https://raw.githubusercontent.com/pypa/pipenv/master/get-pipenv.py | python
+        shell: bash
+
+      - id: install-python-dependencies
+        name: Install Python dependencies
+        run: pipenv sync --dev
+        shell: bash
+
+      - id: build-source
+        name: Build source release
+        run: pipenv run python setup.py sdist
+        shell: bash
+
+      - id: build-binary
+        name: Build binary release
+        run: pipenv run python setup.py bdist_wheel
+        shell: bash
+
+      - id: check
+        name: Check release
+        run: pipenv run twine check dist/*
+        shell: bash
+
+      - id: save
+        name: Save artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          path: ./dist
+          if-no-files-found: error
+
+  release:
+    name: PyPI release
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+    steps:
+      - id: fetch
+        name: Fetch artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: ./dist
+
+      - id: publish
+        name: Publish release
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          verbose: true
+          verify_metadata: false

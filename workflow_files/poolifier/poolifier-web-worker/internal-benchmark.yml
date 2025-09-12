@@ -1,0 +1,46 @@
+name: Internal benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+jobs:
+  internal-benchmark:
+    if: github.repository == 'poolifier/poolifier-web-worker'
+    runs-on:
+      group: default
+      labels: [self-hosted, internal-benchmark]
+    env:
+      BENCHER_PROJECT: poolifier-web-worker
+      BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
+      BENCHER_ADAPTER: json
+      BENCHER_TESTBED: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: bencherdev/bencher@main
+      - name: Run benchmark
+        run: |
+          bencher run \
+          --branch master \
+          --threshold-measure latency \
+          --threshold-test t_test \
+          --threshold-max-sample-size 64 \
+          --threshold-lower-boundary _ \
+          --threshold-upper-boundary 0.99 \
+          --threshold-measure throughput \
+          --threshold-test t_test \
+          --threshold-max-sample-size 64 \
+          --threshold-lower-boundary 0.99 \
+          --threshold-upper-boundary _ \
+          --thresholds-reset \
+          --file benchmark-report.json \
+          --err \
+          --github-actions ${{ secrets.GITHUB_TOKEN }} \
+          "deno task benchmark:tatami-ng"

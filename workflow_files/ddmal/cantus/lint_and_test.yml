@@ -1,0 +1,26 @@
+name: unit-tests
+on:
+  pull_request:
+    types: [opened, synchronize]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: psf/black@stable
+  run-tests:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_DB: test_cu
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: supersecurepassword99
+      RABBIT_VHOST: test_cu
+      RABBIT_USER: admin
+      RABBIT_PASSWORD: supersecurepassword99
+      PORT: "8000"
+      DJANGO_SECRET_KEY: verygoodandsecurekey123456123465@@123456
+    steps:
+      - uses: actions/checkout@v3
+      - run: docker compose build
+      - run: docker compose up -d
+      - run: docker compose exec -T app python runtests.py cantusdata.test.core

@@ -1,0 +1,38 @@
+name: Clean GitHub pages
+
+on:
+  delete:
+  pull_request:
+    types:
+      - closed
+
+jobs:
+  clean:
+    runs-on: ubuntu-24.04
+    name: Clean GitHub pages
+    timeout-minutes: 5
+    concurrency: gh-pages-push
+
+    steps:
+      - run: env
+      - name: GitHub event
+        run: echo ${GITHUB_EVENT} | python3 -m json.tool
+        env:
+          GITHUB_EVENT: ${{ toJson(github) }}
+      - name: GitHub event file
+        run: cat ${GITHUB_EVENT_PATH}
+
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+      - name: Clean ghpages
+        run: |
+          git config --global user.name "Continuous integration"
+          git config --global user.email "ci@comptocamp.org"
+          if [ -d $(cat ${GITHUB_EVENT_PATH}|jq --raw-output .ref) ]
+          then
+            git rm -r $(cat ${GITHUB_EVENT_PATH}|jq --raw-output .ref)
+            git commit --amend --no-edit
+            remote_repo="https://${GITHUB_ACTOR}:${{ github.token }}@github.com/camptocamp/ngeo.git"
+            git push "${remote_repo}" gh-pages --force
+          fi

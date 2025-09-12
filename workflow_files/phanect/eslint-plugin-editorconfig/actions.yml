@@ -1,0 +1,61 @@
+name: GitHub Actions
+
+on:
+  schedule:
+    - cron: "8 11 * * 5" # At 11:08 on Friday
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version:
+          - 18
+          - 20
+          - 22
+        eslint-version:
+          - 8
+    env:
+      ESLINT_VERSION: ${{ matrix.eslint-version }}
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - run: npm install # not `npm ci` since there is no package-lock.json in this project
+      - run: npm test
+
+      - name: Install this version of eslint-plugin-editorconfig
+        run: npm pack && npm install "eslint-plugin-editorconfig-$(jq --raw-output .version package.json).tgz"
+        if: 16 <= matrix.node-version
+      - run: npm run lint
+        if: 16 <= matrix.node-version
+
+  release:
+    needs: test
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - run: npm install # not `npm ci` since there is no package-lock.json in this project
+
+      - name: set npm auth token
+        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_AUTH_TOKEN }}" > ~/.npmrc
+      - run: npm run release

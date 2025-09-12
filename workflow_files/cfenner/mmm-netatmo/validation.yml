@@ -1,0 +1,63 @@
+name: "Validation"
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+env:
+  node-version: 18.x
+
+jobs:
+  markdownlint:
+    runs-on: ubuntu-latest
+    name: 'MarkdownLint'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Validate Markdown Sources
+        uses: nosborn/github-action-markdown-cli@v3.3.0
+        with:
+          files: .
+  eslint:
+    runs-on: ubuntu-latest
+    name: 'ESLint'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Use Node.js ${{ env.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.node-version }}
+          cache: "npm"
+      - name: Install Dependencies
+        run: npm clean-install
+      - name: Validate JS Sources
+        run: npm run validate:js
+  stylelint:
+    runs-on: ubuntu-latest
+    name: 'Stylelint'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Use Node.js ${{ env.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.node-version }}
+          cache: "npm"
+      - name: Install Dependencies
+        run: npm clean-install
+      - name: Validate CSS Sources
+        run: npm run validate:css
+  package-lock-is-up-to-date:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.node-version }}
+          cache: "npm"
+      - run: npm install --ignore-scripts
+      - run: git diff --exit-code

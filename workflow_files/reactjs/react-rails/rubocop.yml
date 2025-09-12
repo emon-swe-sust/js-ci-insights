@@ -1,0 +1,30 @@
+name: Rubocop
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+
+jobs:
+  rubocop:
+    name: Rubocop
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        ruby: ['2.7', '3.0']
+    env:
+      # $BUNDLE_GEMFILE must be set at the job level, so it is set for all steps
+      BUNDLE_GEMFILE: ${{ github.workspace }}/LintingGemfile
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - name: Run rubocop
+        run: bundle exec rubocop

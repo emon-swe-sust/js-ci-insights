@@ -1,0 +1,26 @@
+name: Test JS
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+    name: JS Test
+    steps:
+      - uses: actions/checkout@master
+        with:
+          persist-credentials: false
+      - name: Build files using 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+      - name: Lint js files
+        run: |
+          npm ci
+          npm run lint
+        env:
+          CI: true

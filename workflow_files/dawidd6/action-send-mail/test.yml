@@ -1,0 +1,53 @@
+name: Test action
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    services:
+      mailpit:
+        image: docker.io/axllent/mailpit:latest
+        ports:
+          - 1025:1025
+          - 8025:8025
+    strategy:
+      max-parallel: 1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Send mail
+        uses: ./
+        with:
+          connection_url: smtp://localhost:1025
+          server_address: localhost
+          server_port: 1025
+          secure: false
+          username: test
+          password: test
+          subject: Test Email
+          to: obiwan@example.com,yoda@example.com
+          from: Luke Skywalker <luke@example.com>
+          body: |-
+            This is a test email sent from a GitHub Action.
+            Please check the attachments and other fields.
+          html_body: file://README.md
+          cc: leia@example.com
+          bcc: owen@example.com
+          reply_to: vader@example.com
+          in_reply_to: palpatine@example.com
+          ignore_cert: false
+          convert_markdown: true
+          attachments: package.json,action.yml
+          priority: high
+
+      - name: Get mail
+        run: |
+          curl -s "http://localhost:8025/api/v1/message/latest/raw"
+          curl -s "http://localhost:8025/api/v1/message/latest" | jq --color-output

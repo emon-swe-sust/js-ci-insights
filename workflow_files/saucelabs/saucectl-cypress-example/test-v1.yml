@@ -1,0 +1,153 @@
+name: saucectl cypress tests v1
+
+on:
+  pull_request:
+  push:
+    paths:
+      - "v1"
+    branches:
+      - main
+
+env:
+  SAUCE_USERNAME: ${{ secrets.SAUCE_USERNAME }}
+  SAUCE_ACCESS_KEY: ${{ secrets.SAUCE_ACCESS_KEY }}
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run saucectl
+        uses: saucelabs/saucectl-run-action@v4
+        with:
+          working-directory: v1
+
+  cucumber:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run saucectl
+        uses: saucelabs/saucectl-run-action@v4
+        with:
+          working-directory: v1/examples/cucumber
+
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: v1/examples/typescript/package-lock.json
+
+      - name: Install dependencies
+        working-directory: v1/examples/typescript
+        run: npm ci
+
+      - name: Run saucectl
+        uses: saucelabs/saucectl-run-action@v4
+        with:
+          working-directory: v1/examples/typescript
+
+  allure-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: v1/examples/allure-plugin/package-lock.json
+
+      - name: Install dependencies
+        working-directory: v1/examples/allure-plugin
+        run: npm ci
+
+      - name: Run saucectl
+        uses: saucelabs/saucectl-run-action@v4
+        with:
+          working-directory: v1/examples/allure-plugin
+
+      - name: Verify allure artifacts exist
+        run: stat v1/examples/allure-plugin/artifacts/**/allure-results.zip
+
+  cypress-grep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: v1/examples/cypress-grep/package-lock.json
+
+      - name: Install dependencies
+        working-directory: v1/examples/cypress-grep
+        run: npm ci
+
+      - name: Run saucectl
+        uses: saucelabs/saucectl-run-action@v4
+        with:
+          working-directory: v1/examples/cypress-grep
+
+  webkit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run saucectl
+        uses: saucelabs/saucectl-run-action@v4
+        with:
+          working-directory: ./v1/examples/webkit
+
+  multi-reporter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          cache-dependency-path: v1/examples/multi-reporter/package-lock.json
+
+      - name: Install dependencies
+        working-directory: v1/examples/multi-reporter
+        run: npm ci
+
+      - name: Run saucectl
+        uses: saucelabs/saucectl-run-action@v4
+        with:
+          working-directory: v1/examples/multi-reporter
+
+      - name: Verify mochawesome artifacts exist
+        run: stat v1/examples/multi-reporter/artifacts/**/mochawesome.html
+
+  component-testing-react-vite-ts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run saucectl
+        uses: saucelabs/saucectl-run-action@v4
+        with:
+          working-directory: v1/examples/component-testing-react-vite-ts

@@ -1,0 +1,127 @@
+# GitHub Actions Workflow configuration
+# https://docs.github.com/actions/reference/workflow-syntax-for-github-actions
+# https://docs.github.com/actions/guides/building-and-testing-nodejs
+
+name: Node.js CI
+
+# Note: on key treated as boolean key by YAML
+# https://github.com/adrienverge/yamllint/issues/158#issuecomment-454313233
+# However, GitHub Actions documentation is consistent in using it unquoted.
+on:   # yamllint disable-line rule:truthy
+  pull_request:
+    branches-ignore:
+    - template
+  push:
+    branches-ignore:
+    - template
+  schedule:
+  # Run once a day (at 8:40 AM UTC) to check for exogenous breakage.
+  # TODO: Run when dependencies are updated.  (Like Dependabot, but on
+  # in-range updates and without sending a PR.)
+  - cron: '40 8 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  test-primary:
+    name: Lint and Test on Node.js * x64 on ubuntu-latest
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Node.js
+      uses: actions/setup-node@v5
+      with:
+        # Note: '*' is "latest LTS version" (without check-latest, it would be
+        # "latest LTS version in local cache") because it first checks
+        # https://github.com/actions/node-versions/releases then falls back to
+        # https://nodejs.org/dist/index.json
+        # For explanation and discussion, see:
+        # https://github.com/actions/setup-node/blob/main/docs/advanced-usage.md#check-latest-version=
+        # https://github.com/actions/setup-node/issues/61#issuecomment-577548687
+        # https://github.com/actions/setup-node/issues/164#issuecomment-648999618
+        # https://github.com/actions/setup-node/pull/104
+        #
+        # Support for "current"/"latest"/"node" was added in v3.2.0
+        # https://github.com/actions/setup-node/pull/483
+        node-version: latest
+        architecture: x64
+        check-latest: true
+    - name: Display Node.js version
+      run: node --version
+    - name: Install dependencies
+      run: npm install --strict-peer-deps
+    - name: Lint
+      run: npm run lint
+    - name: Run tests
+      run: npm run test-unit-cov
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+    - name: Upload coverage to Coveralls
+      uses: coverallsapp/github-action@v2
+      # Ignore intermittent server errors (which are out of our control).
+      # https://github.com/coverallsapp/github-action/issues/9
+      # https://github.com/coverallsapp/github-action/issues/79
+      # https://github.com/coverallsapp/github-action/issues/93
+      continue-on-error: true
+      with:
+        flag-name: 'ubuntu-latest_x64_*'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel: true
+
+  test-secondary:
+    # Only test secondary platforms if primary test platform passed
+    needs:
+    - test-primary
+    name: >-
+      Test on Node.js ${{ matrix.node }} ${{ matrix.arch }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        arch:
+        # Uncomment if package needs testing on different architectures
+        # - x86
+        - x64
+        os:
+        # Uncomment if package needs testing on macOS:
+        # - macos-latest
+        - ubuntu-latest
+        - windows-latest
+        node:
+        - '20.0'
+        - latest
+        exclude:
+        # Exclude os/version already run in test-primary
+        - arch: x64
+          os: ubuntu-latest
+          node: latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Node.js ${{ matrix.node }}
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ matrix.node }}
+        architecture: ${{ matrix.arch }}
+        check-latest: ${{ matrix.node == '*' }}
+    - name: Display Node.js version
+      run: node --version
+    - name: Install dependencies
+      run: npm install --strict-peer-deps
+    - name: Run tests
+      run: npm run test-unit-cov
+    # Note: Not uploading to Codecov, due to poor support for matrix builds
+    # https://github.com/codecov/codecov-action/issues/40
+    - name: Upload coverage to Coveralls
+      uses: coverallsapp/github-action@v2
+      with:
+        flag-name: ${{ matrix.os }}_${{ matrix.arch }}_${{ matrix.node }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        parallel: true
+
+  finish:
+    needs: test-secondary
+    runs-on: ubuntu-latest
+    steps:
+    - name: Coveralls Finished
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.github_token }}
+        parallel-finished: true

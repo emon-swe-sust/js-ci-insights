@@ -1,0 +1,37 @@
+name: cypress tests
+permissions:
+  contents: read
+
+on: [pull_request]
+
+jobs:
+  build:
+    name: Building site and running cypress tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source.
+        uses: actions/checkout@v4
+
+      - name: Install jekyll site dependencies.
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.3
+          bundler-cache: true
+
+      - name: Install cypress dependencies.
+        run: npm ci
+
+      - name: Start up jekyll server.
+        run: npm run start-detached
+
+      - name: Run cypress.
+        run: npm run cypress-tests
+
+      - name: Archive test results.
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cypress-results
+          path: cypress/results
+          retention-days: 2

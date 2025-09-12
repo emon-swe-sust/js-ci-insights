@@ -1,0 +1,112 @@
+name: 'Tests: pretest/posttest'
+
+on:
+  workflow_call:
+    inputs:
+      skip-engines:
+        description: skip "engines" check
+        default: false
+        required: false
+        type: boolean
+      skip-pack:
+        description: skip "pack" check
+        default: false
+        required: false
+        type: boolean
+
+permissions:  # added using https://github.com/step-security/secure-repo
+  contents: read
+
+jobs:
+  determine-node-version:
+    runs-on: ubuntu-22.04
+    outputs:
+      node-version: ${{ steps.node-version.outputs.v }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          show-progress: false
+      - name: debug info
+        run: npm --version
+      - name: 'get node version'
+        id: node-version
+        run: |
+          npm install --no-save @pkgjs/nv@0.2 semver@^7
+          echo "v=$(node -e "var v = require('./package.json').engines?.node; var nv = require('@pkgjs/nv'); var satisfies = require('semver/functions/satisfies'); v ? Promise.all([nv('lts/*'), nv(v)]).then(([[{ version }], vVersions]) => { if (satisfies(version, v)) { console.log('lts/*'); } else { const vVs = vVersions.filter((x) => x.version !== '22.5.0'); console.log(vVs[vVs.length - 1].version); } }) : console.log('lts/*')")" >> $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
+        shell: bash
+
+  pretest:
+    runs-on: ubuntu-22.04
+    needs: [determine-node-version]
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          disable-sudo: true
+          egress-policy: audit
+          allowed-endpoints: >
+            github.com:443
+            raw.githubusercontent.com:443
+            nodejs.org:443
+            iojs.org:443
+            registry.npmjs.org:443
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          show-progress: false
+      - uses: ljharb/actions/node/install@main
+        name: 'nvm install ${{ needs.determine-node-version.outputs.node-version }} && npm install'
+        with:
+          node-version: ${{ needs.determine-node-version.outputs.node-version }}
+      - run: npm run pretest
+
+  posttest:
+    runs-on: ubuntu-22.04
+    needs: [determine-node-version]
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          disable-sudo: true
+          egress-policy: audit
+          allowed-endpoints: >
+            github.com:443
+            raw.githubusercontent.com:443
+            nodejs.org:443
+            iojs.org:443
+            registry.npmjs.org:443
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          show-progress: false
+      - uses: ljharb/actions/node/install@main
+        name: 'nvm install ${{ needs.determine-node-version.outputs.node-version }} && npm install'
+        with:
+          node-version: ${{ needs.determine-node-version.outputs.node-version }}
+      - run: npm run posttest
+
+  engines:
+    if: ${{ ! inputs.skip-engines }}
+    runs-on: ubuntu-22.04
+    needs: [determine-node-version]
+
+    steps:
+      - uses: ljharb/actions/node/engines@main
+        with:
+          node-version: ${{ needs.determine-node-version.outputs.node-version }}
+
+  pack:
+    if: ${{ ! inputs.skip-pack }}
+    runs-on: ubuntu-22.04
+    needs: [determine-node-version]
+
+    steps:
+      - uses: ljharb/actions/node/pack@main
+        with:
+          node-version: ${{ needs.determine-node-version.outputs.node-version }}

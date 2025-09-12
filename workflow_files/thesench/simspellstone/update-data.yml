@@ -1,0 +1,50 @@
+name: Update data
+on:
+  schedule:
+    - cron: '0 10-22/2 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.BOT_TOKEN }}
+
+      - name: Update Data
+        uses: ./.github/actions/update-data
+        with:
+          working-directory: ${{ env.GITHUB_WORKSPACE }}
+          spellstone-user: ${{ secrets.SPELLSTONE_USER }}
+          spellstone-password: ${{ secrets.SPELLSTONE_PASSWORD }}
+          spellstone-salt: ${{ secrets.SPELLSTONE_SALT }}
+
+      - name: Check for modified files
+        id: git-check
+        run: echo "modified=$(if [[ $(git status --porcelain) ]]; then echo "true"; else echo "false"; fi)" >> $GITHUB_OUTPUT
+
+      - name: Setup Node version
+        if: steps.git-check.outputs.modified == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 16
+
+      - name: Install Node dependencies
+        if: steps.git-check.outputs.modified == 'true'
+        run: npm ci
+
+      - name: Bundle changes
+        if: steps.git-check.outputs.modified == 'true'
+        run: npm run grunt data
+
+      - name: Push changes
+        if: steps.git-check.outputs.modified == 'true'
+        run: |
+          git config --global user.name 'Jon Senchyna'
+          git config --global user.email 'TheSench@users.noreply.github.com'
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          git add .
+          git commit -m "Auto-update of Spellstone Data - $(date +%Y-%m-%d)"
+          git push

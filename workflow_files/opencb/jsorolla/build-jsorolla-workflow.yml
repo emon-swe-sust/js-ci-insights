@@ -1,0 +1,37 @@
+name: "Reusable workflow to build JSorolla"
+
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: "JSorolla version"
+        value: ${{ jobs.build-jsorolla-workflow.outputs.version }}
+
+jobs:
+  build-jsorolla-workflow:
+    name: "Build JSorolla"
+    runs-on: ${{ vars.UBUNTU_VERSION }}
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - name: "Checkout JSorolla"
+        uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "16"
+          cache: "npm"
+          cache-dependency-path: "package.json"
+      - run: npm install
+      - run: npm run build
+      - id: package
+        name: Get project version
+        run: |
+          echo "version=`cat package.json | grep -w version | cut -d : -f 2 | cut -d \\" -f 2`" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-folder
+          path: build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iva-app
+          path: iva-${{ steps.package.outputs.version }}.tar.gz

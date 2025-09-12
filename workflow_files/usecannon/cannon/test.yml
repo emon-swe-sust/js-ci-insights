@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  push:
+    branches: [main, alpha, dev]
+  pull_request:
+    branches: [main, alpha, dev]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm
+    env:
+      NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID: ${{secrets.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: '20.5.1'
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - run: |
+          pnpm i --frozen-lockfile
+          pnpm build
+          pnpm test

@@ -1,0 +1,53 @@
+name: Update check
+
+on:
+  push:
+    tags:
+      - v*
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Check for changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: Install groovy
+        uses: sdkman/sdkman-action@b1f9b696c79148b66d3d3a06f7ea801820318d0f
+        with:
+          candidate: groovy
+          version: 4.0.26
+
+      - name: Install dependencies and link
+        run: |
+          npm ci
+          npm link
+
+      - name: Validate no changes
+        run: |
+          npm run dev:pre-commit
+          git --no-pager diff
+          [[ 0 -eq $(git status --porcelain | wc -l) ]] || echo "Validation issue: stevenh help ! :("
+
+      # Upload Mega-Linter artifacts
+      - name: Archive production artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Expected sources
+          path: |
+            docs/
+            groovy/
+            lib/

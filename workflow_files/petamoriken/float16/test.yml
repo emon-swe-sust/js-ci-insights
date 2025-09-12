@@ -1,0 +1,138 @@
+name: Test
+
+on:
+  schedule:
+    - cron: '0 17 1 * *'
+  push:
+    branches:
+      - master
+  pull_request_target:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  src_test_node:
+    name: ES Modules Test (Node.js)
+    runs-on: ubuntu-latest
+
+    steps:
+      - if: github.event_name != 'pull_request_target'
+        uses: actions/checkout@v4
+      - if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - run: node test/src/index.mjs
+
+  src_test_deno:
+    name: ES Modules Test (Deno)
+    runs-on: ubuntu-latest
+
+    steps:
+      - if: github.event_name != 'pull_request_target'
+        uses: actions/checkout@v4
+      - if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: vx.x.x
+
+      - run: deno run test/src/index.mjs
+
+  src_test_bun:
+    name: ES Modules Test (Bun)
+    runs-on: ubuntu-latest
+
+    steps:
+      - if: github.event_name != 'pull_request_target'
+        uses: actions/checkout@v4
+      - if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - run: curl -fsSL https://bun.sh/install | bash
+      - run: echo "${HOME}/.bun/bin" >> $GITHUB_PATH
+
+      - run: bun test/src/index.mjs
+
+  lib_test:
+    name: Unit Test (Node.js)
+    runs-on: ubuntu-latest
+
+    steps:
+      - if: github.event_name != 'pull_request_target'
+        uses: actions/checkout@v4
+      - if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install dependencies
+        run: yarn --frozen-lockfile
+      - run: yarn build:lib
+        env:
+          NODE_ENV: test
+
+      - run: yarn test
+
+  browser_test:
+    name: Unit Test (Browser)
+    runs-on: ubuntu-latest
+
+    steps:
+      - if: github.event_name != 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - uses: saucelabs/sauce-connect-action@v2
+        with:
+          username: petamoriken # ${{ vars.SAUCE_USERNAME }}
+          accessKey: ${{ secrets.SAUCE_ACCESS_KEY }}
+
+      - name: Install dependencies
+        run: yarn --frozen-lockfile
+      - run: yarn build:browser
+        env:
+          NODE_ENV: test
+
+      - run: yarn docs
+
+      - name: Start Server
+        run: |
+          yarn setup-test-browser
+          sleep 5
+      - run: yarn test-browser
+        env:
+          SAUCE_USERNAME: petamoriken # ${{ vars.SAUCE_USERNAME }}
+          SAUCE_ACCESS_KEY: ${{ secrets.SAUCE_ACCESS_KEY }}
+
+      - uses: syossan27/purge-github-readme-image@v1.0.0
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}

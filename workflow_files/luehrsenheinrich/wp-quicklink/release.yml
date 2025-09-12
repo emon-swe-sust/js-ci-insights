@@ -1,0 +1,139 @@
+# This workflow creates a release based upon the information in our wp-boilerplate repositories.
+# It assumes that `npm install`, `composer install` and `npx grunt release` are valid commands.
+# The action expects a valid zip file in the `./update/` folder and the `slug` key in the
+# `package.json` to be set.
+
+name: 🚀 Create Release
+
+on:
+  # This action is triggered manually.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version number of this release. Runs `npm version`.'
+        required: true
+        default: 'patch'
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🛑 Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.6.0
+        with:
+          access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_ADMIN_TOKEN }}
+
+      - name: ⚙️ Configure git
+        run: |
+          git config user.name $GITHUB_ACTOR
+          git config user.email gh-actions-${GITHUB_ACTOR}@github.com
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 'lts/hydrogen'
+
+      - name: ⚙️ Setup PHP with tools
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          tools: composer:v2
+
+      - name: ⚙️ Get project slug
+        id: package
+        run: echo "::set-output name=slug::$(node -p "require('./package.json').slug")"
+
+      - name: 💾 Get node.js cache directory
+        id: node-cache-dir
+        run: echo "::set-output name=dir::$(npm config get cache)" # Use $(yarn cache dir) for yarn
+
+      - name: 💾 Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.node-cache-dir.outputs.dir }}
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }} # Use '**/yarn.lock' for yarn
+          restore-keys: ${{ runner.os }}-node-
+
+      - name: 💾 Get composer cache directory
+        id: composer-cache
+        run: echo "::set-output name=dir::$(composer config cache-files-dir)"
+
+      - name: ⚙️ Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: ⚙️ Install Composer Packages
+        run: composer install --prefer-dist
+
+      - name: ⚙️ Install Node Packages
+        run: npm install
+
+      - name: ✍️ Create Changelog
+        shell: bash
+        id: changelog
+        run: |
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          log=$(git log $(git describe --tags --abbrev=0)..HEAD --pretty=format:'* %s (%h)')
+          echo "CHANGELOG<<$EOF" >> $GITHUB_ENV
+          echo "$log" >> $GITHUB_ENV
+          echo "$EOF" >> $GITHUB_ENV
+
+      - name: Check Status
+        run: git status
+
+      - name: 🔼 Bump version
+        run: npm version ${{ github.event.inputs.version }} -m 'Tagging %s' -f
+
+      - name: ⚙️ Get new version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: 🏗 Build Release
+        run: npm run release
+
+      - name: Push the version to git
+        run: |
+            git push && git push --tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+
+      - name: 🚀 Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          release_name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ${{ env.CHANGELOG }}
+          draft: false
+          prerelease: false
+
+      - name: 📦 Add asset to release
+        id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+          asset_path: ./update/${{ steps.package.outputs.slug }}.zip
+          asset_name: ${{ steps.package.outputs.slug }}-${{ steps.version.outputs.version }}.zip
+          asset_content_type: application/zip
+
+      - name: Deploy to WordPress.org
+        uses: luehrsenheinrich/action-wordpress-plugin-deploy@develop
+        env:
+          SVN_PASSWORD: ${{ secrets.WPM_SVN_PASSWORD }}
+          SVN_USERNAME: ${{ secrets.WPM_SVN_USERNAME }}
+          ASSETS_DIR: 'assets'
+          PLUGIN_DIR: 'trunk'
+          VERSION: ${{ steps.version.outputs.version }}
+          SLUG: 'quicklink'

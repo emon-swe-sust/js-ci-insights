@@ -1,0 +1,33 @@
+name: Deploy Next.js App
+
+on:
+  push:
+    branches:
+      - main
+      
+jobs:
+
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: Production
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Trigger deploy script
+      env:
+        SERVER_HOST: ${{ secrets.SERVER_HOST }}
+        SERVER_USER: ${{ secrets.SERVER_USER }}
+      run: |
+
+        mkdir -p ~/.ssh/
+        echo "${{ secrets.SERVER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+
+        # Add the server's host key to known_hosts
+        ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+        # delete folder in temp staging directory if it exists
+        ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} "\
+          cd ~; \
+          ./deploy.sh"

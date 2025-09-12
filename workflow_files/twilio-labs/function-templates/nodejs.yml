@@ -1,0 +1,41 @@
+name: Build, Test, Lint, Format (Node.js)
+
+on: [pull_request]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        node-version: [current, lts/*]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: install latest npm
+        run: npm install -g npm@latest
+      - name: npm install
+        run: npm install
+        env:
+          CI: true
+      - name: npm run build --if-present
+        run: npm run build --if-present
+        env:
+          CI: true
+      - name: npm test
+        run: npm test
+        env:
+          CI: true
+      - name: npm run format:check
+        run: npm run format:check
+        env:
+          CI: true
+          NODE_ENV: test
+      - name: npm run lint
+        run: npm run lint
+        env:
+          CI: true

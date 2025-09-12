@@ -1,0 +1,55 @@
+name: Website build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: nodeversion
+        run: echo ::set-output name=NODE::$(cat .nvmrc)
+      - name: restore Cache
+        uses: actions/cache@master
+        with:
+          path: |
+            node_modules
+            /home/runner/.cache/Cypress
+          key: ${{ runner.os }}-${{ hashFiles('**/yarn.lock') }}
+      - name: Use Node.js ${{steps.nodeversion.outputs.NODE}}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.nodeversion.outputs.NODE }}
+      - name: install
+        run: |
+          yarn
+      - name: Lint
+        run: |
+          yarn run prettier:check
+          yarn run json:check
+          yarn run lint
+      - name: Cypress run
+        uses: cypress-io/github-action@v6
+        with:
+          cache-key: node-on-${{ runner.os }}-hash-${{ hashFiles('yarn.lock') }}
+          start: yarn dev
+          wait-on: 'http://localhost:5173'
+      - name: build
+        run: |
+          echo VITE_GHA_COMMIT=$GITHUB_SHA >> .env.production
+          yarn run build
+          echo config.qmk.fm > dist/CNAME
+      - name: Deploy
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: JamesIves/github-pages-deploy-action@3.7.1
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: gh-pages
+          FOLDER: ./dist
+          GIT_CONFIG_NAME: QMK Bot
+          GIT_CONFIG_EMAIL: hello@qmk.fm
+          SINGLE_COMMIT: true

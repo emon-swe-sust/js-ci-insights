@@ -1,0 +1,21 @@
+name: Check for Updates
+
+on:
+  # Run automatically on minute 55 of every hour
+  schedule:
+  # minute hour dom month dow
+  - cron: '55 * * * *'
+  # or run whenever we trigger it from github's UI
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: setup
+      run: |
+       git config --global user.name "actions-bot"
+       git config --global user.email "actions-bot@localhost"
+    - name: run update script
+      run: ./update_fb_github.sh

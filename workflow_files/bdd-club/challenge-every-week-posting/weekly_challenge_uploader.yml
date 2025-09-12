@@ -1,0 +1,27 @@
+name: 키글챌 주간 통계 자동 업로더
+
+on:
+#  schedule:
+#    - cron: "1 15 * * 0"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18.x
+    - name: Install Dependencies
+      run: npm install
+    - name: echo env
+      env:
+        GITHUB_TOKEN: ${{ secrets.USER_TOKEN }}
+      run: echo "GITHUB_TOKEN=${GITHUB_TOKEN}" >> $GITHUB_ENV
+    - name: Notify
+      run: npm run notify

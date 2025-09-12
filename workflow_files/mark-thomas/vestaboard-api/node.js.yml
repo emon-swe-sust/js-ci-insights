@@ -1,0 +1,37 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Node build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Run the workflow for debugging'
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x]
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm ci
+      - run: npm run test-offline
+        env:
+          SUBSCRIPTION_API_SECRET: ${{ secrets.SUBSCRIPTION_API_SECRET }}
+          SUBSCRIPTION_API_KEY: ${{ secrets.SUBSCRIPTION_API_KEY }}
+          RW_API_KEY: ${{ secrets.RW_API_KEY }}
+          LOCAL_IP_ADDRESS: ${{ secrets.LOCAL_IP_ADDRESS }}
+          LOCAL_API_KEY: ${{ secrets.LOCAL_API_KEY }}

@@ -1,0 +1,66 @@
+name: Rust
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: taiki-e/checkout-action@v1
+
+      - uses: oxc-project/setup-rust@v1.0.0
+        with:
+          save-cache: ${{ github.ref_name == 'main' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Prepare fixtures
+        run: |
+          corepack enable
+          cd fixtures/global-cache
+          yarn install
+
+      - name: Build
+        run: cargo build
+
+      - name: Check
+        run: cargo check
+
+      - name: Run tests
+        run: cargo test
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: taiki-e/checkout-action@v1
+
+      - uses: oxc-project/setup-rust@v1.0.0
+        with:
+          save-cache: ${{ github.ref_name == 'main' }}
+          cache-key: clippy
+          components: clippy
+
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: taiki-e/checkout-action@v1
+
+      - uses: oxc-project/setup-rust@v1.0.0
+        with:
+          components: rustfmt
+
+      - run: cargo fmt --check

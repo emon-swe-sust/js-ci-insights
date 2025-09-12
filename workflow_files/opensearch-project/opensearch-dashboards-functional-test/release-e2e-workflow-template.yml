@@ -1,0 +1,162 @@
+name: Release tests workflow in Bundled OpenSearch Dashboards
+on:
+  workflow_call:
+    inputs:
+      test-name:
+        required: true
+        type: string
+      test-command:
+        required: true
+        type: string
+      osd-serve-args:
+        required: false
+        type: string
+      security-enabled:
+        required: false
+        type: string
+      artifact-name-suffix:
+        required: false
+        type: string
+      multi-opensearch-enabled:
+        required: false
+        type: boolean
+        default: true
+jobs:
+  tests:
+    name: Run Cypress E2E tests for ${{ inputs.test-name }}
+    runs-on: ubuntu-latest
+    env:
+      # prevents extra Cypress installation progress messages
+      CI: 1
+      # avoid warnings like "tput: No value for $TERM and no -T specified"
+      TERM: xterm
+      # make Node run in ipv4 first so that cypress can detect 5601 port in CI environment
+      NODE_OPTIONS: '--max-old-space-size=6144 --dns-result-order=ipv4first'
+      # 2.12 onwards security demo configuration require a custom admin password
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: 'myStrongPassword123!'
+    steps:
+      - name: Checkout Branch
+        uses: actions/checkout@v3
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: 21
+      - name: Checkout cypress-test
+        uses: actions/checkout@v2
+        with:
+          repository: ${{github.repository}}
+          path: cypress-test
+      - name: Get package version
+        working-directory: cypress-test
+        run: |
+          echo "VERSION=$(yarn --silent pkg-version)" >> $GITHUB_ENV
+      - name: Get security setups
+        run: |
+          SECURITY_ENABLED=${{ inputs.security-enabled }}
+          if [ "$SECURITY_ENABLED" != 'false' ]; then
+              echo "SECURITY_ENABLED=true" >> $GITHUB_ENV
+          else
+              echo "SECURITY_ENABLED=false" >> $GITHUB_ENV
+          fi
+      - name: Get and run OpenSearch
+        run: |
+          wget https://ci.opensearch.org/ci/dbc/distribution-build-opensearch/${{ env.VERSION }}/latest/linux/x64/tar/dist/opensearch/opensearch-${{ env.VERSION }}-linux-x64.tar.gz
+          tar -xzf opensearch-${{ env.VERSION }}-linux-x64.tar.gz
+          cd opensearch-${{ env.VERSION }}/
+          if [ "$SECURITY_ENABLED" = 'false' ]; then
+              echo "Remove OpenSearch Security"
+              [ -d "plugins/opensearch-security" ] && echo "plugins.security.disabled: true" >> config/opensearch.yml
+              ./opensearch-tar-install.sh &
+              timeout 900 bash -c 'while [[ "$(curl -o /dev/null -w ''%{http_code}'' http://localhost:9200)" != "200" ]]; do sleep 5; done'
+              curl http://localhost:9200
+          else
+              echo "Keep OpenSearch Security"
+              ./opensearch-tar-install.sh &
+              timeout 900 bash -c 'while [[ "$(curl -o /dev/null -w ''%{http_code}'' -u admin:${{ env.OPENSEARCH_INITIAL_ADMIN_PASSWORD }} -k https://localhost:9200)" != "200" ]]; do sleep 5; done'
+              curl https://localhost:9200 -u admin:${{ env.OPENSEARCH_INITIAL_ADMIN_PASSWORD }} --insecure
+          fi
+      - uses: ./.github/actions/start-opensearch
+        if: ${{ inputs.multi-opensearch-enabled }}
+        with:
+          opensearch-version: ${{ env.VERSION }}
+          security-enabled: false
+          port: 9201
+          transport_port: 9301
+      - uses: ./.github/actions/start-opensearch
+        if: ${{ inputs.multi-opensearch-enabled }}
+        with:
+          opensearch-version: ${{ env.VERSION }}
+          security-enabled: true
+          admin-password: myStrongPassword123!
+          port: 9202
+          transport_port: 9302
+      - name: Get OpenSearch-Dashboards
+        run: |
+          wget https://ci.opensearch.org/ci/dbc/distribution-build-opensearch-dashboards/${{ env.VERSION }}/latest/linux/x64/tar/dist/opensearch-dashboards/opensearch-dashboards-${{ env.VERSION }}-linux-x64.tar.gz
+          tar -xzf opensearch-dashboards-${{ env.VERSION }}-linux-x64.tar.gz
+      - name: Get node and yarn versions
+        id: versions
+        run: |
+          node_version_temp=$(node -p "(require('./opensearch-dashboards-${{ env.VERSION }}/package.json').engines.node).match(/[.0-9]+/)[0]")
+          echo "node_version=$node_version_temp" >> $GITHUB_ENV
+      - name: Setup node
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ steps.versions.outputs.node_version }}
+          registry-url: 'https://registry.npmjs.org'
+      - name: Run OpenSearch-Dashboards server
+        run: |
+          cd opensearch-dashboards-${{ env.VERSION }}
+          if [ "$SECURITY_ENABLED" = 'false' ]; then
+              echo "Remove Dashboards Security"
+              ./bin/opensearch-dashboards-plugin remove securityDashboards
+              sed -i /^opensearch_security/d config/opensearch_dashboards.yml
+              sed -i 's/https/http/' config/opensearch_dashboards.yml
+              bin/opensearch-dashboards serve ${{ inputs.osd-serve-args }} &
+              timeout 300 bash -c 'while [[ "$(curl http://localhost:5601/api/status | jq -r '.status.overall.state')" != "green" ]]; do sleep 5; done'
+              curl http://localhost:5601/api/status
+          else
+              echo "Keep Dashboards Security"
+              bin/opensearch-dashboards serve ${{ inputs.osd-serve-args }} &
+              timeout 300 bash -c 'while [[ "$(curl -u admin:${{ env.OPENSEARCH_INITIAL_ADMIN_PASSWORD }} -k http://localhost:5601/api/status | jq -r '.status.overall.state')" != "green" ]]; do sleep 5; done'
+              curl http://localhost:5601/api/status -u admin:${{ env.OPENSEARCH_INITIAL_ADMIN_PASSWORD }} --insecure
+          fi
+      - name: Get Cypress version
+        id: cypress_version
+        run: |
+          cypress_version_temp=$(cat ./monetery-test/package.json | jq -r '.devDependencies.cypress')
+          echo "cypress_version=$cypress_version_temp" >> $GITHUB_ENV
+      - name: Cache Cypress
+        id: cache-cypress
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-cache-v2-${{ runner.os }}-${{ hashFiles('**/package.json') }}
+        env:
+          CYPRESS_INSTALL_BINARY: ${{ steps.cypress_version.outputs.cypress_version }}
+      - run: npx cypress cache list
+      - run: npx cypress cache path
+      - name: Cypress tests
+        uses: cypress-io/github-action@v2
+        with:
+          working-directory: cypress-test
+          command: ${{ inputs.test-command }}
+          wait-on: 'http://localhost:5601'
+      # Screenshots are only captured on failure, will change this once we do visual regression tests
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cypress-screenshots${{ inputs.artifact-name-suffix }}
+          path: cypress-test/cypress/screenshots
+      # Test run video was always captured, so this action uses "always()" condition
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cypress-videos${{ inputs.artifact-name-suffix }}
+          path: cypress-test/cypress/videos
+      # Test reports was always captured, so this action uses "always()" condition
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cypress-results${{ inputs.artifact-name-suffix }}
+          path: cypress-test/cypress/results

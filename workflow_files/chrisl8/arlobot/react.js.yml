@@ -1,0 +1,37 @@
+name: React Build Test
+
+on:
+  push:
+    branches: [ jazzy ]
+    paths:
+      - "website/**"
+  pull_request:
+    branches: [ jazzy ]
+    paths:
+      - "website/**"
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: true
+        default: 'warning'
+      tags:
+        required: false
+        description: 'Manually run React tests'
+jobs:
+  build:
+
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+          cache-dependency-path: ./website/package.json
+      - run: npm update
+        working-directory: website
+      - run: npm run build --if-present
+        working-directory: website

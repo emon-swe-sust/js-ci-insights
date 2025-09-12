@@ -1,0 +1,129 @@
+name: Package Plugin
+
+on:
+  release:
+    types:
+      - published
+
+env:
+  VERSION: ${GITHUB_REF#refs/tags/*}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: On Release
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate version number
+        if: ${{ (github.repository == 'bluehost/bluehost-wordpress-plugin') && (github.event.release.prerelease == false) }}
+        run: |
+          taggedVersion=${{ env.VERSION }}
+          pluginHeaderVersion=`grep "Version:" bluehost-wordpress-plugin.php | grep -Eo "[0-9\.]*"`
+          pluginConstantVersion=`grep "'BLUEHOST_PLUGIN_VERSION'" bluehost-wordpress-plugin.php | grep -Eo "[0-9\.]*"`
+          pluginPackageVersion=`grep '"version"' package.json | grep -Eo "[0-9\.]*"`
+          echo "Tagged version: $taggedVersion"
+          echo "Plugin header version: $pluginHeaderVersion"
+          echo "Plugin constant version: $pluginConstantVersion"
+          echo "Plugin package version: $pluginPackageVersion"
+          [[ "$taggedVersion" == "$pluginHeaderVersion" ]] || exit 1
+          [[ "$taggedVersion" == "$pluginConstantVersion" ]] || exit 1
+          [[ "$taggedVersion" == "$pluginPackageVersion" ]] || exit 1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+          tools: composer, cs2pr
+
+      - name: Setup workflow context
+        id: workflow
+        working-directory: ${{ runner.temp }}
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir dist
+          echo "DIST=${PWD}/dist" >> $GITHUB_OUTPUT
+          echo "PACKAGE=${REPO##*/}" >> $GITHUB_OUTPUT
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer vendor directory
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+
+      - name: Show versions
+        run: |
+          php --version
+          composer --version
+          node --version
+          npm --version
+
+      - name: Validate composer.json and composer.lock
+        run: composer validate
+
+      - name: Install PHP Dependencies
+        run: composer install --no-progress --no-dev --optimize-autoloader --prefer-dist
+
+      - name: Setup Registry
+        run: printf "\n//npm.pkg.github.com/:_authToken=${{ secrets.NEWFOLD_ACCESS_TOKEN }}" >> .npmrc
+
+      - name: NPM Install
+        run: npm install --legacy-peer-deps
+
+      - name: Validate WP Versions
+        if: ${{ (github.repository == 'bluehost/bluehost-wordpress-plugin') && (github.event.release.prerelease == false) }}
+        run: |
+          pluginHeaderTestedVersion=`grep "Tested up to:" bluehost-wordpress-plugin.php | grep -Eo "[0-9\.]*"`
+          wpEnvVersion=`grep "WordPress/WordPress#tags/" .wp-env.json | grep -Eo "[0-9\.]*"`
+          echo "Plugin header tested version: $pluginHeaderTestedVersion"
+          echo "wp-env version: $wpEnvVersion"
+          [[ "$wpEnvVersion" == "$pluginHeaderTestedVersion" ]] || exit 1
+
+      - name: Build JavaScript
+        run: npm run build
+
+      - name: Create Distribution Copy
+        run: rsync -r --include-from=.distinclude --exclude-from=.distignore . ${{ steps.workflow.outputs.DIST }}/${{ steps.workflow.outputs.PACKAGE }}
+
+      - name: List Distribution Files
+        working-directory: ${{ steps.workflow.outputs.DIST }}
+        run: find .
+
+      - name: Create Zip
+        working-directory: ${{ steps.workflow.outputs.DIST }}
+        run: zip -r ${{ steps.workflow.outputs.PACKAGE }}.zip .
+
+      - name: Upload Release Asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" ${{ steps.workflow.outputs.DIST }}/${{ steps.workflow.outputs.PACKAGE }}.zip
+
+      - name: Clear cache for release API
+        if: ${{ github.repository == 'bluehost/bluehost-wordpress-plugin' }}
+        run: |
+          curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_ZONE_ID }}/purge_cache" \
+               -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+               -H "Content-Type: application/json" \
+               --data '{"files":["https://hiive.cloud/workers/release-api/plugins/bluehost/bluehost-wordpress-plugin"]}'
+

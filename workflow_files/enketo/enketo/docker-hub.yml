@@ -1,0 +1,46 @@
+name: Build and push Enketo Express image to Docker Hub
+
+on:
+    push:
+        tags:
+            - '[0-9]+.[0-9]+.[0-9]+'
+
+env:
+    REGISTRY: docker.io
+    IMAGE_NAME: enketo/enketo-express
+
+jobs:
+    docker-build-push:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
+
+            - name: Log into registry ${{ env.REGISTRY }}
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ secrets.DOCKER_HUB_USERNAME }}
+                  password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+
+            - name: Extract Docker metadata
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+            - name: Set up QEMU emulator for multi-arch images
+              uses: docker/setup-qemu-action@v3
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  platforms: 'linux/amd64,linux/arm64'

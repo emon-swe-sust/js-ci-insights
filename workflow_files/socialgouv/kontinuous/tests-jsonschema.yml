@@ -1,0 +1,40 @@
+name: ✅ Tests JSON schema 🔲
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "**/values.schema.json"
+      - "**/config.schema.json"
+      - "**/kontinuous.schema.json"
+      - "**/*.values.schema.json"
+      - ".github/jsonschema/**"
+      - ".github/workflows/tests-jsonschema.yml"
+
+concurrency:
+  cancel-in-progress: true
+  group: tests-jsonschema-${{ github.ref_name }}
+
+jobs:
+  tests:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+      - name: install
+        run: |
+          pip install pipx
+          pipx install check-jsonschema
+
+      - name: test valid schema
+        run: |
+          check-jsonschema .github/jsonschema/jsonschema-valid.yml --schemafile ./docs/values.schema.json
+
+      - name: test invalid schema
+        run: |
+          ! check-jsonschema .github/jsonschema/jsonschema-invalid.yml --schemafile ./docs/values.schema.json

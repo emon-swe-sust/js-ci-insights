@@ -1,0 +1,183 @@
+name: pr-go
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "ui/**"
+      - "**/**.md"
+      - "evaluation/typescript/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROTOC_VERSION: 23.4
+  PROTOLOCK_VERSION: v0.16.0
+  PROTOC_GEN_GO_VERSION: v1.5.2
+  PROTOC_GEN_OPENAPI_V2: v2.20.0
+  PROTOC_GEN_GO_GRPC_VERSION: v2.20.0
+  MOCKGEN_VERSION: v0.4.0
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    services:
+      # setup httpstan container used to run unit test in experiment service
+      httpstan:
+        image: ghcr.io/bucketeer-io/bucketeer-httpstan:0.0.1
+        ports:
+          - 8080:8080
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Download vendor
+        run: make vendor
+      - name: Run unit test
+        run: make test-go
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Download vendor
+        run: make vendor
+      - name: Build
+        run: make build-go
+
+  gofmt-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Install goimports
+        run: go install golang.org/x/tools/cmd/goimports
+      - name: Check Go formatting
+        run: make gofmt-check
+
+  mockgen-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Install Protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install protoc-gen-go
+        run: go install github.com/golang/protobuf/protoc-gen-go@${{ env.PROTOC_GEN_GO_VERSION }}
+      - name: Install protoc-gen-go-grpc
+        run: go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@${{ env.PROTOC_GEN_GO_GRPC_VERSION }}
+      - name: Install goimports
+        run: go install golang.org/x/tools/cmd/goimports
+      - name: Install mockgen
+        run: go install go.uber.org/mock/mockgen@${{ env.MOCKGEN_VERSION}}
+      - name: Check mockgen
+        run: make mockgen-check
+
+  proto-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - name: Install protolock
+        run: go install github.com/nilslice/protolock/cmd/protolock@${{ env.PROTOLOCK_VERSION }}
+      - name: Install Protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install protoc-gen-go-grpc
+        run: go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@${{ env.PROTOC_GEN_GO_GRPC_VERSION }}
+      - name:  Check proto format
+        uses: jidicula/clang-format-action@4726374d1aa3c6aecf132e5197e498979588ebc8 # v4.15.0
+        with:
+          clang-format-version: '14'
+          check-path: 'proto'
+          exclude-regex: 'external' # googleapis proto files
+      - name: Check proto lock
+        run: make proto-lock-check
+
+  proto-go-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Install Protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install protoc-gen-go
+        run: go install github.com/golang/protobuf/protoc-gen-go@${{ env.PROTOC_GEN_GO_VERSION }}
+      - name: Install protoc-gen-go-grpc
+        run: go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@${{ env.PROTOC_GEN_GO_GRPC_VERSION }}
+      - name: Check proto go files
+        run: make proto-go-check
+
+  proto-openapi-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Install Protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install protoc-gen-go
+        run: go install github.com/golang/protobuf/protoc-gen-go@${{ env.PROTOC_GEN_GO_VERSION }}
+      - name: Install protoc-gen-openapi
+        run: go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@${{ env.PROTOC_GEN_OPENAPI_V2 }}
+      - name: Generate proto go files
+        run: make proto-openapi-gen
+      - name: Check diff
+        run: make diff-check
+
+
+  update-repos-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Check repository updates
+        run: make update-repos-check
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - name: Lint
+        run: make lint

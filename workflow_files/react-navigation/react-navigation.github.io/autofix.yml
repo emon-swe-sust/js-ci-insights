@@ -1,0 +1,28 @@
+name: autofix.ci
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Fix lint issues
+        run: yarn markdownlint-cli2 --fix
+
+      - name: Prettify code
+        run: yarn prettier --write .
+
+      - name: Autofix
+        uses: autofix-ci/action@635ffb0c9798bd160680f18fd73371e355b85f27

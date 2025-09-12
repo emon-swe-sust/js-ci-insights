@@ -1,0 +1,70 @@
+name: S3 Test Build
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: unit tests
+        working-directory: backend
+        run: |
+          docker compose build
+          docker compose run --rm test
+          docker compose down
+          
+  build-deploy-s3:
+    name: Build / Deploy to S3 Test Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set-up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: AWS Creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+      - name: npm ci
+        run: |
+          npm ci
+      - name: npm build frontend
+        env:
+          NODE_OPTIONS: --openssl-legacy-provider
+        run: |
+          npm run build-stage
+      - name: deploy frontend to s3
+        run: |
+          aws s3 sync ./dist s3://energy-dashboard
+
+  deploy-sam:
+    name: Validate Serverless API
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with: 
+        token: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - uses: aws-actions/setup-sam@v2
+      with:
+        version: 1.59.0
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+    - name: Validate
+      working-directory: backend
+      run: |
+        sam validate

@@ -1,0 +1,29 @@
+name: vellum tests
+on:
+  pull_request:
+    branches:
+    - master
+jobs:
+  tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Install dependencies
+      run: |
+        mv package.json package.json.save
+        npm install "yarn@^1"
+        rm package-lock.json
+        mv package.json.save package.json
+        yarn install
+    - name: Build webpack
+      run: |
+        rm -rf _build
+        yarn testbuild
+    - name: Run tests
+      run: |
+        npm run testserver &
+        npm test

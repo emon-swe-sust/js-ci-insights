@@ -1,0 +1,31 @@
+name: Detect hardcoded-outdated NPM packages
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: 0 23 * * * # Every 07:00 CST
+
+concurrency: detectHardcodedOutdatedNPMPackages
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  generateConfiguration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          show-progress: false
+      - name: Use Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          check-latest: true
+          cache: npm
+      - name: Installing the dependencies
+        uses: AnnAngela/cached_node-modules@v3
+        with:
+          command: npm run ci
+      - name: Detect hardcoded-outdated NPM packages
+        run: node scripts/detectHardcodedOutdatedNPMPackages/index.js

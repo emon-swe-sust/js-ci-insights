@@ -1,0 +1,41 @@
+name: build
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ankane/setup-postgres@v1
+        with:
+          database: pgvector_node_test
+          dev-files: true
+      - run: |
+          cd /tmp
+          git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
+          cd pgvector
+          make
+          sudo make install
+
+      # Node.js
+      - uses: actions/setup-node@v4
+      - run: npm install
+      - run: npx prisma migrate dev
+      - run: npm test
+
+      # Bun
+      - uses: oven-sh/setup-bun@v1
+      - run: bun install
+      - run: bunx prisma migrate reset --force
+      - run: bun run test
+      - run: |
+          cd examples/bun
+          bun install
+          createdb pgvector_example
+          bun run example.js
+
+      # Deno
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+      - run: deno install
+      - run: deno task test

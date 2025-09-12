@@ -1,0 +1,124 @@
+name: DocGen
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    name: Generate Documentation
+
+    steps:
+        - name: Checkout Docs
+          uses: actions/checkout@v4
+          with:
+            path: documentation
+            ref: ${{ github.ref_name }}
+
+        - name: Setup Node.js
+          uses: actions/setup-node@v4
+          with:
+            node-version: 20.x
+
+        - uses: pnpm/action-setup@v4
+          with:
+            version: 10
+            run_install: false
+
+        - name: Set up .NET
+          uses: actions/setup-dotnet@v4
+          with:
+            dotnet-version: 6.0.x
+
+        - name: Install dependencies
+          working-directory: documentation
+          shell: bash
+          run: pnpm install --frozen-lockfile
+
+        - name: Checkout DevExtreme
+          uses: actions/checkout@v4
+          with:
+            path: devextreme
+            repository: devexpress/devextreme
+            ref: ${{ github.ref_name }}
+
+        - name: NPM - devextreme
+          working-directory: devextreme
+          run: pnpm install
+
+#Generation
+        - name: Discover declarations
+          working-directory: devextreme
+          shell: bash
+          run: pnpm nx run devextreme-metadata:discover-declarations
+
+        - name: Update topics
+          working-directory: documentation
+          run: npm run update-topics -- --artifacts ../devextreme/packages/devextreme-metadata/dist
+
+        - name: Generate additional topics
+          working-directory: documentation
+          run: npm run generate-extra-topic --artifacts ../devextreme/packages/devextreme-metadata/dist
+
+        - name: Generate Syntax metadata
+          working-directory: documentation
+          run: npm run generate-syntax-data -- --artifacts ../devextreme/packages/devextreme-metadata/dist
+
+        - name: Generate ContentMap
+          working-directory: documentation
+          run: npm run generate-content-map --artifacts ../devextreme/packages/devextreme-metadata/dist
+
+        - name: Update links
+          working-directory: documentation
+          run: npm run update-links --artifacts ../devextreme/packages/devextreme-metadata/dist
+
+#PR
+        - name: Configure Git
+          run: |
+            git config --global user.email "DXGitHubRobot@devexpress.com"
+            git config --global user.name "DX Robot"
+
+        - name: Publish changes
+          working-directory: documentation
+          shell: bash
+          run: |
+            formatted_time=$(date +"%d_%m_%y_%Hh%Mm")
+            branch_name="dxrobot/${{ github.ref_name }}_D$formatted_time"
+
+            git checkout -b $branch_name
+            git add ./api-reference ./concepts ./metadata
+            git commit -m "DocGen ${{ github.ref_name }} result" || exit 0
+
+            git push --set-upstream origin $branch_name
+
+            escaped_pwd=$(echo $(pwd)/ | sed --expression 's/\//\\\//g')
+            cat ../devextreme/packages/devextreme-metadata/dist/Readme.md | sed -e "s/$escaped_pwd//g" > prbody.md
+            
+            MAXSIZE=65536
+            FILESIZE=$(stat -c%s prbody.md)
+            
+            if ((FILESIZE > MAXSIZE)); then
+              printf "Shown 64k bytes of total $FILESIZE\n$(tail -c 65490 prbody.md)" > prbody.md
+            fi
+
+            jq -n \
+              --arg head "$branch_name" \
+              --arg base "${{ github.ref_name }}" \
+              --arg title "DocGen ${{ github.ref_name }} [$(date +%D)]" \
+              --rawfile body prbody.md \
+              '{ "head": $head, "base": $base, "title": $title, "body": $body }' > prdata.json
+
+            curl \
+                -X POST \
+                -H "Accept: application/vnd.github.v3+json" \
+                -H "Authorization: Bearer ${{ secrets.DXROBOT_PAT }}" \
+                https://api.github.com/repos/${{ github.repository }}/pulls \
+                --data-binary @prdata.json
+
+        - name: Archive internal-tools artifacts
+          uses: actions/upload-artifact@v4
+          with:
+            name: internal-tools-artifacts
+            path: ./devextreme/packages/devextreme-metadata/dist/
+            retention-days: 7

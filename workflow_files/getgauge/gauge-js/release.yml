@@ -1,0 +1,52 @@
+name: Release on PR Merge
+
+on: deployment
+
+jobs:
+  deploy:
+    if: github.event.deployment.environment == 'production'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: '${{ secrets.GAUGEBOT_GITHUB_TOKEN }}'
+      CI: true
+
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Nodejs
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup git
+        run: |
+          git config --global user.name "$(git --no-pager log --format=format:'%an' -n 1)"
+          git config --global user.email "$(git --no-pager log --format=format:'%ae' -n 1)"
+
+      - name: Build artifacts
+        run: |
+          npm install
+          npm run package
+
+      - name: update
+        run: |
+          if [ -z "$version" ]; then
+            version=$(cd deploy && ls gauge-js* | head -1 | sed "s/\.[^\.]*$//" | sed "s/gauge-js-//" | sed "s/-[a-z]*\.[a-z0-9_]*$//");
+          fi
+          echo "VERSION=$version" >> $GITHUB_ENV
+          
+          echo "---------------------------"
+          echo "Updating release v$version"
+          echo "---------------------------"
+          echo -e "Gauge JS v$version\n\n" > desc.txt
+          release_description=$(ruby -e "$(curl -sSfL https://github.com/getgauge/gauge/raw/master/build/create_release_text.rb)" getgauge gauge-js)
+          echo "$release_description" >> desc.txt
+          gh release create --title "Gauge JS v${version}" --notes-file ./desc.txt "v${version}" deploy/gauge-js*
+
+      - name: Update metadata in gauge-repository
+        run: |
+          git clone https://github.com/getgauge/gauge-repository.git
+          cd gauge-repository
+          python update_metadata.py js $VERSION
+          commit_message=$(echo -e "Update js to v$VERSION")
+          git commit -am "$commit_message"
+          git push "https://$GITHUB_ACTOR:$GITHUB_TOKEN@github.com/getgauge/gauge-repository.git" master

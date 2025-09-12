@@ -1,0 +1,24 @@
+name: test-7-slack-notification-multi-channel
+
+on: [push]
+
+jobs:
+  slack-action:
+    #if: ${{ false }}
+    runs-on: windows-2019
+    name: Test 7 [windows-2019]
+
+    steps:
+      - name: Send Slack Message
+        uses: archive/github-actions-slack@master
+        id: send-message
+        with:
+          slack-bot-user-oauth-access-token: ${{ secrets.SLACK_BOT_USER_OAUTH_ACCESS_TOKEN }}
+          slack-channel: C036X5MRCJG,C036N6B2L5U
+          slack-text: Test 7 - Same message multiple channels
+
+      - name: Result from "Send Slack Message"
+        run: echo '${{ steps.send-message.outputs.slack-result }}'
+
+      - name: Results from "Send Slack Message"
+        run: echo '${{ steps.send-message.outputs.slack-results }}'

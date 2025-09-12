@@ -1,0 +1,57 @@
+name: GitHub CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: General checks, tests and coverage reporting
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v5.0.0
+
+    - name: Use Node.js LTS 20.11.0
+      uses: actions/setup-node@v5.0.0
+      with:
+        node-version: 20.11.0
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Perform checks and tests
+      run: npm test
+
+    - name: Send report to Coveralls
+      uses: coverallsapp/github-action@v2.3.6
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  test-matrix:
+    name: Unit tests on Node.js ${{ matrix.node-version }} and ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22]
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+
+    - uses: actions/checkout@v5.0.0
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v5.0.0
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - run: npm ci
+      name: Install dependencies
+
+    - run: npm ls --prod
+      name: Check for missing / extraneous Dependencies
+
+    - run: npm run unit
+      name: Run unit tests

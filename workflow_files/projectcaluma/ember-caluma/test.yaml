@@ -1,0 +1,176 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  NODE_VERSION: 20
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - name: Install Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+
+  test:
+    name: Tests
+    needs: [lint]
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace:
+          - "@projectcaluma/ember-analytics"
+          - "@projectcaluma/ember-core"
+          - "@projectcaluma/ember-distribution"
+          - "@projectcaluma/ember-form"
+          - "@projectcaluma/ember-form-builder"
+          - "@projectcaluma/ember-testing"
+          - "@projectcaluma/ember-workflow"
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - name: Install Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run tests
+        run: pnpm --filter ${{ matrix.workspace }} test:ember
+        env:
+          COVERAGE: true
+      - name: Upload coverage report to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          gcov_ignore: "./packages/analytics/"
+
+  test-floating:
+    name: Floating Tests
+    needs: [lint]
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace:
+          - "@projectcaluma/ember-analytics"
+          - "@projectcaluma/ember-core"
+          - "@projectcaluma/ember-distribution"
+          - "@projectcaluma/ember-form"
+          - "@projectcaluma/ember-form-builder"
+          - "@projectcaluma/ember-testing"
+          - "@projectcaluma/ember-workflow"
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - name: Install Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install Dependencies
+        run: pnpm install --no-lockfile
+      - name: Run tests
+        run: pnpm --filter ${{ matrix.workspace }} test:ember
+
+  # test-browserstack:
+  #   name: Browserstack Tests
+  #   needs: [lint]
+  #   runs-on: [ubuntu-latest]
+  #   timeout-minutes: 10
+
+  #   if: github.event_name == 'push'
+
+  #   env:
+  #     BROWSERSTACK_USERNAME: caluma1
+  #     BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+
+  #   steps:
+  #     - uses: actions/checkout@v5
+  #     - uses: pnpm/action-setup@v4
+  #     - name: Install Node
+  #       uses: actions/setup-node@v5
+  #       with:
+  #         node-version: ${{ env.NODE_VERSION }}
+  #         cache: pnpm
+  #     - name: Install Dependencies
+  #       run: pnpm install --frozen-lockfile
+  #     - name: Connect to Browserstack
+  #       run: pnpm ember browserstack:connect
+  #     - name: Run tests
+  #       run: pnpm test:browserstack
+  #       env:
+  #         CI_JOB_ID: ${{ job.container.id }}
+  #         BROWSERSTACK_LOCAL_IDENTIFIER: ${{ job.container.id }}
+  #     - name: Collect test results
+  #       run: pnpm ember browserstack:results
+  #     - name: Disconnect from Browserstack
+  #       run: pnpm ember browserstack:disconnect
+
+  test-compatibility:
+    name: Compatibility Tests
+    needs: [lint]
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - ember-lts-4.12
+          - ember-lts-5.4
+          - ember-lts-5.8
+          - ember-lts-5.12
+          - ember-release
+          - embroider-safe
+          - embroider-optimized
+        workspace:
+          - "@projectcaluma/ember-analytics"
+          - "@projectcaluma/ember-core"
+          - "@projectcaluma/ember-distribution"
+          - "@projectcaluma/ember-form"
+          - "@projectcaluma/ember-form-builder"
+          - "@projectcaluma/ember-testing"
+          - "@projectcaluma/ember-workflow"
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - name: Install Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run tests
+        run: pnpm --filter ${{ matrix.workspace }} exec ember try:one ${{ matrix.scenario }} --skip-cleanup

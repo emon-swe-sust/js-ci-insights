@@ -1,0 +1,24 @@
+name: Sync to gitee
+on:
+  push:
+    branches:
+      - develop
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 同步到 gitee
+        uses: wearerequired/git-mirror-action@master
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.GITEE_SERVER_KEY }}
+        with:
+          source-repo: git@github.com:ahyiru/huxy-admin.git
+          destination-repo: git@gitee.com:yiru/huxy-admin.git
+      - name: 部署到 Gitee Pages
+        uses: yanglbme/gitee-pages-action@main
+        with:
+          gitee-username: yiru
+          gitee-password: ${{ secrets.GITEE_SERVER_PASSWORD }}
+          gitee-repo: yiru/huxy-admin
+          branch: develop
+          directory: app/build

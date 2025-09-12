@@ -1,0 +1,40 @@
+name: CI
+
+on: 
+  push:
+    branches:
+      - master
+      - test
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to be able to publish a GitHub release
+      issues: write # to be able to comment on released issues
+      pull-requests: write # to be able to comment on released pull requests
+      id-token: write # to enable use of OIDC for npm provenance
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run semantic-release
+        env:
+            GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+            NPM_TOKEN: ${{secrets.NPM_TOKEN}}

@@ -1,0 +1,46 @@
+name: CodeQL
+
+on:
+  push:
+    paths:
+      - "**.js"
+      - "**.py"
+      - .github/workflows/CodeQL.yaml
+  pull_request:
+    paths:
+      - "**.js"
+      - "**.py"
+      - .github/workflows/CodeQL.yaml
+      - .github/codeql-config.yaml
+  merge_group:
+  workflow_dispatch:
+  schedule:
+    - cron: 15 0 * * *
+
+permissions:
+  actions: read
+  checks: write
+  contents: write
+  pull-requests: write
+  security-events: write
+  statuses: write
+
+jobs:
+  CodeQL:
+    # Prevent duplicate runs on organization branches with PRs
+    if: github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name !=
+      github.event.pull_request.base.repo.full_name
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          show-progress: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, python
+          queries: +security-and-quality
+          setup-python-dependencies: false
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3

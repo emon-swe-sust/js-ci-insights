@@ -1,0 +1,63 @@
+name: Bump version and release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version for publishing
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Get version
+        id: version
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            if (context.payload.inputs && context.payload.inputs.version) {
+              return context.payload.inputs.version
+            }
+            return context.ref.split('/').pop()
+      - name: Install dependencies
+        run: uv sync --extra check --dev
+      - name: Bump version
+        env:
+          VERSION: ${{ steps.version.outputs.result }}
+        run: |
+          echo "Bumping version to ${VERSION}"
+          sed -i 's/^version = ".*"$/version = "'$VERSION'"/' pyproject.toml
+          uv pip install .
+      - name: Setup git
+        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "github-actions"
+      - name: Commit changes
+        env:
+          VERSION: ${{ steps.version.outputs.result }}
+        run: |
+          git add pyproject.toml
+          git commit -m "Release ${VERSION}"
+          git push
+      - name: Publish to PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: uv publish
+      - name: Report status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.notice(`Released awscliv2 ${process.env.VERSION}`)

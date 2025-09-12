@@ -1,0 +1,74 @@
+name: Cron
+
+on:
+  workflow_dispatch:
+  schedule:
+  - cron: '0 22 * * *' # Every night at 22:00 UTC+0
+
+env:
+  FORCE_COLOR: true
+
+jobs:
+  update:
+    name: Daily Update
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Configure GPG Key
+      run: echo -n "$GPG_KEY" | gpg --import
+      env:
+        GPG_KEY: ${{ secrets.GPG_KEY }}
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Get Yarn cache directory
+      id: yarn-cache-dir-path
+      run: echo "::set-output name=dir::$(yarn cache dir)"
+
+    - name: Use Yarn cache
+      uses: actions/cache@v3
+      id: yarn-cache
+      with:
+        path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+        key: ${{ runner.os }}-yarn-${{ matrix.node-version }}-${{ hashFiles('**/yarn.lock') }}
+
+    - name: Install dependencies
+      run: yarn install --prefer-offline --frozen-lockfile
+
+    - name: Get seasonal data from Kitsu.io
+      run: yarn cron
+      env:
+        KITSU_USERNAME: ${{ secrets.KITSU_USERNAME }}
+        KITSU_PASSWORD: ${{ secrets.KITSU_PASSWORD }}
+
+    - name: Get today's date
+      id: date
+      run: echo "::set-output name=today::$(date +%F)"
+
+    - name: Commit updated seasonal data
+      run: |
+        git config --global user.name '${{ secrets.GH_USERNAME }}'
+        git config --global user.email '${{ secrets.GH_EMAIL }}'
+        git config --global user.signingkey ${{ secrets.GPG_SIGNING_KEY }}
+        git config --global commit.gpgsign true
+        git add data/
+        git commit -am 'chore: add data for ${{ steps.date.outputs.today }}'
+        git push
+
+    - name: Trigger CI Workflow
+      if: success()
+      uses: peter-evans/repository-dispatch@v2
+      with:
+        token: ${{ secrets.GH_TOKEN }}
+        repository: ${{ github.repository }}
+        event-type: trigger-ci-workflow
+        client-payload: '{"ref": "${{ github.ref }}", "sha": "${{ github.sha }}"}'

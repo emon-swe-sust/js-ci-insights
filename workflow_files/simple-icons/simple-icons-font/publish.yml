@@ -1,0 +1,119 @@
+name: Publish
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  npm:
+    name: NPM Package
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Use Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      - name: Install dependencies
+        run: npm ci
+      - name: Build NodeJS package
+        run: npm run build
+      - name: Update README CDN URLs
+        run: node scripts/update-cdn-urls.js
+      - name: Deploy to NPM
+        if: github.ref == 'refs/heads/master'
+        uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+          provenance: true
+  github:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        if: github.ref == 'refs/heads/master'
+        with:
+          app-id: ${{ vars.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Get release version
+        id: get-version
+        run: |
+          export PACKAGE_VERSION=$(cat package.json | grep 'version' | sed 's/[ \",:]//g' | sed 's/version//')
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+      - name: Configure GIT credentials
+        run: |
+          git config user.name "simple-icons[bot]"
+          git config user.email "simple-icons[bot]@users.noreply.github.com"
+      - name: Use Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Update README CDN URLs
+        run: node scripts/update-cdn-urls.js
+      # Commits that will only be included in the tag
+      - name: Commit font
+        run: |
+          git add --force font/
+          git commit -m 'Add font'
+      - name: Commit README updates
+        run: |
+          git add README.md
+          git diff-index --quiet HEAD || git commit -m 'Update README CDN urls'
+      - name: Create and push git tag
+        if: github.ref == 'refs/heads/master'
+        run: |
+          set -e
+          tag="${{ steps.get-version.outputs.version }}"
+          git tag -a "${tag}" -m ""
+          git push origin "${tag}"
+      - name: Create GitHub release
+        if: github.ref == 'refs/heads/master'
+        id: create-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        with:
+          tag_name: ${{ steps.get-version.outputs.version }}
+          release_name: Release ${{ steps.get-version.outputs.version }}
+          body: |
+            See https://github.com/simple-icons/simple-icons/releases/tag/${{ steps.get-version.outputs.version }}
+      - name: Compress release assets
+        run: |
+          cp node_modules/simple-icons/DISCLAIMER.md DISCLAIMER.md
+          zip -r simple-icons-font-${{ steps.get-version.outputs.version }}.zip font/ DISCLAIMER.md LICENSE.md
+      - uses: shogo82148/actions-upload-release-asset@v1
+        if: github.ref == 'refs/heads/master'
+        name: Upload release assets
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: simple-icons-font-${{ steps.get-version.outputs.version }}.zip
+      - name: Upload compressed fonts ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: simple-icons-font-${{ steps.get-version.outputs.version }}
+          path: simple-icons-font-${{ steps.get-version.outputs.version }}.zip

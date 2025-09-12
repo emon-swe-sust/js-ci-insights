@@ -1,0 +1,418 @@
+name: Docker
+
+# Cancel running workflows when a new workflow run is triggered from the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [abdo-dev, kaspar-dev, review, master, pre-release, production]
+  # using "pull_request_target" instead of "pull_request" runs this in the
+  # "master" branch context and makes secrets work with external pull requests
+  # (incl. dependabot). we check for author_association below so first-time
+  # contributors can't run this workflow.
+  pull_request_target:
+    branches: [master]
+jobs:
+  get_version:
+    if: ${{ github.event_name == 'push' || github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'CONTRIBUTOR' }}
+    name: Get git version
+    runs-on: ubuntu-24.04
+    outputs:
+      frontend_sha: ${{ steps.get_sha.outputs.frontend_sha }}
+      processor_sha: ${{ steps.get_sha.outputs.processor_sha }}
+      nginx_sha: ${{ steps.get_sha.outputs.nginx_sha }}
+      matrix: ${{ steps.set_matrix.outputs.matrix }}
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        with:
+          # check out the pull-request when triggered by "pull_request_target",
+          # when triggered on "push" this is empty and checks out the branch
+          # pushed to
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: 'recursive'
+          # 0 means fetch all commits, which we need for getting the right git versions of each folder
+          fetch-depth: 0
+
+      - name: Get commit SHA
+        id: get_sha
+        shell: bash
+        run: |
+          echo "frontend_sha=$(git log --format=%H -n1 frontend/)" >> $GITHUB_OUTPUT
+          echo "processor_sha=$(git log --format=%H -n1 processor/)" >> $GITHUB_OUTPUT
+          echo "nginx_sha=$(git log --format=%H -n1 nginx/)" >> $GITHUB_OUTPUT
+
+      - name: Create e2e matrix
+        # For master run e2e across all browsers otherwise, run it only in chrome
+        id: set_matrix
+        # Run e2e across all tests on `push` event to the `master` branch (merging another branch into master triggers push too).
+        # Run e2e in chrome only otherwise.
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ github.ref }}" == "refs/heads/master" ]];
+          then
+            matrix='{"browser":["chrome", "edge", "electron", "firefox"],"containers":[1,2,3]}'
+          else
+            matrix='{"browser":["chrome"],"containers":[1,2,3]}'
+          fi
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT";
+
+  build:
+    if: ${{ github.event_name == 'push' || github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'CONTRIBUTOR' }}
+    name: Build image
+    runs-on: ubuntu-24.04
+    needs:
+      - get_version
+    strategy:
+      fail-fast: true
+      matrix:
+        service: [frontend, processor, nginx]
+
+    steps:
+      - name: Set SHA output
+        id: set_sha
+        shell: bash
+        run: |
+          case '${{ matrix.service }}' in
+            frontend)
+              sha="${{ needs.get_version.outputs.frontend_sha }}";;
+            processor)
+              sha="${{ needs.get_version.outputs.processor_sha }}";;
+            nginx)
+              sha="${{ needs.get_version.outputs.nginx_sha }}";;
+          esac
+          echo "sha=${sha}" >> $GITHUB_OUTPUT
+
+      - name: Check for ${{ matrix.service }} image
+        id: check_for_image
+        shell: bash
+        run: |
+          if [ "$(curl \
+           https://ghcr.io/v2/kitspace/${{ matrix.service }}/manifests/${{ steps.set_sha.outputs.sha }} \
+           -H "Authorization: Bearer $(echo '${{ secrets.GITHUB_TOKEN }}' | base64)"  \
+           -H 'Accept: application/vnd.oci.image.index.v1+json' \
+            | jq .errors)" == 'null' ];
+            then image_exists='true'
+            else image_exists='false'
+          fi
+          echo "image_exists=${image_exists}" >> $GITHUB_OUTPUT
+
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        if: steps.check_for_image.outputs.image_exists == 'false'
+        with:
+          # check out the pull-request when triggered by "pull_request_target",
+          # when triggered on "push" this is empty and checks out the branch
+          # pushed to
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: 'recursive'
+
+      - name: Set up Docker Buildx
+        if: steps.check_for_image.outputs.image_exists == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr.io
+        if: steps.check_for_image.outputs.image_exists == 'false'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      # to avoid being rate-limited on pulls
+      - name: Login to hub.docker.com
+        if: steps.check_for_image.outputs.image_exists == 'false'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_PAT }}
+        continue-on-error: true
+
+      - name: Build and push ${{ matrix.service }}
+        if: steps.check_for_image.outputs.image_exists == 'false'
+        uses: docker/build-push-action@v4
+        with:
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ghcr.io/kitspace/${{ matrix.service }}:${{ steps.set_sha.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Report "review" deploy failure
+        if: ${{ failure() && github.ref == 'refs/heads/review' }}
+        run: scripts/report_auto_merge_deploy.py '${{ secrets.GITHUB_TOKEN }}' 'failure'
+
+  get_env:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-22.04
+    name: Get staging/production
+    outputs:
+      env: ${{ steps.set_env.outputs.env }}
+    steps:
+      - name: Set the env
+        id: set_env
+        shell: bash
+        run: |
+          if [ "${{ github.ref_name }}" == "production" ] || [ "${{ github.ref_name }}" == "pre-release" ]; then
+            echo "env=production" >> $GITHUB_OUTPUT
+          else
+            echo "env=staging" >> $GITHUB_OUTPUT
+          fi
+
+  deploy:
+    if: ${{ github.event_name == 'push' }}
+    name: Deploy
+    runs-on: ubuntu-22.04
+    needs:
+      - get_env
+      - get_version
+      - build
+    environment:
+      name: ${{ needs.get_env.outputs.env }}
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          # 0 means fetch all commits, which we need for "review" branch deploy
+          # reporting
+          fetch-depth: 0
+
+      - name: Report "review" deploy pending
+        if: ${{ github.ref == 'refs/heads/review' }}
+        run: scripts/report_auto_merge_deploy.py '${{ secrets.GITHUB_TOKEN }}' 'pending'
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        # we don't really need to log in to pull the images, just doing it in
+        # case an image is accidentally set to private
+        continue-on-error: true
+
+      # to avoid being rate-limited on pulls
+      - name: Log in to hub.docker.com
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_PAT }}
+        continue-on-error: true
+
+      - name: 'Set S3 env variables depending on branch name'
+        run: |
+          case '${{ github.ref_name }}' in
+            kaspar-dev)
+              echo 'KITSPACE_DOMAIN=${{ github.ref_name }}.staging.kitspace.dev' >> $GITHUB_ENV
+              echo 'DEPLOY_SERVER=${{ github.ref_name }}.staging.kitspace.dev' >> $GITHUB_ENV
+              echo 'BLOCK_ROBOTS=true' >> $GITHUB_ENV
+              echo 'S3_ACCESS_KEY=${{ secrets.STAGING_S3_ACCESS_KEY_KASPAR_DEV }}' >> $GITHUB_ENV
+              echo 'S3_SECRET_KEY=${{ secrets.STAGING_S3_SECRET_KEY_KASPAR_DEV }}' >> $GITHUB_ENV
+              echo 'S3_PROCESSOR_BUCKET_NAME=kitspace-staging-kaspar-dev-5' >> $GITHUB_ENV;;
+            abdo-dev)
+              echo 'KITSPACE_DOMAIN=${{ github.ref_name }}.staging.kitspace.dev' >> $GITHUB_ENV
+              echo 'DEPLOY_SERVER=${{ github.ref_name }}.staging.kitspace.dev' >> $GITHUB_ENV
+              echo 'BLOCK_ROBOTS=true' >> $GITHUB_ENV
+              echo 'S3_ACCESS_KEY=${{ secrets.STAGING_S3_ACCESS_KEY_ABDO_DEV }}' >> $GITHUB_ENV
+              echo 'S3_SECRET_KEY=${{ secrets.STAGING_S3_SECRET_KEY_ABDO_DEV }}' >> $GITHUB_ENV
+              echo 'S3_PROCESSOR_BUCKET_NAME=kitspace-staging-abdo-dev-5' >> $GITHUB_ENV;;
+            review)
+              echo 'KITSPACE_DOMAIN=${{ github.ref_name }}.staging.kitspace.dev' >> $GITHUB_ENV
+              echo 'DEPLOY_SERVER=${{ github.ref_name }}.staging.kitspace.dev' >> $GITHUB_ENV
+              echo 'BLOCK_ROBOTS=true' >> $GITHUB_ENV
+              echo 'S3_ACCESS_KEY=${{ secrets.STAGING_S3_ACCESS_KEY_REVIEW }}' >> $GITHUB_ENV
+              echo 'S3_SECRET_KEY=${{ secrets.STAGING_S3_SECRET_KEY_REVIEW }}' >> $GITHUB_ENV
+              echo 'S3_PROCESSOR_BUCKET_NAME=kitspace-staging-review-5' >> $GITHUB_ENV;;
+            master)
+              echo 'KITSPACE_DOMAIN=${{ github.ref_name }}.staging.kitspace.dev' >> $GITHUB_ENV
+              echo 'DEPLOY_SERVER=${{ github.ref_name }}.staging.kitspace.dev' >> $GITHUB_ENV
+              echo 'BLOCK_ROBOTS=true' >> $GITHUB_ENV
+              echo 'S3_ACCESS_KEY=${{ secrets.STAGING_S3_ACCESS_KEY_MASTER }}' >> $GITHUB_ENV
+              echo 'S3_SECRET_KEY=${{ secrets.STAGING_S3_SECRET_KEY_MASTER }}' >> $GITHUB_ENV
+              echo 'S3_PROCESSOR_BUCKET_NAME=kitspace-staging-master-5' >> $GITHUB_ENV;;
+            pre-release)
+              echo 'KITSPACE_DOMAIN=kitspace.org' >> $GITHUB_ENV
+              echo 'DEPLOY_SERVER=pre-release.kitspace.org' >> $GITHUB_ENV
+              echo 'BLOCK_ROBOTS=false' >> $GITHUB_ENV
+              echo 'S3_ACCESS_KEY=${{ secrets.PRE_RELEASE_S3_ACCESS_KEY }}' >> $GITHUB_ENV
+              echo 'S3_SECRET_KEY=${{ secrets.PRE_RELEASE_S3_SECRET_KEY }}' >> $GITHUB_ENV
+              echo 'S3_PROCESSOR_BUCKET_NAME=kitspace-pre-release' >> $GITHUB_ENV;;
+            production)
+              echo 'KITSPACE_DOMAIN=kitspace.org' >> $GITHUB_ENV
+              echo 'DEPLOY_SERVER=kitspace.org' >> $GITHUB_ENV
+              echo 'BLOCK_ROBOTS=false' >> $GITHUB_ENV
+              echo 'S3_ACCESS_KEY=${{ secrets.PRODUCTION_S3_ACCESS_KEY }}' >> $GITHUB_ENV
+              echo 'S3_SECRET_KEY=${{ secrets.PRODUCTION_S3_SECRET_KEY }}' >> $GITHUB_ENV
+              echo 'S3_PROCESSOR_BUCKET_NAME=kitspace-production' >> $GITHUB_ENV;;
+          esac
+
+      - name: Deploy to ${{ env.KITSPACE_DOMAIN }}
+        env:
+          POSTGRES_PASSWORD: '${{ secrets.POSTGRES_ROOT_PASSWORD }}'
+          POSTGRES_READONLY_USER_PASSWORD: '${{ secrets.POSTGRES_READONLY_PASSWORD }}'
+          GITEA_SECRET_KEY: '${{ secrets.GITEA_SECRET_KEY }}'
+          GITEA_INTERNAL_TOKEN: '${{ secrets.GITEA_INTERNAL_TOKEN }}'
+          MEILI_MASTER_KEY: '${{ secrets.MEILI_MASTER_KEY }}'
+          REDIS_PASSWORD: '${{ secrets.REDIS_PASSWORD }}'
+          KITSPACE_PROCESSOR_ASSET_VERSION: v6
+          KITSPACE_PROCESSOR_ASSET_VERSION_FRONTEND: v6
+          KITSPACE_SCHEME: https
+          KITSPACE_DEV_PORT: '80'
+          KITSPACE_EXTERNAL_PORT: ''
+          CERTBOT_ENABLED: 'true'
+          CERTBOT_EMAIL: 'certbot@kitspace.org'
+          COMPOSE_PROJECT_NAME: 'kitspace-${{ github.ref_name }}'
+          FRONTEND_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.frontend_sha }}'
+          PROCESSOR_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.processor_sha }}'
+          NGINX_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.nginx_sha }}'
+          KITSPACE_PROCESSOR_LOG_LEVEL: debug
+          # The maximum allowable file size that can be uploaded to gitea or the processor
+          MAX_FILE_SIZE: '6M'
+          MAXIMUM_REPO_MIGRATION_TIME: '300000'
+          S3_ENDPOINT: https://s3.eu-west-1.amazonaws.com
+          SENTRY_DSN: '${{ secrets.SENTRY_DSN }}'
+          SENTRY_ENVIRONMENT: ${{ needs.get_env.outputs.env }}
+          SENTRY_RELEASE: '${{ github.ref_name }}:${{ github.sha }}'
+        run: |
+          mkdir -p ~/.ssh
+          echo -e '${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}' > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan "${DEPLOY_SERVER}" >> ~/.ssh/known_hosts
+          docker context create deploy --docker "host=ssh://deploy@${DEPLOY_SERVER}"
+          docker context use deploy
+          docker --host="ssh://deploy@${DEPLOY_SERVER}" compose --compatibility -f docker-compose.yml -f docker-compose.deploy.yml up -d
+          rm -f ~/.ssh/id_rsa
+
+      - name: Report "review" deploy failure
+        if: ${{ failure() && github.ref == 'refs/heads/review' }}
+        run: scripts/report_auto_merge_deploy.py '${{ secrets.GITHUB_TOKEN }}' 'failure'
+
+      - name: Report "review" deploy success
+        if: ${{ success() && github.ref == 'refs/heads/review' }}
+        run: scripts/report_auto_merge_deploy.py '${{ secrets.GITHUB_TOKEN }}' 'success'
+
+  test:
+    name: Test E2E
+    runs-on: ubuntu-24.04
+    needs:
+      - get_version
+      - build
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.get_version.outputs.matrix) }}
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        with:
+          # check out the pull-request when triggered by "pull_request_target",
+          # when triggered on "push" this is empty and checks out the branch
+          # pushed to
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: 'recursive'
+
+      - name: Set environment variables
+        uses: c-py/action-dotenv-to-setenv@v2
+        with:
+          env-file: .env.example
+
+      - name: Configure /etc/hosts
+        shell: bash
+        run: cat ./config/hosts | sudo tee -a /etc/hosts
+
+      - name: Install Gitea
+        shell: bash
+        timeout-minutes: 5
+        env:
+          FRONTEND_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.frontend_sha }}'
+          PROCESSOR_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.processor_sha }}'
+          NGINX_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.nginx_sha }}'
+        run: |
+          scripts/install_gitea.sh
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Pre e2e
+        env:
+          FRONTEND_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.frontend_sha }}'
+          PROCESSOR_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.processor_sha }}'
+          NGINX_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.nginx_sha }}'
+        shell: bash
+        run: |
+          scripts/generate_e2e_fixtures.sh
+
+          # start gitea so we can generate the admin token required for e2e
+          docker compose --compatibility -f docker-compose.yml -f docker-compose.deploy.yml up -d
+          until docker logs kitspace_gitea_1 | grep -q 'ORM engine initialization successful' ; do sleep 3s; done
+          token="$(./scripts/importBoardsTxt.ts --tokenOnly)"
+          docker compose stop
+
+          echo "CYPRESS_GITEA_ADMIN_TOKEN=${token}" >> $GITHUB_ENV
+
+      - name: e2e
+        timeout-minutes: 40
+        env:
+          CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
+          # pass GitHub token to allow accurately detecting a build vs a re-run build
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FRONTEND_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.frontend_sha }}'
+          PROCESSOR_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.processor_sha }}'
+          NGINX_DEPLOY_IMAGE_TAG: ':${{ needs.get_version.outputs.nginx_sha }}'
+          browser: ${{ matrix.browser }}
+          group: ${{ matrix.browser }}
+          BUILD_ID: '${{ github.run_id }}-${{ github.run_attempt }}'
+          COMMIT_INFO_MESSAGE: '${{ github.event.head_commit.message }}'
+          COMMIT_INFO_EMAIL: '${{ github.event.head_commit.author.email }}'
+          COMMIT_INFO_AUTHOR: '${{ github.event.head_commit.author.name }}'
+          COMMIT_INFO_SHA: '${{ github.event.head_commit.id }}'
+          COMMIT_INFO_TIMESTAMP: '${{ github.event.head_commit.timestamp }}'
+          COMMIT_INFO_BRANCH: '${{ github.ref_name || github.head_ref }}'
+        run: |
+          docker compose --compatibility -f docker-compose.yml -f docker-compose.deploy.yml -f docker-compose.e2e.yml up \
+            --abort-on-container-exit --exit-code-from e2e
+
+  tag_docker_images:
+    if: ${{ github.event_name == 'push' }}
+    name: Tag with branch name
+    runs-on: ubuntu-22.04
+    needs:
+      - get_version
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [frontend, processor, nginx]
+
+    steps:
+      - name: Tag '${{ matrix.service }}:${{ github.ref_name }}'
+        run: |
+          case '${{ matrix.service }}' in
+            frontend)
+              sha='${{ needs.get_version.outputs.frontend_sha }}';;
+            processor)
+              sha='${{ needs.get_version.outputs.processor_sha }}';;
+            nginx)
+              sha='${{ needs.get_version.outputs.nginx_sha }}';;
+          esac
+          curl \
+            "https://ghcr.io/v2/kitspace/${{ matrix.service }}/manifests/${sha}" \
+            -H "Authorization: Bearer $(echo '${{ secrets.GITHUB_TOKEN }}' | base64)"  \
+            -H 'Accept: application/vnd.oci.image.index.v1+json' \
+            > manifest.json
+          cat manifest.json
+          [ "$(cat manifest.json | jq .errors)" == 'null' ] && \
+            curl -X PUT \
+              https://ghcr.io/v2/kitspace/${{ matrix.service }}/manifests/${{ github.ref_name }} \
+              -H "Authorization: Bearer $(echo '${{ secrets.GITHUB_TOKEN }}' | base64)"  \
+              -H "Content-Type: application/vnd.oci.image.index.v1+json" \
+              -d '@manifest.json'

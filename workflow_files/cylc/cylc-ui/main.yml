@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: 2
+
+jobs:
+  unit-test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+          cache: yarn
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install
+        run: yarn install
+
+      - name: Lint
+        run: |
+          yarn run lint
+
+      - name: Test
+        run: |
+          yarn run coverage:unit
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage_unit
+          path: coverage/clover.xml
+          retention-days: 4
+
+      - name: Build
+        run: yarn run build
+
+      - name: Check browser compatibility
+        run: yarn run lint:compat
+
+      - name: Towncrier - draft changelog
+        uses: cylc/release-actions/towncrier-draft@v1
+
+  cypress-run:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, chrome, electron]
+        os: [ubuntu-latest]
+# TODO: re-enable once macos build is stable #590
+#         include:
+#           - os: macos-latest
+#             browser: edge
+    env:
+      COVERAGE: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+          cache: yarn
+
+      - name: Test (E2E)
+        uses: cypress-io/github-action@v6
+        env:
+          BASE_URL: http://localhost:4173/
+        with:
+          build: yarn run build --mode offline
+          start: yarn run preview
+          config: baseUrl=${{ env.BASE_URL }}
+          wait-on: ${{ env.BASE_URL }}
+          browser: ${{ matrix.browser }}
+
+      - name: Test (component)
+        uses: cypress-io/github-action@v6
+        with:
+          component: true
+          browser: ${{ matrix.browser }}
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: 'cypress-screenshots_${{ matrix.browser }}_${{ matrix.os }}'
+          path: tests/e2e/screenshots
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'coverage_${{ matrix.browser }}_${{ matrix.os }}'
+          path: coverage/lcov.info
+          retention-days: 4
+
+  codecov-upload:
+    needs: [unit-test-and-build, cypress-run]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v5
+
+      - name: Codecov upload
+        uses: codecov/codecov-action@v5
+        with:
+          name: ${{ github.workflow }}
+          fail_ci_if_error: true
+          # Token not required for public repos, but avoids upload failure due
+          # to rate-limiting (but not for PRs opened from forks)
+          token: ${{ secrets.CODECOV_TOKEN }}

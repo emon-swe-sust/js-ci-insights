@@ -1,0 +1,58 @@
+name: Deploy ChatGPT2Scratch
+
+on:
+  push:
+    branches: ["main"]
+
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          repository: LLK/scratch-gui
+          ref: develop
+      - run: npm install
+      - uses: actions/checkout@v3
+        with:
+          path: ./chatgpt2scratch
+      - name: Install chatgpt2scratch
+        env:
+          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+          DOJO_KEY: ${{ secrets.DOJO_KEY }}
+        run: sh ./chatgpt2scratch/install.sh
+      - run: NODE_OPTIONS=--openssl-legacy-provider npm run build
+      - name: npm install under chatgpt2scratch
+        run: npm install
+        working-directory: ./chatgpt2scratch
+      - name: Build chatgpt2scratch.mjs for xcratch
+        run: NODE_OPTIONS=--openssl-legacy-provider npm run build
+        working-directory: ./chatgpt2scratch
+      - name: Copy chatgpt2scratch.mjs to build folder
+        run: cp ./chatgpt2scratch/dist/chatgpt2scratch.mjs ./build
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: 'build'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1

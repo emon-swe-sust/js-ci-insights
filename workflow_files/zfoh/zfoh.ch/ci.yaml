@@ -1,0 +1,35 @@
+on:
+  pull_request: {}
+  push:
+    branches:
+    - main
+  schedule:
+  - cron: "0 12 * * *"  # Ensure meetup info is up to date
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: haskell-actions/setup@v2
+      id: setup
+      with:
+        ghc-version: '9.6.5'
+
+    - uses: actions/cache@v3
+      with:
+        key: ${{ steps.setup.outputs.ghc-version }}-v1-${{ hashFiles('zfoh.cabal') }}
+        restore-keys: ${{ steps.setup.outputs-ghc-version }}-v1-
+        path: |
+          ~/.cabal
+          ~/.ghc
+
+    - run: cabal build
+    - run: cabal run zfoh build
+
+    - if: github.event_name != 'pull_request'
+      uses: JamesIves/github-pages-deploy-action@v4
+      with:
+        branch: gh-pages
+        folder: _site

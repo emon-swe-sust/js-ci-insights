@@ -1,0 +1,89 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# A sample workflow which checks out the code, builds a container
+# image using Docker and scans that image for vulnerabilities using
+# Snyk. The results are then uploaded to GitHub Security Code Scanning
+#
+# For more examples, including how to limit scans to only high-severity
+# issues, monitor images for newly disclosed vulnerabilities in Snyk and
+# fail PR checks for new vulnerabilities, see https://github.com/snyk/actions/
+
+name: Snyk Container
+
+on:
+  push:
+  pull_request:
+  schedule:
+    #        ┌───────────── minute (0 - 59)
+    #        │  ┌───────────── hour (0 - 23)
+    #        │  │  ┌───────────── day of the month (1 - 31)
+    #        │  │  │ ┌───────────── month (1 - 12 or JAN-DEC)
+    #        │  │  │ │ ┌───────────── day of the week (0 - 6 or SUN-SAT)
+    #        │  │  │ │ │
+    #        │  │  │ │ │
+    #        │  │  │ │ │
+    #        *  *  * * *
+    - cron: '36 21 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  snyk:
+    permissions:
+      contents: read # for actions/checkout to fetch code
+      security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
+      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build a Docker image
+        run: docker build -t sjmayotte/route53-dynamic-dns .
+      - name: Run Snyk to check Docker image for vulnerabilities
+        # Snyk can be used to break the build when it detects vulnerabilities.
+        # In this case we want to upload the issues to GitHub Code Scanning
+        continue-on-error: true
+        uses: snyk/actions/docker@master
+        env:
+          # In order to use the Snyk Action you will need to have a Snyk API token.
+          # More details in https://github.com/snyk/actions#getting-your-snyk-token
+          # or you can signup for free at https://snyk.io/login
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: sjmayotte/route53-dynamic-dns
+          args: --file=Dockerfile
+        # Related to snyk issue: https://github.com/github/codeql-action/issues/2187
+      - name: Replace security-severity null for license-related findings
+        run: >
+          sed -i 's/"security-severity": "null"/"security-severity": "0"/g' snyk.sarif
+      # As of July 22nd 2025 Github no longer allow multiple runs (same tool and category) in the same SARIF file.
+      # Individual runs must be split in separated SARIF files with use of concept category.
+      # The action "snyk/actions/docker" is testing 3 projects within the same Docker image
+      # (base OS, app package.json, and global Node modules). We need to split these runs into individual SARIF files.
+      # https://github.blog/changelog/2025-07-21-code-scanning-will-stop-combining-multiple-sarif-runs-uploaded-in-the-same-sarif-file/
+      - name: Split SARIF file into individual runs
+        run: |
+          mkdir split-sarif
+          jq -c '.runs[]' snyk.sarif | nl -v 0 | while read -r index line; do
+            echo "{\"version\": \"2.1.0\", \"runs\": [${line}]}" > split-sarif/run-${index}.sarif
+          done
+      - name: Upload SARIF run for base docker image
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: split-sarif/run-0.sarif
+          category: snyk-apk
+
+      - name: Upload SARIF run for npm dependencies
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: split-sarif/run-1.sarif
+          category: snyk-npm-app
+
+      - name: Upload SARIF run for global Node modules
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: split-sarif/run-2.sarif
+          category: snyk-npm-global

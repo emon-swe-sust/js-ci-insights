@@ -1,0 +1,72 @@
+name: Pull Request
+
+on:
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4.2.2
+    - uses: actions/setup-node@v4.4.0
+      with:
+        cache: yarn
+        check-latest: true
+        node-version: 22
+    - run: yarn
+    - run: yarn lint --no-fix
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4.2.2
+      with:
+        submodules: true
+    - uses: actions/setup-node@v4.4.0
+      with:
+        cache: yarn
+        check-latest: true
+        node-version: 22
+    - run: yarn
+    - run: yarn build
+
+  coverage:
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4.2.2
+      with:
+        submodules: true
+    - uses: actions/setup-node@v4.4.0
+      with:
+        cache: yarn
+        check-latest: true
+        node-version: 22
+    - run: yarn
+    - run: yarn build:frame
+    - run: yarn test
+    - uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    name: Test LTS
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+        - 20
+    steps:
+    - uses: actions/checkout@v4.2.2
+      with:
+        submodules: true
+    - uses: actions/setup-node@v4.4.0
+      with:
+        cache: yarn
+        node-version: ${{ matrix.node }}
+    - run: yarn
+    - run: yarn build:frame
+    - run: yarn test

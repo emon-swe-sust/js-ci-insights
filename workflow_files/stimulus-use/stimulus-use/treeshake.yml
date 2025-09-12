@@ -1,0 +1,25 @@
+name: Treeshake
+
+on: [push, pull_request]
+
+jobs:
+  treeshake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: 'yarn'
+
+      - name: Yarn install
+        run: yarn install
+
+      - name: Build
+        run: yarn build
+
+      - name: Run agadoo
+        run: yarn test:treeshake

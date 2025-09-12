@@ -1,0 +1,71 @@
+name: Create and publish GitHub release
+
+on:
+    push:
+        tags:
+            - 'v*'  # Auto-runs when a tag is pushed
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: "Tag to create a release for"
+                required: true
+
+jobs:
+    create-and-publish-gh-release:
+        runs-on: ubuntu-latest
+        steps:
+            -   name: Checkout repository
+                uses: actions/checkout@v4
+                with:
+                    fetch-depth: 0  # Fetch all tags
+
+            -   name: Determine tag
+                id: tag
+                run: |
+                    if [ -z "${{ github.event.inputs.tag }}" ]; then
+                      TAG_NAME=${{ github.ref_name }}
+                    else
+                      TAG_NAME=${{ github.event.inputs.tag }}
+                    fi
+                    echo "tag=$TAG_NAME" >> $GITHUB_ENV
+
+            -   name: Get previous tag (SemVer sorting)
+                id: previous_tag
+                run: |
+                    # Get all tags and sort them by SemVer (ignoring "v" prefix)
+                    TAGS=($(git tag -l | sort -V))
+
+                    # Get the current tag
+                    CURRENT="${{ env.tag }}"
+                    PREV=""
+
+                    # Loop through sorted tags to find the previous one
+                    for i in "${!TAGS[@]}"; do
+                      if [[ "${TAGS[i]}" == "$CURRENT" && $i -gt 0 ]]; then
+                        PREV="${TAGS[i-1]}"
+                        break
+                      fi
+                    done
+
+                    echo "previous=$PREV" >> $GITHUB_ENV
+
+            -   name: Create GitHub Release
+                env:
+                    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                run: |
+                    TAG_NAME=${{ env.tag }}
+                    PREV_TAG=${{ env.previous }}
+
+                    if [[ -z "$PREV_TAG" ]]; then
+                      echo "No previous tag found. Skipping release."
+                      exit 1
+                    fi
+
+                    COMPARE_URL="https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG_NAME}"
+                    CHANGELOG_URL="https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md"
+
+                    echo "[${PREV_TAG}...${TAG_NAME}]($COMPARE_URL)" > release_notes.md
+                    echo "" >> release_notes.md
+                    echo "[Full changelog]($CHANGELOG_URL)" >> release_notes.md
+
+                    gh release create "$TAG_NAME" --title "$TAG_NAME" --notes-file release_notes.md

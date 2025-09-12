@@ -1,0 +1,90 @@
+name: CI
+
+on: [pull_request, workflow_dispatch]
+
+jobs:
+  install_all_default:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup helmfile
+      uses: ./
+    - name: Test
+      run: |
+        ls -l ~/bin | wc -l | grep 4
+        helmfile --version | grep 0.170.1
+        kubectl version --client | grep 1.32.0
+        helm version | grep 3.17.0
+        helm plugin list | grep diff
+        helm plugin list | grep s3
+
+  install_helmfile_with_version:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup helmfile
+      uses: ./
+      with:
+        helmfile-version: "v0.135.0"
+    - name: Test
+      run: |
+        ls -l ~/bin | wc -l | grep 4
+        helmfile --version | grep 0.135.0
+        kubectl version --client | grep 1.32.0
+        helm version | grep 3.17.0
+        helm plugin list | grep diff
+        helm plugin list | grep s3
+
+  install_only_helmfile:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup helmfile
+      uses: ./
+      with:
+        install-kubectl: no
+        install-helm: no
+    - name: Test
+      run: |
+        ls -l ~/bin | wc -l | grep 2
+        helmfile --version | grep 0.170.1
+        kubectl version --client
+        helm plugin list | grep diff
+        helm plugin list | grep s3
+
+  install_only_helmfile_without_plugins:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup helmfile
+      uses: ./
+      with:
+        install-kubectl: no
+        install-helm: no
+        install-helm-plugins: no
+    - name: Test
+      run: |
+        ls -l ~/bin | wc -l | grep 2
+        helmfile --version | grep 0.170.1
+        kubectl version --client
+        helm version
+        helm plugin list | wc -l | grep 1
+
+  install_addtional_plugins:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup helmfile
+      uses: ./
+      with:
+        additional-helm-plugins: https://github.com/aslafy-z/helm-git --version 0.10.0,https://github.com/zendesk/helm-secrets
+    - name: Test
+      run: |
+        ls -l ~/bin | wc -l | grep 4
+        helmfile --version | grep 0.170.1
+        kubectl version --client | grep 1.32.0
+        helm version | grep 3.17.0
+        helm plugin list | grep diff
+        helm plugin list | grep helm-git
+        helm plugin list | grep s3
+        helm plugin list | grep secrets

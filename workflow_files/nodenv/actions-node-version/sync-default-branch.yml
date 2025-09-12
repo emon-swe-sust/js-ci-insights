@@ -1,0 +1,10 @@
+name: Sync Default Branch
+on:
+  push: { branches: main }
+  workflow_dispatch:
+
+permissions: {}
+jobs:
+  sync:
+    uses: nodenv/actions/.github/workflows/sync-refs.yml@main
+    permissions: { contents: write, id-token: write, security-events: write }

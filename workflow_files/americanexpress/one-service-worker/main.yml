@@ -1,0 +1,43 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x]
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      # Create a main branch for commitlint
+      # https://github.com/conventional-changelog/commitlint/issues/6
+    - run: git remote set-branches origin main && git fetch
+    - name: Setup Node
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+    - name: Install required packages
+      # add required dependencies for webkit, chromium and firefox (playwright)
+      run: |
+        sudo apt-get update
+        npx --yes playwright install-deps
+    - name: Get yarn cache directory path
+      id: yarn-cache-dir-path
+      run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
+    - uses: actions/cache@v2
+      with:
+        path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+        key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+    - name: Setup
+      env:
+        NODE_ENV: development
+      run: |
+        yarn install --frozen-lockfile
+        (cd packages/one-service-worker-demo && yarn install --frozen-lockfile)
+    - name: Testing
+      env:
+        TEMP_DIR: ${{ runner.temp }}
+      run: yarn test

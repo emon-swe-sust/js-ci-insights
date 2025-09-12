@@ -1,0 +1,22 @@
+name: Deploy
+on:
+  workflow_dispatch: ~
+jobs:
+  DEPLOY:
+    name: Deploy official website
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install SSH Key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.KNOWN_HOSTS }}
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.1'
+          bundler-cache: true
+      - name: Install RubyGems
+        run: bundle install
+      - name: Run Capistrano
+        run: bundle exec cap website deploy

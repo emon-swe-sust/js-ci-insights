@@ -1,0 +1,45 @@
+name: Build
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: '${{steps.deploy.outputs.page_url}}'
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup Pages
+      uses: actions/configure-pages@v5
+    - name: Setup Node
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+        cache: npm
+    - name: Install dependencies
+      run: npm install --include=dev
+    - name: Build
+      run: |
+        set -e
+        npm run browserify
+        sed -i 's/kfw\.js/kfw.dist.js/g' kobofirmware.html
+        mkdir _site
+        mv kfw.css kfw.db.js kfw.dist.js kfw.dist.js.map kobofirmware.html _site
+    - name: Upload
+      uses: actions/upload-pages-artifact@v3
+    - name: Deploy
+      id: deploy
+      uses: actions/deploy-pages@v4
+      if: github.ref == 'refs/heads/gh-pages'

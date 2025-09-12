@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: Copyright (c) 2022-2025 Objectionary.com
+# SPDX-License-Identifier: MIT
+---
+# yamllint disable rule:line-length
+name: itest
+'on':
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+concurrency:
+  group: itest-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  itest:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+        java: [22]
+        node: [18]
+        # lang: [Java, JavaScript]
+        lang: [Java]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: ${{ matrix.java }}
+      - run: npm install
+      - shell: bash
+        run: |
+          cd itest
+          declare -a opts=(
+            "../src/eoc.js"
+            "--batch"
+            "--language=${{ matrix.lang }}"
+            "--easy"
+          )
+          node "${opts[@]}" link
+          node "${opts[@]}" --alone dataize program
+          node "${opts[@]}" clean
+          node "${opts[@]}" test

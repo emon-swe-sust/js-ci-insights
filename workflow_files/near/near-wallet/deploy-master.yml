@@ -1,0 +1,25 @@
+name: Deploy Testnet
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: 'near-wallet-master'
+  cancel-in-progress: true
+
+jobs:
+  deploy-testnet:
+    uses: ./.github/workflows/bundle-and-deploy.yml
+    with:
+      environment: testnet
+      near_wallet_env: testnet_NEARORG
+    secrets: inherit
+
+  deploy-staging:
+    uses: ./.github/workflows/bundle-and-deploy.yml
+    with:
+      environment: mainnet-staging
+      near_wallet_env: mainnet_STAGING_NEARORG
+    secrets: inherit

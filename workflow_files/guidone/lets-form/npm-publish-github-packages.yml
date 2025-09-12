@@ -1,0 +1,58 @@
+name: Publish package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - name: Build
+        run: |
+          npm run build
+      - name: Generate schemas
+        run: |
+          git clone https://guidone:${{ secrets.REPO_TOKEN }}@github.com/guidone/lets-form-manifests.git
+          cd lets-form-manifests
+          npm ci
+          npm run build
+          cd dist
+          cp -r ./ ../..
+          cd ../..
+          rm -rf lets-form-manifests
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+      - name: Bump version
+        run: |
+          git config --global user.email "guido.bellomo@gmail.com"
+          git config --global user.name "Guido Bellomo"
+          git add .
+          git commit -m "build"
+          npm version ${{ github.ref_name }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Push changes to repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git push origin HEAD:main && git push --tags
+      - run: npm publish
+        name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: notification
+        if: cancelled() == false
+        uses: xinthink/action-telegram@v1.1
+        with:
+          botToken: ${{ secrets.BotToken }}
+          chatId: ${{ secrets.ChatID }}
+          jobStatus: ${{ job.status }}
+          skipSuccess: false

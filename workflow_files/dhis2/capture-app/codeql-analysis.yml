@@ -1,0 +1,38 @@
+name: "dhis2: codeQL"
+
+on:
+  push:
+    # Check every push to master
+    branches: [ master ]
+  pull_request:
+    # Check every PR to master but ignore documentation changes
+    branches: [ master ]
+    paths-ignore: [ '**/*.md' ]
+  schedule:
+    # Check master every saturday at 00:15
+    - cron: '15 0 * * 6'
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript' ]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: ${{ matrix.language }}
+
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v2
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2

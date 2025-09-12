@@ -1,0 +1,27 @@
+name: "Linter: translate"
+
+on:
+  push:
+  pull_request:
+    paths:
+        - 'translate/**'
+    branches:
+      - main
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  tests:
+    if: github.repository == 'cutenode/nodevu'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: current
+    - name: Run npm install -w translate
+      run: npm install -w translate
+    - name: Run npm run lint -w translate
+      run: npm run lint -w translate

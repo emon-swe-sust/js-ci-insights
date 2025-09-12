@@ -1,0 +1,27 @@
+name: Build + Tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  build_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22.x
+      - name: install
+        run: npm ci
+      - name: lint
+        run: npm run lint
+      - name: format
+        run: npm run format:check
+      - name: build
+        run: npm run build
+        env:
+          CI: true

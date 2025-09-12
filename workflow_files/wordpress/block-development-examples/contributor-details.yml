@@ -1,0 +1,42 @@
+name: _Contributor Details
+
+on:
+    workflow_dispatch:
+
+jobs:
+    update-contributor-details:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            pull-requests: write
+
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  fetch-depth: 0
+
+            - name: Make script executable
+              run: chmod +x .github/workflows/scripts/fetch_contributor_details.sh
+
+            - name: Fetch contributor details
+              run: .github/workflows/scripts/fetch_contributor_details.sh
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            # Remove temp file before creating PR
+            - name: Clean up temp file
+              run: rm -f .temp.json
+
+            - name: Create Pull Request
+              uses: peter-evans/create-pull-request@v5
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  commit-message: Update contributor details
+                  title: 'chore: Update contributor details'
+                  body: |
+                      This PR updates the contributor details in contributors.json.
+
+                      This is an automated PR created by the Contributor Details workflow.
+                  branch: update/contributor-details
+                  base: trunk
+                  delete-branch: true

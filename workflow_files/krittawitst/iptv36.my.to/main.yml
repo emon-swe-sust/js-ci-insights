@@ -1,0 +1,17 @@
+name: Trigger Vercel Build
+on:
+  schedule:
+    # Every 2 hours on UTC
+    - cron: '45 1,3,5,7,9,11,13,15,17,19,21,23 * * *'
+jobs:
+  build:
+    name: Vercel build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: zcong1993/setup-timezone@master
+        with:
+          timezone: Asia/Bangkok
+      - name: Curl request
+        run: curl -X POST -d {} https://api.vercel.com/v1/integrations/deploy/prj_A9mg2AcUEKPD3aBAB28OssxMBvxj/vCikvwdI4g
+      - name: Show current date
+        run: date

@@ -1,0 +1,79 @@
+# This file is automatically added by @npmcli/template-oss. Do not edit.
+
+name: Benchmark CLI
+
+on: repository_dispatch
+
+jobs:
+  benchmark:
+    name: Benchmark CLI
+    if: github.repository_owner == 'npm' && startsWith(github.event.action, 'pull_request') || startsWith(github.event.action, 'issue_comment')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Git User
+        run: |
+          git config --global user.email "npm-cli+bot@github.com"
+          git config --global user.name "npm CLI robot"
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        id: node
+        with:
+          node-version: 22.x
+          check-latest: contains('22.x', '.x')
+          cache: npm
+      - name: Install Latest npm
+        uses: ./.github/actions/install-latest-npm
+        with:
+          node: ${{ steps.node.outputs.node-version }}
+      - name: Install Dependencies
+        run: npm i --ignore-scripts --no-audit --no-fund
+      - name: Install Hyperfine
+        run: |
+          wget https://github.com/sharkdp/hyperfine/releases/download/v1.13.0/hyperfine_1.13.0_amd64.deb
+          sudo dpkg -i hyperfine_1.13.0_amd64.deb
+      - name: Run Benchmark (Pull-Request)
+        env:
+          PR_ID: ${{ github.event.client_payload.pr_id }}
+          TARGET_SPEC: ${{ github.event.client_payload.target_spec || 'latest' }}
+        run: |
+          ./bin/benchmark.js \
+            -m npm@${TARGET_SPEC} npm@npm/cli#pull/${PR_ID}/head \
+            -f app-large app-medium \
+            -r
+      - name: Upload Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: results
+          path: results/temp/
+      - name: Post Comment
+        uses: actions/github-script@v6
+        env:
+          PR_ID: ${{ github.event.client_payload.pr_id }}
+          REPO: ${{ github.event.client_payload.repo }}
+          OWNER: ${{ github.event.client_payload.owner }}
+        with:
+          github-token: ${{ secrets.CLI_ISSUE_COMMENT_TOKEN }}
+          script: |
+            const fs = require('fs')
+            const path = require('path')
+
+            const { PR_ID, REPO, OWNER } = process.env
+            const COMMENT = fs.readFileSync(path.join('results/temp', 'report.md'), 'utf-8')
+
+            const updateComment = await github.paginate(github.rest.issues.listComments, {
+              owner: OWNER,
+              repo: REPO,
+              issue_number: PR_ID,
+            }).then(cs => cs.find((c) => c.user.login === 'npm-cli-bot'))
+
+            await github.rest.issues[updateComment ? 'updateComment' : 'createComment']({
+              owner: OWNER,
+              repo: REPO,
+              body: COMMENT,
+              ...updateComment ? { comment_id: updateComment.id } : { issue_number: PR_ID },
+            })

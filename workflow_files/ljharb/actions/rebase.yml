@@ -1,0 +1,25 @@
+on:
+  workflow_call:
+    secrets:
+      token:
+        description: 'Github Token'
+        required: true
+
+jobs:
+  _:
+    name: "Automatic Rebase"
+
+    runs-on: ubuntu-22.04
+
+    permissions:
+      contents: write  # for ljharb/rebase to push code to rebase
+      pull-requests: read  # for ljharb/rebase to get info about PR
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: true
+        show-progress: false
+    - uses: ljharb/rebase@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.token }}

@@ -1,0 +1,32 @@
+name: Haskell
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: Web Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup GHC
+        uses: haskell/actions/setup@v2
+        with:
+          ghc-version: "9.6.5"
+          enable-stack: true
+          stack-version: "latest"
+
+      - name: Clone project
+        uses: actions/checkout@v5
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.stack
+          key: ${{ runner.os }}-stack-${{ hashFiles('stack.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-stack-
+
+      - name: Build
+        run: "stack build --fast --no-terminal --system-ghc"

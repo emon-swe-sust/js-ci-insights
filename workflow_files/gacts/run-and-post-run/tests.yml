@@ -1,0 +1,139 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+# docs: https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions
+
+name: 🧪 Tests
+
+on:
+  push:
+    branches: [master, main]
+    tags-ignore: ['**']
+    paths-ignore: ['**.md']
+  pull_request:
+    paths-ignore: ['**.md']
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+env: {FORCE_COLOR: 'true'}
+
+jobs:
+  gitleaks:
+    name: Check for GitLeaks
+    runs-on: ubuntu-latest
+    steps:
+      - {uses: actions/checkout@v4, with: {fetch-depth: 0}}
+      - uses: gacts/gitleaks@v1
+
+  eslint:
+    name: Run code linter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - {uses: actions/setup-node@v4, with: {node-version: 20, cache: 'npm'}}
+      - run: npm install
+      - run: npm run lint
+
+  dist-built:
+    name: Check distributive built state
+    runs-on: ubuntu-latest
+    outputs:
+      dist-changed: ${{ steps.state.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v5
+      - {uses: actions/setup-node@v4, with: {node-version: 20, cache: 'npm'}}
+      - run: npm install
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with: {name: dist, path: ./dist/, retention-days: 1}
+      - id: state
+        run: echo "changed=`git diff --diff-filter=ACMUXTR --name-only | grep dist/ > /dev/null && echo 'true' || echo 'false'`" >> $GITHUB_OUTPUT
+
+  commit-and-push-fresh-dist:
+    name: Commit and push fresh distributive
+    needs: [dist-built]
+    if: ${{ needs.dist-built.outputs.dist-changed == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with: {name: dist, path: ./dist/}
+      - uses: stefanzweifel/git-auto-commit-action@v6
+        with: {commit_message: Automatic distributive rebuild}
+
+  run-this-action:
+    name: Run action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run this action
+        uses: ./
+        with:
+          run: echo "First"
+              "(can be multiline)"
+          post: |
+            echo "First post"
+            echo "(can run multiply commands)"
+
+      - name: Post only
+        uses: ./
+        with:
+          post: echo "Second post"
+
+      - name: Execute without shell
+        uses: ./
+        with:
+          shell: ''
+          run: echo foo
+          post: echo bar
+
+      - name: Environment variables
+        uses: ./
+        env: { ENV_VAR: 'value123' }
+        with:
+          run: echo "$ENV_VAR" > ./test_env_var.txt
+          post: if grep -q value123 ./test_env_var.txt; then echo "Test passed"; else exit 1; fi
+
+      - name: Inline variables
+        uses: ./
+        with:
+          run: |
+            INLINE_VAR="value123" ; \
+            echo $INLINE_VAR; \
+            if [ "$INLINE_VAR" = "value123" ]; then echo "Test passed"; else exit 1; fi
+            echo "SHARED_VAR=value" >> $GITHUB_ENV
+          post: |
+            echo "${{ env.SHARED_VAR }}"
+            if [ "${{ env.SHARED_VAR }}" = "value" ]; then echo "Test passed"; else exit 1; fi
+
+      - name: Multiline with line breaks
+        uses: ./
+        with:
+          run: |
+            ls \
+              -la \
+              /tmp /opt \
+                /bin
+            cat /etc/passwd
+          post: echo "Foo"
+            echo "bar"
+            echo baz \ blah \
+              boom
+
+      - name: Change post shell
+        uses: ./
+        with:
+          run: if [ "$0" = "/usr/bin/sh" ]; then echo "Test passed"; else exit 1; fi
+          shell: sh
+          post: if [ "$0" = "/usr/bin/bash" ]; then echo "Test passed"; else exit 1; fi
+          post-shell: bash
+
+      - name: Post run condition
+        uses: ./
+        with:
+          run: echo "Use job.status variable to check the job status (success, failure or cancelled)"
+          post: if [ "${{ job.status }}" = "success" ]; then echo "Test passed"; else exit 1; fi

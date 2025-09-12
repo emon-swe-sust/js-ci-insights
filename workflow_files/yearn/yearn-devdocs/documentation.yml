@@ -1,0 +1,55 @@
+name: Documentation Workflow
+
+on: [push, pull_request]
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+      - name: Install dependencies and build
+        run: |
+          bun install
+          bun run build
+
+      - name: Check if PR is from a fork
+        id: check_fork
+        run: |
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "PR is from a fork"
+            echo "is_fork=true" >> $GITHUB_ENV
+          else
+            echo "PR is not from a fork"
+            echo "is_fork=false" >> $GITHUB_ENV
+          fi
+
+      - name: Run address checks
+        if: env.is_fork != 'true'
+        env:
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+        run: |
+          bun run runAddressCheck
+          echo "ALL_CHECKS_PASSED=$(cat all_checks_passed.txt)" >> $GITHUB_ENV
+
+      - name: Create an issue if address checks fail
+        if: env.is_fork != 'true' && env.ALL_CHECKS_PASSED != 'true'
+        run: |
+          curl -H "Authorization: Bearer ${{ secrets.ADDRESS_CHECKS }}" \
+          -H "Content-Type: application/json" \
+          -d "$(jq -n --arg title ':robot: Address Checks Failed' --arg body "$(cat issue_body.md)" '{title: $title, body: $body}')" \
+          https://api.github.com/repos/yearn/yearn-devdocs/issues
+          echo "Issue created"
+
+      - name: Trigger Algolia Recrawl
+        if: github.event_name != 'pull_request'
+        run: |
+          curl -H "Content-Type: application/json" \
+          -X POST \
+          --user ${{ secrets.CRAWLER_USER_ID }}:${{ secrets.CRAWLER_API_KEY }} \
+          "https://crawler.algolia.com/api/1/crawlers/${{ secrets.CRAWLER_ID }}/reindex"

@@ -1,0 +1,27 @@
+name: CD
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Deploy environment"
+        default: next
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ inputs.environment }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    environment: ${{ inputs.environment}}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy app
+        uses: johnbeynon/render-deploy-action@v0.0.8
+        with:
+          service-id: ${{ secrets.RENDER_SERVICE_ID }}
+          api-key: ${{ secrets.RENDER_API_KEY }}
+
+  

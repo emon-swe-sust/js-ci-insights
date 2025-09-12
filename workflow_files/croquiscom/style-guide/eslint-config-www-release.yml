@@ -1,0 +1,41 @@
+name: Release eslint-config-www
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - TypeScript/eslint-www/**
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Release eslint-config-www
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: TypeScript/eslint-www
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Create Release Pull Request or Publish to npm
+        uses: changesets/action@v1
+        with:
+          version: npm run changeset version
+          publish: npm run release
+          title: 'chore(eslint-www): release x.y.z'
+          cwd: ./TypeScript/eslint-www
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          createGithubReleases: false

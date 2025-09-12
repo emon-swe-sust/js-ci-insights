@@ -1,0 +1,20 @@
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: node
+      - run: npm install
+      - run: npm test
+      - env:
+          GITHUB_TOKEN: ${{secrets.GH_TOKEN}}
+        run: npm start
+name: main
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '50 7 * * *'

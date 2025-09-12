@@ -1,0 +1,117 @@
+name: "pull request"
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "catalog.yaml"
+
+env:
+  IMAGE_PATH: ${{ github.repository_owner }}/gratibot
+  tofu_version: '~1.9'
+  tg_version: '0.72.0'
+
+permissions:
+  id-token: write
+  pull-requests: write
+  contents: read
+  packages: write
+
+jobs:
+  setup:
+    name: Pipeline Setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Generate tag
+        id: tag
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+    outputs:
+      docker-tag: ${{ steps.tag.outputs.sha_short }}
+
+  build:
+    name: Docker
+    needs: setup
+    uses: liatrio/github-workflows/.github/workflows/docker-build.yaml@main
+    with:
+      repository: ghcr.io/liatrio
+      image-name: gratibot
+      tag: ${{ needs.setup.outputs.docker-tag }}
+
+  fmt:
+    name: "Terraform fmt check"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Setup Tofu
+        uses: opentofu/setup-opentofu@592200bd4b9bbf4772ace78f887668b1aee8f716 # v1.0.5
+        with:
+          tofu_version: ${{ env.tofu_version }}
+      - name: Terraform fmt check
+        run: tofu fmt -check -recursive
+
+  validate:
+    name: "Terraform validate check"
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Setup Tofu
+        uses: opentofu/setup-opentofu@592200bd4b9bbf4772ace78f887668b1aee8f716 # v1.0.5
+        with:
+          tofu_version: ${{ env.tofu_version }}
+      - name: Setup Terragrunt
+        run: |
+          wget https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.tg_version }}/terragrunt_linux_amd64
+          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+          sudo chmod +x /usr/local/bin/terragrunt
+      - name: Terraform validate check
+        run: |
+          terragrunt init -backend=false
+          terragrunt validate --terragrunt-no-auto-init
+        working-directory: infra/terragrunt/nonprod/gratibot/
+        env:
+          TF_VAR_gratibot_image: "${{ env.IMAGE_PATH }}:${{ needs.build.outputs.docker_tag }}"
+  plan:
+    name: "Terraform Nonprod plan"
+    runs-on: ubuntu-latest
+    concurrency:
+      group: "tf-nonprod"
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Setup Tofu
+        uses: opentofu/setup-opentofu@592200bd4b9bbf4772ace78f887668b1aee8f716 # v1.0.5
+        with:
+          tofu_version: ${{ env.tofu_version }}
+      - name: Setup Terragrunt
+        run: |
+          wget https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.tg_version }}/terragrunt_linux_amd64
+          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+          sudo chmod +x /usr/local/bin/terragrunt
+      - name: Plan Gratibot staging deployment
+        id: plan_gratibot_staging_deployment
+        working-directory: infra/terragrunt/nonprod/gratibot/
+        run: |
+          terragrunt plan -out plan.out
+          terragrunt show -no-color -json plan.out > plan.json
+        continue-on-error: true
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: "1b4a4fed-fed8-4823-a8a0-3d5cea83d122"
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_NONPROD_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: true
+          TF_VAR_gratibot_image: "${{ env.IMAGE_PATH }}:${{ needs.build.outputs.docker_tag }}"
+
+      - uses: liatrio/terraform-change-pr-commenter@0050454ca62e2839dc35022bfbd474a139c2c65d # v1.14.0
+        with:
+          json-file: infra/terragrunt/nonprod/gratibot/plan.json
+          expand-comment: 'true'
+
+      - name: Status
+        if: contains(steps.*.outcome, 'failure')
+        run: exit 1

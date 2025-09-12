@@ -1,0 +1,66 @@
+# This workflow can be used to push an image off a branch to Docker Hub.
+# This is useful to deploy changes from any branch/PR to BookBrainz beta or test for testing.
+name: Push development Docker image
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        type: choice
+        description: Website or API?
+        options: 
+        - website
+        - API
+        required: true
+        default: 'website'
+      pr:
+        description: 'PR number (if deploying a PR)'
+        required: false
+        type: string
+      tag:
+        description: 'Docker Image Tag (Version)'
+        required: true
+        default: 'beta'
+
+jobs:
+
+  dev:
+
+      runs-on: ubuntu-latest
+
+      steps:
+      - name: Set Docker image and target env variables
+        run: |
+          if [ "${{ inputs.target }}" = "API" ]; then
+            echo "DOCKER_TARGET=bookbrainz-webservice" >> $GITHUB_ENV
+            echo "DOCKER_IMAGE=bookbrainz-webservice" >> $GITHUB_ENV
+          else
+            echo "DOCKER_TARGET=bookbrainz-prod" >> $GITHUB_ENV
+            echo "DOCKER_IMAGE=bookbrainz" >> $GITHUB_ENV
+          fi
+
+      - uses: actions/checkout@v3
+        # empty strings evaluate to 0
+        if: ${{ github.event.inputs.pr == 0}}
+        
+      - uses: actions/checkout@v3
+        if: ${{ github.event.inputs.pr != 0}}
+        with:
+          # The branch, tag or SHA to checkout. When checking out the repository that
+          # triggered a workflow, this defaults to the reference or SHA for that event.
+          # Otherwise, uses the default branch.
+          ref: ${{ format('refs/pull/{0}/head', github.event.inputs.pr) }}
+
+      - name: Login to Docker Hub
+        run: echo ${{ secrets.DOCKER_HUB_PASSWORD }} | docker login -u ${{ secrets.DOCKER_HUB_USERNAME }} --password-stdin
+        continue-on-error: true
+
+      - name: Build ${{ inputs.target}} development image ${{ inputs.tag }}
+        run: |
+          docker build \
+            --target $DOCKER_TARGET \
+            --tag metabrainz/$DOCKER_IMAGE:"${{ inputs.tag }}" \
+            --build-arg GIT_COMMIT_SHA="${{ github.sha }}" .
+
+      - name: Push ${{ inputs.target}} development image ${{ inputs.tag }}
+        run: docker push metabrainz/$DOCKER_IMAGE:"${{ inputs.tag }}"

@@ -1,0 +1,44 @@
+name: 🚀 Deploy
+on:
+  push:
+    branches:
+      - release
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Fetch tags
+        run: git fetch --tags origin release
+
+      # set up git since we will later push to the repo
+      - run: git config --global user.name "GitHub CI bot"
+      - run: git config --global user.email "github-ci-bot@example.com"
+
+      - name: Install Dependencies
+        run: make install
+
+      - name: Authenticate npm
+        run: ./bin/ci/npm-auth.sh
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Release
+        run: make publish
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Merge release
+        run: ./bin/ci/sync-release.sh
+        if: success()
+        env:
+          # The secret is passed automatically. Nothing to configure.
+          github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,150 @@
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+
+name: Build & Test
+env:
+  CYPRESS_CACHE_FOLDER: ~/cypress-binary-cache
+  CYPRESS_DASHBOARD_RECORD_KEY:  ${{ secrets.CYPRESS_DASHBOARD }}
+
+jobs:
+  prepare:
+    uses: ./.github/workflows/prepare.yml
+    secrets: inherit
+    with:
+      buildcache_key: buildcache-${{ github.ref }}
+
+  unit:
+    name: Unit Tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/tmp_build
+            ~/cypress-binary-cache
+          key: buildcache-${{ github.ref }}
+      - run: cp -r ~/tmp_build/* .
+      - run: npm test --prefix core || exit 1
+
+  mock_engine:
+    name: Mock Engine Tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/tmp_build
+            ~/cypress-binary-cache
+          key: buildcache-${{ github.ref }}
+      - run: cp -r ~/tmp_build/* .
+      - run: npm i -g cypress
+      - run: npm i -g live-server
+      - run: bash ./test/mockengine.sh || exit 1
+
+  container_unit_tests:
+    name: Container Unit Tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/tmp_build
+            ~/cypress-binary-cache
+          key: buildcache-${{ github.ref }}
+      - run: cp -r ~/tmp_build/* .
+      - run: npm test --prefix container || exit 1
+
+  core_modular_unit_tests:
+    name: Core Modular Unit Tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/tmp_build
+            ~/cypress-binary-cache
+          key: buildcache-${{ github.ref }}
+      - run: cp -r ~/tmp_build/* .
+      - run: npm run test --prefix core-modular || exit 1
+
+  container_e2e_tests:
+    name: Container E2E Tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      USE_CYPRESS_DASHBOARD: false # enable when trying to debug
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/tmp_build
+            ~/cypress-binary-cache
+          key: buildcache-${{ github.ref }}
+      - run: cp -r ~/tmp_build/* .
+      - run: bash ./container/run-container-e2e.sh || exit 1
+
+  e2e:
+    name: Integration Tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      USE_CYPRESS_DASHBOARD: true  # enable when trying to debug
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/tmp_build
+            ~/cypress-binary-cache
+          key: buildcache-${{ github.ref }}
+      - run: cp -r ~/tmp_build/* .
+      - uses: ./.github/workflows/update-deps
+        with:
+          list-of-deps: 'libgtk2.0-0t64 libgtk-3-0t64 libgbm-dev libnotify-dev libnss3 libxss1 libasound2t64 libxtst6 xauth xvfb'
+      - run: npm install --prefix test/e2e-test-application @babel/plugin-proposal-class-properties
+      - run: ls test
+      - run: bash ./test/e2e-js.sh || exit 1
+      - run: bash ./test/e2e-angular.sh || exit 1
+      - run: bash ./test/e2e-client-api.sh || exit 1
+
+  docu_check:
+    name: Check Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+      - run: cd ./scripts && npm ci
+      - run: bash ./scripts/docuCheck.sh

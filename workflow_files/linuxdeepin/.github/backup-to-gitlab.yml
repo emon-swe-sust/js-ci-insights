@@ -1,0 +1,17 @@
+name: backup to gitlab
+on: [push]
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  backup-to-gitlabwh:
+    if: false
+    uses: linuxdeepin/.github/.github/workflows/backup-to-gitlabwh.yml@master
+    secrets: inherit
+
+  backup-to-gitee:
+    if: false
+    uses: linuxdeepin/.github/.github/workflows/backup-to-gitee.yml@master
+    secrets: inherit

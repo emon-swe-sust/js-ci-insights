@@ -1,9 +1,0 @@
-name: ESLint
-on: [push, pull_request]
-jobs:
-  ESLint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: npm install '@eslint/js' '@stylistic/eslint-plugin-js'
-      - run: npx eslint

@@ -1,0 +1,202 @@
+name: Upgrade a package version and open a PR
+run-name: Upgrade ${{ inputs.package }} to ${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: The package to update
+        type: string
+        required: true
+      version:
+        description: The new version of the package
+        type: string
+        required: true
+      actor:
+        description: The GitHub user on whose behalf this workflow is run
+        required: false
+
+env:
+  PACKAGE_TO_UPGRADE: ${{ github.event.inputs.package }}
+  UPGRADE_TO_VERSION: ${{ github.event.inputs.version }}
+  OWNER: 'git-for-windows'
+  ACTOR: "${{ github.event.inputs.actor || github.triggering_actor }}"
+
+jobs:
+  open-pr:
+    if: github.event.repository.owner.login == 'git-for-windows'
+    runs-on: windows-latest
+    steps:
+      - name: Determine REPO
+        id: repo
+        shell: bash
+        run: |
+          case "$PACKAGE_TO_UPGRADE" in
+          mingw-w64-cv2pdb|mingw-w64-git-credential-manager|\
+          mingw-w64-git-lfs|mingw-w64-git-sizer|mingw-w64-wintoast|\
+          git-extra|git-for-windows-keyring) repo=build-extra;;
+          mingw-w64-*) repo=MINGW-packages;;
+          innosetup)
+            repo=build-extra &&
+            echo "package_path=installer" >>$GITHUB_ENV &&
+            echo "skip-deployment-check=true" >>$GITHUB_OUTPUT
+            ;;
+          *) repo=MSYS2-packages;;
+          esac &&
+          echo "REPO=$repo" >>$GITHUB_ENV &&
+          echo "repo=$repo" >>$GITHUB_OUTPUT
+      - uses: actions/checkout@v5
+        # Since we want to operate on _another_ repository, we sadly cannot use:
+        #
+        # permissions:
+        #  checks: write
+        #
+        # Therefore, we registered a GitHub App and stored the data required to
+        # act as that App in repository secrets `GH_APP_ID`, `GH_APP_PRIVATE_KEY`.
+      - name: Obtain installation token
+        id: setup
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const appId = ${{ secrets.GH_APP_ID }}
+            const privateKey = `${{ secrets.GH_APP_PRIVATE_KEY }}`
+
+            const getAppInstallationId = require('./get-app-installation-id')
+            const installationId = await getAppInstallationId(
+              console,
+              appId,
+              privateKey,
+              process.env.OWNER,
+              process.env.REPO
+            )
+
+            const getInstallationAccessToken = require('./get-installation-access-token')
+            const { token: accessToken } = await getInstallationAccessToken(
+              console,
+              appId,
+              privateKey,
+              installationId
+            )
+
+            core.setSecret(accessToken)
+            core.setOutput('token', accessToken)
+      - name: Initialize Git for Windows SDK subset
+        uses: ./.github/actions/init-g4w-sdk-for-pacman
+      - name: Clone ${{ env.REPO }}
+        shell: bash
+        run: |
+          mkdir -p /usr/src &&
+          git clone --depth 1 --single-branch -b main "https://github.com/$OWNER/$REPO" "/usr/src/$REPO"
+      - name: Identify actor
+        id: actor
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const githubApiRequest = require('./github-api-request')
+            const answer = await githubApiRequest(
+              console,
+              '${{ steps.setup.outputs.token }}',
+              'GET',
+              `/users/${process.env.ACTOR}`
+            )
+            core.setOutput('login', answer.login)
+            core.setOutput('name', answer.name)
+            core.setOutput('email', answer.email || `${process.env.ACTOR}@users.noreply.github.com`)
+      - name: Configure build
+        shell: bash
+        run: |
+          USER_NAME="${{ steps.actor.outputs.name }}" &&
+          USER_EMAIL="${{ steps.actor.outputs.email }}" &&
+          mkdir -p "$HOME" &&
+          git config --global user.name "$USER_NAME" &&
+          git config --global user.email "$USER_EMAIL" &&
+          echo "PACKAGER=$USER_NAME <$USER_EMAIL>" >>$GITHUB_ENV
+      - name: update PKGBUILD
+        id: update
+        shell: bash
+        run: |
+          cd "/usr/src/$REPO/${package_path-$PACKAGE_TO_UPGRADE}" &&
+          update_script="$GITHUB_WORKSPACE/update-scripts/version/$PACKAGE_TO_UPGRADE"
+          if test -f "$update_script"
+          then
+            $update_script "$UPGRADE_TO_VERSION" &&
+            if test -f UPGRADE_TO_VERSION
+            then
+              UPGRADE_TO_VERSION="$(cat UPGRADE_TO_VERSION)" &&
+              rm UPGRADE_TO_VERSION
+            fi
+          else
+            sed -i \
+              -e "s/^\\(pkgver=\\).*/\\1$UPGRADE_TO_VERSION/" \
+              -e 's/^pkgrel=.*/pkgrel=1/' \
+              PKGBUILD
+          fi &&
+          git update-index -q --refresh &&
+          if git diff-files --exit-code && git diff-index --quiet HEAD --
+          then
+            echo "::notice::$PACKAGE_TO_UPGRADE already at $UPGRADE_TO_VERSION"
+            exit 0
+          fi &&
+
+          update_script="$GITHUB_WORKSPACE/update-scripts/checksums/$PACKAGE_TO_UPGRADE"
+          if test -f "$update_script"
+          then
+            $update_script "$UPGRADE_TO_VERSION"
+          else
+            updpkgsums
+          fi &&
+          msg="$PACKAGE_TO_UPGRADE: update to $UPGRADE_TO_VERSION" &&
+          { test ! -f PKGBUILD || git add PKGBUILD; } &&
+          git commit -sm "$msg" &&
+          echo "msg=$msg" >>$GITHUB_OUTPUT &&
+          echo "modified=true" >>$GITHUB_OUTPUT
+      - name: check if the package was already deployed
+        if: steps.repo.outputs.skip-deployment-check != 'true'
+        shell: bash
+        run: |
+          ./update-scripts/ensure-not-yet-deployed.sh "/usr/src/$REPO/$PACKAGE_TO_UPGRADE"
+      - name: push
+        if: steps.update.outputs.modified == 'true'
+        shell: bash
+        run: |
+          auth="$(printf '%s:%s' '${{ steps.actor.outputs.login }}' '${{ steps.setup.outputs.token }}' | base64)" &&
+          echo "::add-mask::$auth" &&
+          cd "/usr/src/$REPO/${package_path-$PACKAGE_TO_UPGRADE}" &&
+          git -c http.extraHeader="Authorization: Basic $auth" push --force origin HEAD:refs/heads/$PACKAGE_TO_UPGRADE-$UPGRADE_TO_VERSION
+      - name: open PR
+        if: steps.update.outputs.modified == 'true'
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ steps.setup.outputs.token }}
+          script: |
+            let body = ''
+            try {
+              const name = process.env.PACKAGE_TO_UPGRADE
+              const version = process.env.UPGRADE_TO_VERSION
+
+              if (name === 'mintty') body = `See https://github.com/mintty/mintty/releases/tag/${version} for details.`
+              else if (name === 'mingw-w64-git-lfs') body = `See https://github.com/git-lfs/git-lfs/releases/tag/v${version} for details.`
+              else if (name === 'mingw-w64-pcre2') body = `See https://github.com/PCRE2Project/pcre2/blob/pcre2-${version}/ChangeLog for details.`
+
+              const terms = 'type:issue repo:git-for-windows/git state:open author:app/github-actions label:component-update'
+              const [verb, q] = name === 'msys2-runtime'
+                ? ['corresponds to', `type:pr repo:git-for-windows/msys2-runtime state:open ${version}`]
+                : ['closes', `"[New ${name.replace(/^mingw-w64-/, '')} version]" (${version} OR v${version}) in:title ${terms}`]
+              const { data } = await github.rest.search.issuesAndPullRequests({ q })
+              if (data.total_count) body = `${body ? `${body}\n\n` : ''}This ${verb} ${data.items[0].html_url}`
+            } catch (e) {
+              console.log(e)
+            }
+
+            const pr = await github.rest.pulls.create({
+              owner: process.env.OWNER,
+              repo: process.env.REPO,
+              base: 'main',
+              draft: true,
+              head: `${process.env.PACKAGE_TO_UPGRADE}-${process.env.UPGRADE_TO_VERSION}`,
+              maintainer_can_modify: true,
+              title: '${{ steps.update.outputs.msg }}',
+              body
+            })
+            if (pr.status === 201) console.log(`::notice::${pr.data.html_url}`)
+            else console.log(pr)

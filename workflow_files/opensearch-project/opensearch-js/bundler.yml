@@ -1,0 +1,71 @@
+name: Bundler
+
+# trigger on every commit push and PR for all branches
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    branches: ['**']
+    paths-ignore:
+      - '**/*.md'
+
+jobs:
+  bundler-support:
+    name: Bundler support
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure sysctl limits
+        run: |
+          sudo swapoff -a
+          sudo sysctl -w vm.swappiness=1
+          sudo sysctl -w fs.file-max=262144
+          sudo sysctl -w vm.max_map_count=262144
+
+      - name: Runs OpenSearch cluster
+        run: |
+          make cluster.clean cluster.opensearch.build cluster.opensearch.start
+
+      - name: Use Node.js 14.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+
+      # NPM started understanding yarn.lock file starting from v7
+      - name: Update NPM
+        shell: bash
+        run: |
+          export NPM_VERSION=$(npm -v)
+          export IS_NPM_SUITABLE=$(node -p "parseInt(process.env.NPM_ROOT, 10) >= 7")
+          if [ "$IS_NPM_SUITABLE" == "false" ]; then
+            echo "NPM needs upgrading!"
+            npm i npm@7 -g
+          fi
+
+      - name: Install
+        run: |
+          npm install
+          npm install --prefix test/bundlers/parcel-test
+          npm install --prefix test/bundlers/rollup-test
+          npm install --prefix test/bundlers/webpack-test
+          npm install --prefix test/bundlers/esbuild-test
+
+      - name: Build
+        run: |
+          npm run build --prefix test/bundlers/parcel-test
+          npm run build --prefix test/bundlers/rollup-test
+          npm run build --prefix test/bundlers/webpack-test
+          npm run build:aws --prefix test/bundlers/esbuild-test
+          npm run build:awsv3 --prefix test/bundlers/esbuild-test
+
+      - name: Run bundle
+        run: |
+          npm start --prefix test/bundlers/parcel-test
+          npm start --prefix test/bundlers/rollup-test
+          npm start --prefix test/bundlers/webpack-test
+          npm run start:aws --prefix test/bundlers/esbuild-test
+          npm run start:awsv3 --prefix test/bundlers/esbuild-test

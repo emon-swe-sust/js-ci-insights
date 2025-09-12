@@ -1,0 +1,12 @@
+name: example-yarn
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bahmutov/npm-install@HEAD
+        with:
+          working-directory: examples/yarn
+      - run: npm t
+        working-directory: examples/yarn

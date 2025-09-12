@@ -1,0 +1,76 @@
+name: Auto Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      custom_version:
+        description: 'Manual version (格式：vx.x.x)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest  # 修改为Windows环境
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Resolve version
+      id: version
+      shell: bash  # 显式指定使用Bash
+      run: |
+        if [ -n "${{ inputs.custom_version }}" ]; then
+          TAG_VERSION="${{ inputs.custom_version}}"
+        else
+          TAG_VERSION=$(git describe --tags --abbrev=0)
+        fi
+
+        # 提取纯净版本号 (v2.0.0 → 2.0.0)
+        CLEAN_VERSION=${TAG_VERSION#v}
+        # 转换格式为下划线
+        CONVERTED_VERSION=$(echo "$CLEAN_VERSION" | sed 's/\./_/g')
+
+        echo "BUILD_VERSION=$CLEAN_VERSION" >> $GITHUB_ENV
+        echo "CONVERTED_VERSION=$CONVERTED_VERSION" >> $GITHUB_ENV
+        echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
+
+    - name: Build project
+      run: node build.js
+      env:
+        NODE_OPTIONS: '--experimental-vm-modules'
+        BUILD_VERSION: ${{ env.BUILD_VERSION }}
+
+    - name: Verify artifacts
+      shell: bash  # 显式指定使用Bash
+      run: |
+        ls -lh dist/
+        [ -f dist/acfunlive_${{ env.CONVERTED_VERSION }}.exe ] || exit 1
+        [ -f dist/acfunlive_${{ env.CONVERTED_VERSION }}.zip ] || exit 1
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ env.TAG_VERSION }}
+        name: Release ${{ env.CONVERTED_VERSION }}
+        files: |
+          dist/acfunlive_${{ env.CONVERTED_VERSION }}.exe
+          dist/acfunlive_${{ env.CONVERTED_VERSION }}.zip
+        draft: true
+        body: "自动生成的预览版，请检查后发布"

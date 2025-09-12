@@ -1,0 +1,12 @@
+name: Coverage
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  coverage:
+    uses: yoriiis/actions/.github/workflows/coverage.yml@main
+    with:
+      command-test: npm run build && npm run test:unit

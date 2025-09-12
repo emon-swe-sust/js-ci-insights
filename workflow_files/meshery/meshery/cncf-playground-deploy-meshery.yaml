@@ -1,0 +1,27 @@
+name: Playground CNCF - Deploy
+on:
+  workflow_call:
+    inputs:
+      image:
+        type: string
+        default: playground-latest
+  workflow_dispatch:
+    inputs:
+      image:
+        type: string
+        default: playground-latest
+jobs:
+    cncf-playground-rollout:
+        name: Update Meshery on CNCF playground
+        if: github.repository == 'meshery/meshery'
+        runs-on: ubuntu-24.04 
+        steps:
+        - name: Pull latest images and restart containers
+          uses: appleboy/ssh-action@master
+          with:
+              host: ${{ secrets.METAL_SERVER4 }}
+              username: root
+              key: ${{ secrets.METAL_SSH_KEY }}
+              script: |
+                kubectl -n meshery rollout restart deployment/playground
+

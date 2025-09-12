@@ -1,0 +1,32 @@
+name: Benchmark
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 0 * * 0'
+defaults:
+  run:
+    shell: bash -euxo pipefail {0}
+jobs:
+  benchmark:
+    name: Benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          package_json_file: package.json
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: benchmarks/pnpm-lock.yaml
+      - working-directory: ./benchmarks
+        run: pnpm install
+      - working-directory: ./benchmarks
+        env:
+          PLOTLY_USERNAME: ${{ secrets.PLOTLY_USERNAME }}
+          PLOTLY_APIKEY: ${{ secrets.PLOTLY_APIKEY }}
+        run: pnpm run benchmark

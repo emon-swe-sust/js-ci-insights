@@ -1,0 +1,26 @@
+name: apiCheck
+on: workflow_call
+
+
+jobs:
+  api-check:
+    runs-on: ubuntu-latest
+    steps:
+      - id: api-check
+        continue-on-error: true
+        uses: reviews-team-test/ci-check-action@api-check
+      - if: always() && hashFiles('comment.txt')
+        continue-on-error: true
+        uses: reviews-team-test/ci-check-action@post-check
+        with:
+          comment-file: comment.txt
+          reviewers: liujianqiang-niu
+      - if: always()
+        continue-on-error: true
+        uses: reviews-team-test/ci-check-action@send-data
+        with:
+          testtype: "apiCheck"
+          status: ${{ steps.api-check.outputs.summary-status }}
+          result: ${{ steps.api-check.outputs.summary-result }}
+      - if: always() && steps.api-check.outputs.isFail == 'true'
+        run: exit 1

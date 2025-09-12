@@ -1,0 +1,35 @@
+name: Upload Coverage
+on:
+    push:
+        branches:
+            - master
+jobs:
+    upload:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set Node.js 18.x
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 18.x
+
+            - name: Install packages
+              uses: borales/actions-yarn@v4
+              with:
+                  cmd: install --frozen-lockfile
+
+            - name: Test
+              uses: borales/actions-yarn@v4
+              with:
+                  cmd: test
+
+            - name: Generate test coverage
+              uses: borales/actions-yarn@v4
+              with:
+                  cmd: report-coverage
+
+            - name: Upload coverage reports to Codecov
+              uses: codecov/codecov-action@v5
+              with:
+                  token: ${{ secrets.CODECOV_TOKEN }}

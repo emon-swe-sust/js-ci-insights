@@ -1,0 +1,32 @@
+name: Publish to GitHub Packages
+
+on:
+  # Run every Saturday morning
+  schedule:
+    - cron: 14 12 * * 6
+  # Allows to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions: read-all
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.2.2
+    - name: Set up JDK
+      uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+      with:
+        java-version: '21'
+        distribution: 'adopt'
+        server-id: github
+        settings-path: ${{ github.workspace }}
+    - name: Publish
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ORG_GRADLE_PROJECT_SIGNINGKEY: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGKEY }}
+        ORG_GRADLE_PROJECT_SIGNINGPASSWORD: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGPASSWORD }}
+      run: ./gradlew publish --no-configuration-cache -Dorg.gradle.parallel=false -Dorg.gradle.caching=false -Dorg.gradle.con

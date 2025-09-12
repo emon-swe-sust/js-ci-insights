@@ -1,0 +1,59 @@
+name: Node.js CI
+
+on:
+  push:
+    branches: [ publish ]
+  pull_request:
+    branches: [ publish ]
+
+jobs:
+  build:
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ 'windows-latest', 'ubuntu-latest', 'macos-latest' ]
+        node-version: [20.x]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: 'Install makensis (apt)'
+      run: sudo apt update && sudo apt install -y nsis nsis-pluginapi
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+
+    - name: 'Install makensis (homebrew)'
+      run: brew update && brew install makensis
+      if: ${{ matrix.os == 'macos-latest' }}
+
+    - name: 'Set Plugin permissions'
+      run: sudo chown -R $(whoami) /usr/share/nsis/Plugins/
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+
+    - name: 'Install npm dependencies'
+      run: npm ci
+
+    - name: 'Test'
+      run: npm test -- --reporter json --reporter-options output=${{ runner.temp }}/report-${{ matrix.os }}.json
+
+    - name: 'Print Tests'
+      # run this step even if previous step failed
+      if: (success() || failure())
+      run: cat ${{ runner.temp }}/report-${{ matrix.os }}.json | jq
+
+    - name: 'Publish Tests'
+      uses: 'dorny/test-reporter@v1'
+      # run this step even if previous step failed
+      if: ${{ !env.ACT }} && (success() || failure())
+      # If this fails, don't worry the JSON output will be printed as a backup.
+      continue-on-error: true
+      with:
+        name: 'test (${{ matrix.os }}, ${{ matrix.node-version }})'
+        path: ${{ runner.temp }}/report-${{ matrix.os }}.json
+        reporter: mocha-json

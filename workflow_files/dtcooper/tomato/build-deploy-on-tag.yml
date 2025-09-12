@@ -1,0 +1,76 @@
+name: Release & deploy server container (tag)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    name: Build container
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+      -
+        name: Get version
+        id: version
+        uses: ./.github/actions/version
+      -
+        name: Set variables
+        shell: bash
+        run: |
+          DATE=$(date +%Y%m%d)
+          YEAR=$(date +%Y)
+
+          # Only build on amd64 around the event (faster)
+          LABOR_DAY=$(date -d "${YEAR}-09-01 +$(( (8 - $(date -d "${YEAR}-09-01" +%u) ) % 7 )) days" +%Y-%m-%d)
+          BEFORE_DATE=$(date -d "$LABOR_DAY -21 days" +%Y%m%d)
+          AFTER_DATE=$(date -d "$LABOR_DAY +3 days" +%Y%m%d)
+
+          if [ "$DATE" -ge "$BEFORE_DATE" -a "$DATE" -le "$AFTER_DATE" ]; then
+              echo 'Close to Labor Day! Building for linux/amd64 only for performance reasons.'
+              echo 'PLATFORMS=linux/amd64' | tee -a "${GITHUB_ENV}"
+          else
+              echo 'PLATFORMS=linux/amd64,linux/arm64' | tee -a "${GITHUB_ENV}"
+          fi
+      -
+        name: Build container
+        uses: ./.github/actions/docker-build-push
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          container: server
+          tag: ${{ github.ref_name }}
+          no-cache: true
+          platforms: ${{ env.PLATFORMS }}
+          build-args: |
+            TOMATO_VERSION=${{ steps.version.outputs.version }}
+      -
+        name: Re-build dev containers
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: build-deploy-on-push.yml
+          ref: main
+
+  deploy:
+    runs-on: ubuntu-22.04
+    name: Deploy
+    needs: [build]
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+      -
+        name: Deploy containers
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          TOMATO_TAG: ${{ github.ref_name }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          fingerprint: ${{ secrets.SSH_FINGERPRINT }}
+          envs: TOMATO_TAG
+          script: ${{ secrets.DEPLOY_PROD_SCRIPT_PATH }}

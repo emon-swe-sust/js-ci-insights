@@ -1,0 +1,16 @@
+name: CI
+on:
+  - push
+  - pull_request
+
+jobs:
+  test:
+    # Includes firefox, chromium, and Node.js 18.
+    # https://github.com/actions/runner-images/blob/ubuntu22/20240403.1/images/ubuntu/Ubuntu2204-Readme.md
+    runs-on: ubuntu-22.04
+    env:
+      FORCE_COLOR: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install
+      - run: npm test

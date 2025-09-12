@@ -1,0 +1,99 @@
+name: branch-deploy
+
+on:
+  issue_comment:
+    types: [ created ]
+
+# Permissions needed for reacting and adding comments for IssueOps commands
+permissions:
+  pull-requests: write
+  deployments: write
+  contents: write
+  checks: read
+  statuses: read
+
+jobs:
+  deploy:
+    environment: secrets
+    if: ${{ github.event.issue.pull_request }} # only run on pull request comments
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: github/branch-deploy@v10
+        id: branch-deploy
+        with:
+          admins: the-hideout/core-contributors
+          admins_pat: ${{ secrets.BRANCH_DEPLOY_ADMINS_PAT }}
+          environment_targets: production,development
+          environment_urls: production|https://api.tarkov.dev/graphql,development|https://dev-api.tarkov.dev/graphql
+          sticky_locks: "true"
+
+      - name: checkout
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.branch-deploy.outputs.sha }}
+
+      - name: setup node
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
+        run: npm ci
+
+      - name: Publish - Development
+        if: ${{ steps.branch-deploy.outputs.environment == 'development' &&
+          steps.branch-deploy.outputs.noop != 'true' &&
+          steps.branch-deploy.outputs.continue == 'true' }}
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # pin@3.14.1
+        with:
+          wranglerVersion: '2.17.0'
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          environment: "development"
+
+      # Post comment on PR with development deploy info
+      - uses: GrantBirki/comment@v2.1.1
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' &&
+          steps.branch-deploy.outputs.noop != 'true' &&
+          steps.branch-deploy.outputs.environment == 'development' }}
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            ### API Deployment - Development 🪐
+
+            The API has been **deployed** to the **development** environment 🚀
+
+            - Endpoint: `dev-api.tarkov.dev/graphql`
+            - Playground: [dev-api.tarkov.dev](https://dev-api.tarkov.dev)
+
+            > Pusher: @${{ github.actor }}, Action: `${{ github.event_name }}`, Workflow: `${{ github.workflow }}`;
+
+      - name: Publish - Production
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' &&
+          steps.branch-deploy.outputs.noop != 'true' &&
+          steps.branch-deploy.outputs.environment == 'production' }}
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # pin@3.14.1
+        with:
+          wranglerVersion: '2.17.0'
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+
+      # Post comment on PR with production deploy info
+      - uses: GrantBirki/comment@v2.1.1
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' &&
+          steps.branch-deploy.outputs.noop != 'true' &&
+          steps.branch-deploy.outputs.environment == 'production' }}
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            ### API Deployment - Production 🌔
+
+            The API has been **deployed** to the **production** environment 🚀
+
+            - Endpoint: `api.tarkov.dev/graphql`
+            - Playground: [api.tarkov.dev](https://api.tarkov.dev)
+
+            > Pusher: @${{ github.actor }}, Action: `${{ github.event_name }}`, Workflow: `${{ github.workflow }}`;

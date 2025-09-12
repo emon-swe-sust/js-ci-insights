@@ -1,0 +1,23 @@
+name: Comment PR Procedures
+
+on:
+  pull_request:
+    branches: [master]    
+    types:
+      - labeled
+
+jobs:
+  post_comment_master:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Create branch comment      
+        if: ${{ github.base_ref == 'master' && contains(join(github.event.pull_request.labels.*.name, ''), 'merge-to-production') }}
+        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043
+        with:
+          issue-number: ${{github.event.number}}
+          body: | 
+            Hello @${{github.actor}}, 
+
+            Check the below option if you would like to automatically generate PR to production. The automation uses the branch for the cherry-pick, and then will delete the branch. Please, do not delete it manually.
+            
+            - [x] create PR to production

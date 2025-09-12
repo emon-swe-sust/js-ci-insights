@@ -1,0 +1,22 @@
+name: Simulate activity
+on:
+  schedule:
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+    inputs: {}
+
+jobs:
+  simulate-activity:
+    name: Simulate activity to keep workflows runnign
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Amend and push force last commit to keep it up to date.
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit --amend --no-edit
+          git push --force origin master

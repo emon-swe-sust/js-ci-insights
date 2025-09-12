@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main, 'v*' ]
+  pull_request:
+    branches: [ master, main ]
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: 'Setup'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # This version is different, because we want newer node features
+          # so that we can skip pnpm install for this job
+          node-version: 24
+      - id: set-matrix
+        run: |
+          echo "matrix=$(node ./node-tests/list.mjs)" >> $GITHUB_OUTPUT
+
+  lint:
+    name: Lints
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - run: pnpm install
+      - run: pnpm lint
+
+  test:
+    name: "Ember | ${{ matrix.app.name }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - { name: "Broccoli (v1 Addon)", dir: ".", cmd: "pnpm test:ember" }
+          - { name: "Broccoli (v1 App)", dir: './test-apps/broccoli', cmd: 'pnpm test:ember' }
+          - { name: "Webpack + Embroider 3 ", dir: './test-apps/embroider3-webpack', cmd: 'pnpm test:ember' }
+          - { name: "Vite + Compat", dir: './test-apps/vite-with-compat', cmd: 'pnpm build:tests && pnpm test:exam' }
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - run: pnpm install
+      - run: ${{ matrix.app.cmd }}
+        working-directory: ${{ matrix.app.dir }}
+
+  test-node:
+    name: "Mocha | ${{ matrix.name }}"
+    needs: ["setup"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{fromJson(needs.setup.outputs.matrix)}}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - run: pnpm install
+      - run: ${{ matrix.command }}
+
+  floating-dependencies:
+    name: "Floating Dependencies"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - run: pnpm install
+      - run: pnpm test:ember
+
+  try-scenarios:
+    name: "Try: ${{ matrix.ember-try-scenario }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+
+    strategy:
+      fail-fast: false
+      matrix:
+        ember-try-scenario:
+          - ember-lts-4.8
+          - ember-lts-4.12
+          - ember-release
+          - ember-beta
+          - ember-canary
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - run: pnpm install
+      - run: node_modules/.bin/ember try:one ${{ matrix.ember-try-scenario }} --skip-cleanup

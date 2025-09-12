@@ -1,0 +1,73 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+# If adding a step that requires SECRETS or WRITE ACCESS be sure to have dependabot skip it.
+# > if: ${{ github.actor != 'dependabot[bot]' }}
+
+name: Node.js CI
+
+on:
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest] # TODO: re-enable windows-latest after yarn lint fixed
+        node: [18, 20, 22]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Derive appropriate SHAs for base and head for `nx affected` commands
+        uses: nrwl/nx-set-shas@v3
+        with:
+          main-branch-name: 'master'
+
+      - name: Set Node Version
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: |
+          echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
+
+      - name: Restore yarn cache
+        uses: actions/cache@v3
+        id: yarn-cache
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-${{ matrix.node }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.node }}-yarn-
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+
+      - name: Check Constraints
+        run: yarn constraints
+
+      - name: Lint Affected Code
+        run: yarn nx affected --target=lint # FIXME: 'node ./node_modules/.bin/eslint .' is mac/linux specific, but 'yarn eslint .' currently broken
+
+      - name: Unit Test Affected Code
+        run: yarn nx affected --target=test
+
+      - name: Integration Test Affected Code
+        run: yarn nx affected --target=integration
+
+      - name: Version Bump Dry Run
+        run: yarn version:dry-run
+
+      - name: Build Docs
+        run: yarn build:docs
+
+      - name: Build App
+        run: yarn build:app

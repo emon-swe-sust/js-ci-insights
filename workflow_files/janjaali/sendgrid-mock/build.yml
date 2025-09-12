@@ -1,0 +1,34 @@
+name: Docker
+
+on:
+  - push
+  - pull_request
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+
+      - name: Install project (clean slate)
+        run: npm ci
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Test code
+        run: npm run test
+
+  build:
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    steps:
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4

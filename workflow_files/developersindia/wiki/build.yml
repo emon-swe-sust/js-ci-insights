@@ -1,0 +1,56 @@
+name: Netlify Deploy
+
+on:
+  # push:
+  #   branches:
+  #     - 'main'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: 'actions/checkout@v5'
+
+      - name: Install static-sitemap-cli
+        run: npm install static-sitemap-cli
+
+      - name: Setup mdBook
+        uses: extractions/setup-crate@v1
+        with:
+          owner: rust-lang
+          name: mdbook
+
+      - name: Generate the Wiki
+        run: mdbook build
+
+      # TODOL fix the issue when the sitemap doesn't get generated when a commit is directly pushed to the main branch
+      - name: Generate sitemap
+        run: |
+          cd book
+          npx sscli --no-clean --base https://wiki.developersindia.in
+
+      - name: Deploy to Netlify
+        uses: nwtgck/actions-netlify@v3.0
+        with:
+          publish-dir: 'book'
+          production-branch: main
+          production-deploy: true
+          netlify-config-path: netlify.toml
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: "Deploy from GitHub Actions"
+          enable-pull-request-comment: false
+          enable-commit-comment: false
+          overwrites-pull-request-comment: false
+          github-deployment-environment: "Netlify Deployment"
+          github-deployment-description: "The production deployment environment on Netlify."
+          fails-without-credentials: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        timeout-minutes: 1

@@ -1,0 +1,32 @@
+name: publish to npm
+on:
+    release:
+        types: [released]
+permissions:
+    contents: read
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: read
+            # This is required for provenance
+            # see https://docs.npmjs.com/generating-provenance-statements
+            id-token: write # OIDC
+
+        steps:
+            - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
+            - uses: ./.github/actions/prepare_ci
+              with:
+                  node-version: 24
+            # Trusted publishing requires npm CLI version 11.5.1 or later.
+            - name: Install latest npm
+              run: |
+                  echo "Current npm version: $(npm --version)"
+                  npm install -g npm@latest
+                  echo "Updated npm version: $(npm --version)"
+            - run: pnpm install
+            - run: make clean
+            - run: make prepublish -j
+            - run: make publish -j

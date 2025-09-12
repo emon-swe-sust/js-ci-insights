@@ -1,0 +1,38 @@
+name: Playwright Tests
+on:
+  push:
+    branches: main
+  pull_request:
+    branches: main
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.3-alpine
+        env:
+          POSTGRES_DB: healthcheck
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.4
+      - name: Install dependencies
+        run: npm ci
+      - name: Run database migrations
+        run: npm run db:migrate:dev
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+      - name: Run Playwright tests
+        run: npm test

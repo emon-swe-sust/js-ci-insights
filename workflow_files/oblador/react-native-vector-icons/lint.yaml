@@ -1,0 +1,89 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  eslint:
+    name: eslint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      # Remove once setup-node supports corepack https://github.com/actions/setup-node/pull/901 lands
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+      - name: Build
+        run: pnpm install
+
+      - name: Lint files
+        run: pnpm run lint:eslint
+
+  biome:
+    name: biome
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      # Remove once setup-node supports corepack https://github.com/actions/setup-node/pull/901 lands
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+      - name: Build
+        run: pnpm install
+
+      - name: Lint files
+        run: pnpm run lint:biome
+
+  types:
+    name: types
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      # Remove once setup-node supports corepack https://github.com/actions/setup-node/pull/901 lands
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Build
+        run: pnpm install
+
+      - name: Typecheck files
+        run: pnpm run lint:types
+
+  knip:
+    name: knip
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      # Remove once setup-node supports corepack https://github.com/actions/setup-node/pull/901 lands
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+      - name: Build
+        run: pnpm install
+
+      - name: Check for unused things
+        run: pnpm run lint:knip

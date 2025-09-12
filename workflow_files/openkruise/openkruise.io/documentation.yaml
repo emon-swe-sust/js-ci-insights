@@ -1,0 +1,102 @@
+name: documentation
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+# Declare default permissions as read only.
+permissions: read-all
+
+jobs:
+  checks:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - name: Test Build
+        run: |
+          if [ -e package-lock.json ]; then
+          npm ci
+          else
+          npm i
+          fi
+          npm run build
+  gh-release:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      pages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - uses: webfactory/ssh-agent@v0.5.0
+        with:
+          ssh-private-key: ${{ secrets.GH_PAGES_DEPLOY }}
+      - name: Release to GitHub Pages
+        env:
+          USE_SSH: true
+          GIT_USER: git
+          DEPLOYMENT_BRANCH: gh-pages
+          ALGOLIA_API_KEY: ${{ secrets.ALGOLIA_API_KEY }}
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "gh-actions"
+          npm install nodejieba
+          if [ -e package-lock.json ]; then
+          npm ci
+          else
+          npm i
+          fi
+          npm run build
+          #find ./build -type f -name "*.html" -exec sed -i 's/src="\/img\//src="https:\/\/cdn.jsdelivr.net\/gh\/openkruise\/openkruise.io@gh-pages\/img\//g' {} +
+          #find ./build -type f -name "*.html" -exec sed -i 's/src="\/zh\/img\//src="https:\/\/cdn.jsdelivr.net\/gh\/openkruise\/openkruise.io@gh-pages\/zh\/img\//g' {} +
+          #find ./build -type f -name "*.html" -exec sed -i 's/src="\/assets\//src="https:\/\/cdn.jsdelivr.net\/gh\/openkruise\/openkruise.io@gh-pages\/assets\//g' {} +
+          #find ./build -type f -name "*.html" -exec sed -i 's/src="\/zh\/assets\//src="https:\/\/cdn.jsdelivr.net\/gh\/openkruise\/openkruise.io@gh-pages\/zh\/assets\//g' {} +
+          #find ./build -type f -name "*.html" -exec sed -i 's/href="\/assets\//href="https:\/\/cdn.jsdelivr.net\/gh\/openkruise\/openkruise.io@gh-pages\/assets\//g' {} +
+          #find ./build -type f -name "*.html" -exec sed -i 's/href="\/zh\/assets\//href="https:\/\/cdn.jsdelivr.net\/gh\/openkruise\/openkruise.io@gh-pages\/zh\/assets\//g' {} +
+          #find ./build -type f -name "*.js" -exec sed -i 's/n.Z=r.p+"assets/n.Z="https:\/\/cdn.jsdelivr.net\/gh\/openkruise\/openkruise.io@gh-pages"+r.p+"assets/g' {} +
+          #find ./build -type f -name "*.js" -exec sed -i 's/r.setAttribute("rel","prefetch")/e="https:\/\/cdn.jsdelivr.net\/gh\/openkruise\/openkruise.io@gh-pages"+e;r.setAttribute("rel","prefetch")/g' {} +
+          #find ./build -type f -name "*.js" -exec sed -i 's/.src=e/.src="https:\/\/cdn.jsdelivr.net\/gh\/openkruise\/openkruise.io@gh-pages"+e/g' {} +
+          echo "ALGOLIA_API_KEY=${{ secrets.ALGOLIA_API_KEY }}" >> .env
+          echo "ALGOLIA_APP_ID=${{ secrets.ALGOLIA_APP_ID }}" >> .env          
+          npm run deploy -- $(pwd) --out-dir build --skip-build true
+
+  typo-check:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: '3.10'
+      - name: TypoCheck
+        run: |
+          pip3 install bs4 markdown html2markdown language_tool_python
+          python3 .github/workflows/diff.py
+  struct-check:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
+        with:
+          cache: true
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: '3.10'
+      - name: StructCheck
+        run: |
+          cd .github/workflows && python3 version_struct_check.py

@@ -1,0 +1,101 @@
+env:
+  PLAYWRIGHT_BROWSERS_PATH: browsers
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  merge_group:
+    types:
+      - checks_requested
+name: Test
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          cache: "pnpm"
+          node-version: 22
+      - name: Dependencies
+        run: pnpm install
+      - name: Commitlint
+        run: pnpm --silent commitlint -l
+      - name: Prettier
+        run: pnpm --silent pretty
+      - name: ESLint and Stylelint
+        run: pnpm --silent lint
+      - name: 18xx Maker Validate
+        run: pnpm --silent validate
+        env:
+          FORCE_COLOR: 3
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          cache: "pnpm"
+          node-version: 22
+      - name: Dependencies
+        run: pnpm install
+      - name: Build Web
+        run: pnpm build
+      - name: Build App
+        run: pnpm build:app
+      - name: Build Storybook
+        run: pnpm build:sb
+  test:
+    strategy:
+      matrix:
+        node: [22]
+        os:
+          - name: Linux
+            slug: linux
+            image: ubuntu-latest
+          - name: Mac
+            slug: mac
+            image: macos-latest
+          - name: Windows
+            slug: windows
+            image: windows-latest
+    name: ${{ matrix.os.name }}
+    runs-on: ${{ matrix.os.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          cache: "pnpm"
+          node-version: ${{ matrix.node }}
+      - name: Dependencies
+        run: pnpm install
+      - name: Test
+        run: pnpm test
+      - name: Coverage
+        uses: coverallsapp/github-action@v2
+        if: matrix.os.slug == 'linux'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

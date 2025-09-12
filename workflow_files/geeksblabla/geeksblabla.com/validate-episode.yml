@@ -1,0 +1,43 @@
+name: Validate Episode Files
+
+on:
+  pull_request:
+    paths:
+      - "episodes/**"
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - "episodes/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 📦 Setup Node + PNPM + install deps
+        uses: ./.github/actions/setup-node-pnpm-install
+
+      - name: 🚑 Run Validate Episode Markdown
+        run: |
+          chmod +x .github/scripts/validate-episode-markdown.sh
+          .github/scripts/validate-episode-markdown.sh
+
+      - name: Save PR number
+        if: github.event_name == 'pull_request' && always()
+        run: |
+          mkdir -p ./pr
+          echo ${{ github.event.number }} > ./pr/NR
+          cp .astro/episode-validation.md ./pr/validation-report.md
+
+      - name: Upload validation results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-validation-data
+          path: pr/

@@ -1,0 +1,37 @@
+name: Test
+
+on:
+  push: {}
+  pull_request: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.19, 20]
+    steps:
+      - name: Install Mermaid `trebuchet ms` font
+        run: |
+          # accept Microsoft Corefonts EULA first
+          echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | \
+            sudo debconf-set-selections
+          # install fonts
+          sudo apt-get install ttf-mscorefonts-installer -y \
+          || { sudo apt-get update && sudo apt-get install ttf-mscorefonts-installer -y; }
+      - uses: actions/checkout@v4
+      - name: Setup Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - name: Update NPM
+        # NPM 10 drops Node.JS v14 support
+        run: npm install -g npm@9
+      - name: Install NPM Packages
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        # Ubuntu 24.04 default AppArmor policy breaks chrome's sandbox
+        run: aa-exec --profile=chrome npm test

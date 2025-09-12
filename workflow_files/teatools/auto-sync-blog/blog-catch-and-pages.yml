@@ -1,0 +1,45 @@
+name: blog-catch-and-pages
+on:
+  # 设置可以手动执行(参考：https://tongjunsz.gitee.io/2021/03/18/GitHub-Actions-%E6%89%8B%E5%8A%A8%E8%A7%A6%E5%8F%91%E6%96%B9%E5%BC%8F/)
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+  # 每天下午四点执行（也就是16点，需要-8小时，所以是8）
+  schedule:
+    - cron: "0 8 * * *"
+
+jobs:
+  blog-catch-and-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout codes
+        uses: actions/checkout@v3
+
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18.x"
+
+      - name: Clean up
+        run: |
+          rm -rf package-lock.json
+          rm -rf node_modules
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Sync juejin blog
+        run: npm run sync:blog
+
+      - name: Build
+        run: npm run build:blog
+
+      # 发布
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          GITHUB_TOKEN: ${{ secrets.PRESS_TOKEN_TEA_BLOG }}
+          BRANCH: gh-pages
+          FOLDER: docs/.vitepress/dist

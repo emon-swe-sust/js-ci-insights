@@ -1,0 +1,33 @@
+name: Create PR for new SQLite version
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: URL suffix (e.g. 2022/sqlite-amalgamation-3400000.zip)
+        required: true
+      hash:
+        description: Archive hash
+        required: true
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          V=$(perl -pe 's/.*-3(\d\d)(\d\d)00\.zip/sprintf "3.%d.%d",$1,$2/e' <<< "${{ inputs.url }}")
+          echo "version=$V" >> $GITHUB_ENV
+          echo "branch=update-sqlite-$V" >> $GITHUB_ENV
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }} # allows subsequent workflows
+          fetch-depth: 0 # for checking whether target branch already exists
+      - run: "! git checkout ${{ env.branch }} --" # branch already exists?
+      - run: |
+          perl -pi -e "s|^SQLITE_URL = .+org/\K.*|${{ inputs.url }}|" Makefile
+          perl -pi -e "s|^SQLITE_HASH = \K.*|${{ inputs.hash }}|" Makefile
+      - uses: ./.github/actions/build-push-pr
+        with:
+          target-branch: ${{ env.branch }}
+          message: Update to SQLite ${{ env.version }}
+          create-pr: "yes" # must be a string
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for GitHub CLI in action

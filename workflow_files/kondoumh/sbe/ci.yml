@@ -1,0 +1,45 @@
+name: OS Matrix
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      beta:
+        description: 'Build with Electron beta'
+        type: boolean
+        required: false
+        default: fasle
+
+jobs:
+  build:
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest] # ubuntu-latest fails with playwright electron.launch
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup nodejs
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - name: Install dependencies
+      run: npm install
+    - name: Install Electron beta
+      if: ${{ inputs.beta }}
+      run: npm install electron@beta
+    - name: Install Playwright
+      run: npx playwright install
+    - name: Run Test
+      run: npm test
+      env:
+        RUN_MODE: test
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: ${{ always() }}
+      with:
+        name: test-results_${{ matrix.os }}
+        path: test-results

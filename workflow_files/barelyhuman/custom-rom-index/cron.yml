@@ -1,0 +1,28 @@
+name: Cron
+
+on:
+  push:
+    branches:
+      - dev
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.9.0
+      - run: pnpm i --frozen-lockfile
+      - run: export GH_TOKEN=${{ secrets.GITHUB_TOKEN }}; npm run sync; node scripts/fill-release-dates.js;
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: ":robot: Sync Services!"
+          branch: ${{ github.head_ref }}

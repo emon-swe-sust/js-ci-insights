@@ -1,0 +1,67 @@
+name: Pull Request
+on:
+  pull_request:
+    paths-ignore:
+      - v0/** # Skip if ONLY v0/ directory files change
+      - .github/workflows/build.yml # Skip if ONLY build.yml file changes
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Initialize submodules
+        run: git submodule update --init
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache PNPM dependencies
+        uses: actions/cache@v3
+        id: cache-jsf
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        if: steps.cache-jsf.outputs.cache-hit != 'true'
+        run: pnpm install
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [dependencies]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Get cached PNPM dependencies
+        uses: actions/cache@v3
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Run lint and type checks
+        run: pnpm check
+
+      - name: Tests
+        run: pnpm test

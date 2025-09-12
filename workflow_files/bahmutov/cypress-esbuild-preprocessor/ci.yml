@@ -1,0 +1,24 @@
+name: ci
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 🛎
+        uses: actions/checkout@v5
+
+      - name: Run tests 🧪
+        uses: cypress-io/github-action@v5
+        with:
+          build: npm run lint
+        env:
+          DEBUG: cypress-esbuild-preprocessor
+
+      - name: Semantic Release 🚀
+        uses: cycjimmy/semantic-release-action@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          branch: main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

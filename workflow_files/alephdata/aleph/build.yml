@@ -1,0 +1,61 @@
+name: Build
+
+on:
+  push:
+    paths-ignore:
+      - "ui/**"
+      - "docs/**"
+
+permissions:
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up
+        run: |
+          sudo sysctl -w vm.max_map_count=262144
+          sudo echo "ALEPH_SECRET=batman\n" >> aleph.env
+          echo "${GITHUB_REF}"
+          docker --version
+          docker compose --version
+
+      - name: Docker pull services
+        run: |
+          docker compose pull --quiet elasticsearch ingest-file
+          make ALEPH_TAG=${GITHUB_SHA} services
+
+      - name: Build docker image
+        run: docker build -t ghcr.io/alephdata/aleph:${GITHUB_SHA} .
+
+      - name: Install development dependencies
+        run: make dev
+        env:
+          PIP_BREAK_SYSTEM_PACKAGES: 1
+
+      - name: Check code formatting
+        run: make format-check
+
+      - name: Run linter
+        run: make lint
+
+      - name: Run aleph tests
+        run: make ALEPH_TAG=${GITHUB_SHA} test
+
+      - name: Push docker images for tags
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
+          export ALEPH_TAG=${GITHUB_REF/refs\/tags\//}
+          docker tag ghcr.io/alephdata/aleph:${GITHUB_SHA} ghcr.io/alephdata/aleph:${ALEPH_TAG};
+          docker push ghcr.io/alephdata/aleph:${ALEPH_TAG};
+
+      - name: Tag latest image
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags') && !startsWith(github.ref, 'refs/tags/test-')
+        run: |
+          docker tag ghcr.io/alephdata/aleph:${GITHUB_SHA} ghcr.io/alephdata/aleph:latest;
+          docker push ghcr.io/alephdata/aleph:latest;

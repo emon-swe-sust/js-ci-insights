@@ -1,0 +1,104 @@
+name: deploy-aws-dev
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/aws-deploy-dev.yaml
+      - crawler/**
+      - frontend/**
+      - cdk/**
+      - types/**
+
+  # # run every 6 hours
+  # only runs on the base branch, weird, github????
+  # schedule:
+  #   - cron: "0 */6 * * *"
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+concurrency:
+  group: develop
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 22.17.0
+
+jobs:
+  aws_deploy_dev:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: develop
+      url: https://develop.lemmyverse.net
+
+    steps:
+      # https://github.com/actions/toolkit/issues/946#issuecomment-1590016041
+      - name: root suid tar
+        run: sudo chown root:root /bin/tar && sudo chmod u+s /bin/tar
+
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Download + Start Redis Docker
+      - name: Get Dump + Start Redis
+        uses: ./.github/actions/start-redis
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          s3-bucket: ${{ vars.BUILD_S3_BUCKET }}
+
+      # Yarn Install ./crawler
+      - name: Yarn Install ./crawler
+        uses: ./.github/actions/yarn-install
+        with:
+          working-directory: ./crawler
+
+      # Run Crawler Output Script
+      - name: Run Health Script
+        run: yarn health
+        working-directory: ./crawler
+
+      - name: Run Output Script
+        run: yarn output
+        working-directory: ./crawler
+
+      # store the json files as artifacts
+      - name: archive json artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-json-bundle
+          path: |
+            ./frontend/public/data/
+
+      # Yarn Install ./frontend
+      - name: Yarn Install ./frontend
+        uses: ./.github/actions/yarn-install
+        with:
+          working-directory: ./frontend
+
+      # Build Frontend to ./frontend/dist
+      - name: Build the Frontend
+        run: yarn build
+        working-directory: ./frontend
+
+      - name: Create CDK Config JSON
+        id: create-json
+        uses: jsdaniell/create-json@v1.2.3
+        with:
+          dir: ./cdk
+          name: "config.json"
+          json: ${{ vars.CONFIG_JSON }}
+
+      # CDK Deployment
+      - name: CDK Deployment
+        uses: ./.github/actions/cdk-deploy
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

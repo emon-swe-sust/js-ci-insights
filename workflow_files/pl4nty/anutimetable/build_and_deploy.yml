@@ -1,0 +1,50 @@
+name: Build and deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled]
+    paths-ignore: ['.vscode/**']
+  # push from scrape action doesn't trigger a push event
+  workflow_run:
+    workflows: [Scrape]
+    types: [completed]
+
+# Checkout branch and comment on PR
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  swa:
+    # if a push, or a successful scrape, or PR has 'safe to test' label
+    if: >-
+      github.event_name == 'push' ||
+      github.event.workflow_run.conclusion == 'success' ||
+      contains(github.event.pull_request.labels.*.name, 'safe to test')
+    runs-on: ubuntu-latest
+    name: Static Web App
+    steps:
+      # NOTE - THIS CHECKOUT MAY CONTAIN UNTRUSTED CODE
+      # TO AVOID SECRET DISCLOSURE, IT MUST ONLY RUN IN THE SANDBOXED AZURE BUILD ENVIRONMENT
+      - name: Checkout from PR
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          # conditional - https://github.community/t/possible-to-use-conditional-in-the-env-section-of-a-job/135170/2
+          # merge commit ref syntax - https://github.com/actions/checkout/issues/518#issuecomment-890401887
+          ref: ${{ github.event_name != 'pull_request_target' && github.ref || format('refs/pull/{0}/merge',github.event.number) }}
+
+      - name: Build and deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }} # GitHub bot comments only, not available to code
+          action: upload
+          app_location: . # Root
+          app_artifact_location: build # Build artifacts
+          api_location: api # Functions
+        env:
+          REACT_APP_INSIGHTS_STRING: ${{ secrets.REACT_APP_INSIGHTS_STRING }} # this is public, not actually secret

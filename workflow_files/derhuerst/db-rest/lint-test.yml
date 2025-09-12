@@ -1,0 +1,34 @@
+name: lint, build & test
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+  workflow_call:
+
+jobs:
+  lint-test:
+    name: lint, build & test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version:
+          - '18.x'
+          - '20.x'
+          - '22.x'
+
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - run: npm ci
+
+    - run: npm run lint
+    - run: npm run build
+    - run: npm test

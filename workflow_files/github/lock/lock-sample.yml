@@ -1,0 +1,25 @@
+name: lock
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for claiming the deployment lock for this repository'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      # Need to checkout for testing the Action in this repo
+      - uses: actions/checkout@v4
+
+      # Lock
+      - uses: ./
+        id: lock
+        with:
+          mode: "lock"
+          reason: ${{ github.event.inputs.reason }}

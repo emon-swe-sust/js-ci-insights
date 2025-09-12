@@ -1,0 +1,43 @@
+name: Deploy to Github Pages
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+jobs:
+  deployment:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: setup node version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: "pnpm"
+
+      - name: prepare
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run gen:gql
+
+      - name: build site
+        run: |
+          pnpm run build
+          pnpm run build:site
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./ui/ssr-example/dist

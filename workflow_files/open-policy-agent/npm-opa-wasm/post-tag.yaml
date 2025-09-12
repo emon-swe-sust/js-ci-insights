@@ -1,0 +1,21 @@
+name: Publish Node.js Package
+on:
+  push:
+    tags:
+    - '*'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: ci # contains the secret NPM_TOKEN used below
+    steps:
+    - uses: actions/checkout@v4
+    # Setup .npmrc file to publish to npm
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '14.x'
+        registry-url: 'https://registry.npmjs.org'
+    - run: npm install
+    - run: npm run build
+    - run: npm publish
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

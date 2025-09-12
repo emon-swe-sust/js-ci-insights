@@ -1,0 +1,94 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    # The branches below must be a subset of the branches above
+    branches: [master]
+  schedule:
+    - cron: '0 2 * * 1' # At 02:00 on Monday
+
+permissions: {}
+
+jobs:
+  test:
+    name: Test
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        node-version: [20, 22, 24]
+        include:
+          - os: macos-latest
+            node-version: 22 # LTS
+          - os: windows-latest
+            node-version: 22 # LTS
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Bootstrap project
+        run: npm ci --ignore-scripts
+      - name: Build project
+        run: npm run --ignore-scripts build
+      - name: Run tests
+        run: npm test --ignore-scripts
+      - name: Coveralls Parallel
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
+        with:
+          github-token: ${{ secrets.github_token }}
+          flag-name: run-${{ matrix.os }}-node@${{ matrix.node-version }}
+          path-to-lcov: ${{ github.workspace }}/coverage/lcov.info
+          parallel: true
+    
+  posttest:
+    name: Post-Test
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Coveralls Finish
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
+        with:
+          github-token: ${{ secrets.github_token }}
+          parallel-finished: true
+
+  commit-lint:
+    name: Commit Lint
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+      - name: Use Node.js 20
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 20.19.5
+      - name: Bootstrap project
+        run: npm ci --ignore-scripts
+      - name: Verify commit linting
+        run: npx commitlint --from origin/master --to HEAD --verbose
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      # See: https://github.com/github/codeql-action/blob/008b2cc71c4cf3401f45919d8eede44a65b4a322/README.md#usage
+      security-events: write
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@192325c86100d080feab897ff886c34abd4c83a3 # v3.30.3
+      with:
+        languages: 'javascript'
+        config-file: ./.github/codeql/codeql-config.yaml
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@192325c86100d080feab897ff886c34abd4c83a3 # v3.30.3

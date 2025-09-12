@@ -1,0 +1,62 @@
+# The 'release-please' workflow is used to create the 'Release Please' pull
+# request. This PR is opened when we have a new commit to master.
+# See:
+#   https://github.com/googleapis/release-please
+name: Release Please
+on:
+  push:
+    branches:
+      - main
+jobs:
+  release-please:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: google-github-actions/release-please-action@v3
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-type: node
+          package-name: effective-shell
+          # We include 'docs' in the changelog types, this means document
+          # changes will be in the CHANGELOG and also that docs changes will
+          # trigger a patch release. This is essential as we basically are
+          # primarily docs project.
+          changelog-types: '[{"type":"feat","section":"Features","hidden":false},{"type":"docs","section":"Documentation","hidden":false},{"type":"fix","section":"Bug Fixes","hidden":false}]'
+      
+      # If the 'release please' action has been performed, we can actually
+      # deploy the website.
+      # Note: *every* step here needs to check the 'release_created' flag.
+      - name: Checkout
+        uses: actions/checkout@v4
+        if: ${{ steps.release.outputs.release_created }}
+
+      # Fixup Git URLs, see:
+      # https://stackoverflow.com/questions/70663523/the-unauthenticated-git-protocol-on-port-9418-is-no-longer-supported
+      - name: Fix up git URLs
+        run: echo -e '[url "https://github.com/"]\n  insteadOf = "git://github.com/"' >> ~/.gitconfig
+        if: ${{ steps.release.outputs.release_created }}
+
+      # Check typescript compiles properly.
+      - name: Check TypeScript
+        run: make typescript-check
+        if: ${{ steps.release.outputs.release_created }}
+
+      # Run the build - this will fail if there are broken links etc.
+      - name: Build
+        run: make build
+        if: ${{ steps.release.outputs.release_created }}
+
+      # Store the artifacts in case we want to validate samples etc.
+      - name: Store Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts
+          path: artifacts
+
+      # Deploy the website.
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: ./build
+        if: ${{ steps.release.outputs.release_created }}

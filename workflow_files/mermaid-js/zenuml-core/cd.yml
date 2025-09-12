@@ -1,0 +1,121 @@
+# Simple workflow for deploying static content to GitHub Pages
+name: Build, Test, npm Publish, and Deploy
+
+on:
+  push:
+    paths-ignore:
+      - "docs/**"
+      - "integration/**"
+      - "*.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "integration/**"
+      - "*.md"
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  # Test
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install dependencies
+        run: bun install
+      - name: Run tests
+        run: bun run test --run
+
+  npm-publish:
+    runs-on: ubuntu-22.04
+    needs: test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/publish'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - run: bun install
+      - name: Bump Version
+        id: bump
+        run: ./scripts/bump-version.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
+        run: bun run build
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+      - name: Create git tag
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push origin "v${{ steps.bump.outputs.version }}"
+      - name: Add version to job summary
+        run: |
+          echo "# Published Version" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Version | Tag |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| @zenuml/core | v${{ steps.bump.outputs.version }} | [v${{ steps.bump.outputs.version }}](https://github.com/mermaid-js/zenuml-core/releases/tag/v${{ steps.bump.outputs.version }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[View on npm](https://www.npmjs.com/package/@zenuml/core/v/${{ steps.bump.outputs.version }})" >> $GITHUB_STEP_SUMMARY
+
+  # Deploy to Cloudflare Workers
+  deploy-to-cloudflare:
+    runs-on: ubuntu-22.04
+    needs: test
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install dependencies
+        run: bun install
+        
+      - name: Deploy to Cloudflare Workers (Production)
+        if: github.ref == 'refs/heads/main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ vars.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun run worker:deploy
+
+      - name: Deploy to Cloudflare Workers (Staging)
+        if: github.ref != 'refs/heads/main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ vars.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun run worker:deploy:staging

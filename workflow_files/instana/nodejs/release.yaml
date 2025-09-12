@@ -1,0 +1,194 @@
+# This github action publishes a release on-demand.
+name: release-on-demand
+
+on:
+  workflow_dispatch:
+    inputs:
+      fromPackage:
+        description: "Use \"lerna publish from-package\""
+        required: false
+        default: false
+        type: choice
+        options:
+        - false
+        - true
+      dryRun:
+        description: "Dry Run"
+        required: false
+        default: false
+        type: choice
+        options:
+        - false
+        - true
+
+jobs:
+  publish-release:
+    name: Release the main branch as a new version to the npm registry.
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      FROM_PACKAGE: ${{ inputs.fromPackage }}
+      DRY_RUN: ${{ inputs.dryRun }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # With fetch-depth 0 the checkout action will also fetch all tags and branches. We need the tags for
+          # ./disallow-major-release.sh to work.
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Read .nvmrc
+        run: echo "NODEJS_VERSION=$(cat .nvmrc)" >> $GITHUB_ENV
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODEJS_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+
+      - name: echo versions
+        run: |
+          node --version
+          npm --version
+          
+      - run: npm ci
+
+      - name: Disallow major releases
+        run: .github/workflows/disallow-major-release.sh
+
+      - name: Add token to .npmrc
+        run: |
+          echo "" >> .npmrc
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> .npmrc
+
+      # This is required to make sure that new packages (@instana packages that we publish for the first time) can be
+      # published to the npm registry. The default visibility for scoped packages is private, but our npm account
+      # (free plan) does not allow private packages (and we actually want those packages to be public).
+      - run: npm config set access public
+
+      - name: Configure git name/email
+        run: |
+          git config user.name "IBM/Instana/Team Node.js"
+          git config user.email github-actions@github.com
+
+      - name: Execute lerna
+        run: |
+          set -x
+          if [[ $DRY_RUN = true ]]; then
+            npx lerna version --no-git-tag-version --no-push --yes
+            git status
+            git --no-pager diff --cached
+            git --no-pager diff
+          elif [[ $FROM_PACKAGE = true ]]; then
+            npx lerna publish --yes --no-verify-access from-package
+            git log -p -n1
+          else
+            npx lerna publish --yes --no-verify-access
+            git log -p -n1
+          fi
+
+      - id: read_version_number
+        name: Read the new version number from package.json
+        # --raw-output removes the quotes around the version number from the jq output.
+        # The quotes would break the JSON payload for the Slack success message.
+        run: echo "version=$(jq --raw-output .version packages/core/package.json)" >> $GITHUB_OUTPUT
+
+      - name: Send success message to team channel
+        if: "${{ success() && env.DRY_RUN != 'true' }}"
+        uses: slackapi/slack-github-action@v1.21.0
+        with:
+          payload: |
+            {
+              "text": ":mega: :package: Version ${{ steps.read_version_number.outputs.version }} has been released successfully! :star-struck: :tada:",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  {
+                    "title": "Changelog",
+                    "value": "<${{ github.server_url }}/${{ github.repository }}/blob/main/CHANGELOG.md>"
+                  },
+                  {
+                    "title": "Commit URL",
+                    "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>"
+                  },
+                  {
+                    "title": "Action URL",
+                    "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}>"
+                  },
+                  {
+                    "title": "Dry Run?",
+                    "value": "${{ env.DRY_RUN }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Publish with from-package?",
+                    "value": "${{ env.FROM_PACKAGE }}",
+                    "short": true
+                  }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_TEAM_NODE_CHANNEL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Send success message to release channel
+        if: "${{ success() && env.DRY_RUN != 'true' }}"
+        uses: slackapi/slack-github-action@v1.21.0
+        with:
+          payload: |
+            {
+              "text": ":mega: :package: Version ${{ steps.read_version_number.outputs.version }} of the Node.js tracer (npm package @instana/collector and friends) has been released! :star-struck: :tada:",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  {
+                    "title": "Release Notes",
+                    "value": "<${{ github.server_url }}/${{ github.repository }}/releases>"
+                  },
+                  {
+                  "value": "Hey <!subteam^S06P7LN011S>, a new release has happened for Node.js Tracer! Please update the release notes. Thank you!"
+                  }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RELEASES_CHANNEL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Send failure message
+        if: "${{ failure() && env.DRY_RUN != 'true' }}"
+        uses: slackapi/slack-github-action@v1.21.0
+        with:
+          payload: |
+            {
+              "text": ":boom: :scream: Releasing new package versions has failed! :scream_cat: :sob:",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  {
+                    "title": "Commit URL",
+                    "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>"
+                  },
+                  {
+                    "title": "Action URL",
+                    "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}>"
+                  },
+                  {
+                    "title": "Dry Run?",
+                    "value": "${{ env.DRY_RUN }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Publish with from-package?",
+                    "value": "${{ env.FROM_PACKAGE }}",
+                    "short": true
+                  }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_TEAM_NODE_CHANNEL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+

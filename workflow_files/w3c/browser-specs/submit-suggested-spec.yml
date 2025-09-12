@@ -1,0 +1,55 @@
+name: Create a PR for the suggested spec
+
+on:
+  issue_comment:
+    # Details for types below can be found at:
+    # https://docs.github.com/en/webhooks-and-events/webhooks/webhook-events-and-payloads?actionType=edited#issues
+    types:
+      # Job triggered when an issue comment is created (or edited)
+      - created
+      - edited
+
+jobs:
+  prepare:
+    name: Create pull request if needed
+    runs-on: ubuntu-latest
+    # TODO: Check comment user permissions more thoroughly, for instance using
+    # the REST API (see link below). This is going to be needed if we decide to
+    # remove the PR step and have the bot merge directly to the `main` branch.
+    # https://docs.github.com/en/rest/collaborators/collaborators?apiVersion=2022-11-28#get-repository-permissions-for-a-user
+    if: ${{ github.event.comment.author_association == 'MEMBER' && contains(github.event.comment.body, '@browser-specs-bot ') }}
+    steps:
+      # Starting with Ubuntu 23+, a security feature prevents running Puppeteer
+      # by default. It needs to be disabled. Using the "easiest" option, see:
+      # https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md
+      # https://github.com/puppeteer/puppeteer/pull/13196/files
+      - name: Disable AppArmor
+        run: echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+
+      - name: Setup node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup git
+        run: |
+          git config user.name "browser-specs-bot"
+          git config user.email "<>"
+          git remote set-url --push origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
+
+      - name: Add suggested spec to specs.json
+        if: ${{ contains(github.event.comment.body, '@browser-specs-bot pr') }}
+        run: npx browser-specs build $NUMBER --pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN }}
+          NUMBER: ${{ github.event.issue.number }}

@@ -1,0 +1,86 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8.6.1
+      - uses: actions/setup-node@v4
+        with:
+          cache: "pnpm"
+          node-version: '18'
+
+      - name: Install project dependencies and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+          git diff --exit-code
+
+      - name: Prettier check
+        run: pnpm run lint
+
+      - name: Run test with coverage
+        run: pnpm run test-coverage
+
+      - uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+          files: ./coverage/cobertura-coverage.xml
+          verbose: true # optional (default = false)
+
+  test-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8.6.1
+      - uses: actions/setup-node@v4
+        with:
+          cache: "pnpm"
+          node-version: '18'
+
+      - name: Install project dependencies and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+#          TODO uncomment me
+#          docker-compose -f ./packages/e2e-test/docker/docker-compose.yml build
+      - name: e2e test
+        run: pnpm run e2e-test
+
+  lint-staged:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8.6.1
+      - uses: actions/setup-node@v4
+        with:
+          cache: "pnpm"
+
+      - name: Install project dependencies and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: Get changed files
+        uses: tj-actions/changed-files@v17.3
+        id: changed-files
+        with:
+          files: |
+            packages/**/src/**/*.ts
+            packages/**/tests/**/*.ts
+      - name: Show all matching files
+        run: |
+          echo "${{ steps.changed-files.outputs.all_changed_files }};"
+      - name: Run lint for changed files
+        if: ${{ steps.changed-files.outputs.all_changed_files != '' }}
+        run: |
+          npx eslint -c .eslintrc.next.js ${{ steps.changed-files.outputs.all_changed_files }}

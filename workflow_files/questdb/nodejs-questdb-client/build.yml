@@ -1,0 +1,41 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: '15 2,10,18 * * *'
+
+jobs:
+  test:
+    name: Build with Node.js ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22, latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: true
+
+      - name: Linting
+        run: pnpm eslint
+
+      - name: Type-checking
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test

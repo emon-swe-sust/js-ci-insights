@@ -1,0 +1,41 @@
+name: Deploy to ECR
+
+on:
+ 
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-push-docker-image-to-ECR:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: vitr/actions-build-and-upload-to-ecs@master
+        with:
+          access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}                    # AWS_ACCESS_KEY_ID
+          secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}            # AWS_SECRET_ACCESS_KEY
+          account_id: ${{ secrets.AWS_ACCOUNT_ID }}                          # AWS_ACCOUNT_ID
+          repo: react-app
+          region: ap-south-1
+          tags: ${{ github.sha }}
+          create_repo: true
+        
+  update-k8s-manifest:
+    runs-on: ubuntu-latest 
+    needs: ['build-and-push-docker-image-to-ECR']
+    steps:
+      - uses: actions/checkout@v3
+        with: 
+          repository: saurabhkr952/dev-portfolio-manifest
+          ref: 'main'
+          token: ${{ secrets.G_TOKEN }}                                       # Github Personal Access Token
+      - name: setup git config
+        run: |
+          git config --global user.email "saurabhkr952@gmail.com"
+          git config --global user.name "saurabhkr952"
+          echo ${{ github.sha }}
+          sed -i 's+278445542791.dkr.ecr.ap-south-1.amazonaws.com/react-app:.*+278445542791.dkr.ecr.ap-south-1.amazonaws.com/react-app:${{ github.sha }}+g' deployment_aws.yaml
+          git add -A
+          git commit -m "Update image for - ${{ github.sha }}"
+      - run: echo ${{ github }}
+      - run: git push origin main

@@ -1,0 +1,142 @@
+name: Remove a staging environment
+on:
+  workflow_dispatch:
+    inputs:
+      sandbox-id:
+        description: 'The sandbox ID to remove'
+        required: true
+      secrets:
+        description: 'Encrypted secrets to use for this task'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  load-config:
+    uses: ./.github/workflows/load-config.yaml
+  remove-staging:
+    name: Remove staging environment
+    runs-on: ubuntu-20.04
+    needs: load-config
+    environment: ${{ needs.load-config.outputs.domain_name}}
+    steps:
+      - id: setup-aws
+        name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ci-iac-role
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - id: install-aws-cli
+        name: Install AWS CLI
+        uses: unfor19/install-aws-cli-action@v1
+        with:
+          version: 2
+
+      - id: checkout
+        name: Check out source code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.API_TOKEN_GITHUB }}
+
+      - id: install-eksctl
+        name: Install eksctl
+        run: |-
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
+
+      - id: wait-pending-removals
+        name: Wait for previous removal jobs before proceeding
+        uses: softprops/turnstyle@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: remove-pipeline-fargate-profile
+        name: Remove Fargate profile for the pipelines
+        uses: nick-invision/retry@v2
+        with:
+          timeout_seconds: 900
+          max_attempts: 30
+          retry_on: error
+          command: |
+            output=$(eksctl delete fargateprofile --cluster biomage-staging --region ${{ secrets.AWS_REGION }} --name pipeline-${SANDBOX_ID} 2>&1)
+            echo $output
+            echo $output | egrep "deleted Fargate profile|No Fargate Profile found"
+          # Add jitter to break up correlated events.
+          on_retry_command: sleep $((20 + RANDOM % 10));
+        env:
+          SANDBOX_ID: ${{ github.event.inputs.sandbox-id }}
+
+      - id: remove-worker-fargate-profile
+        name: Remove Fargate profile for the workers
+        uses: nick-invision/retry@v2
+        with:
+          timeout_seconds: 900
+          max_attempts: 30
+          retry_on: error
+          command: |
+            output=$(eksctl delete fargateprofile --cluster biomage-staging --region ${{ secrets.AWS_REGION }} --name worker-${SANDBOX_ID} 2>&1)
+            echo $output
+            echo $output | egrep "deleted Fargate profile|No Fargate Profile found"
+          # Add jitter to break up correlated events.
+          on_retry_command: sleep $((20 + RANDOM % 10));
+        env:
+          SANDBOX_ID: ${{ github.event.inputs.sandbox-id }}
+
+      - id: set-name
+        name: Set name of the CloudFormation stack for SNS topic and Cognito pool
+        run: |-
+          BASE_NAME=biomage-sns-staging-$SANDBOX_ID
+          echo "sns-name=$BASE_NAME" >> $GITHUB_OUTPUT
+
+          BASE_NAME=biomage-rds-staging-$SANDBOX_ID
+          echo "rds-name=$BASE_NAME" >> $GITHUB_OUTPUT
+
+          BASE_NAME=biomage-userpoolclient-staging-$SANDBOX_ID
+          echo "userpoolclient-name=$BASE_NAME" >> $GITHUB_OUTPUT
+
+          BASE_NAME=biomage-batch-job-definition-staging-$SANDBOX_ID
+          echo "batch-job-definition-name=$BASE_NAME" >> $GITHUB_OUTPUT
+        env:
+          SANDBOX_ID: ${{ github.event.inputs.sandbox-id }}
+
+      - id: remove-template-sns
+        name: Remove CloudFormation stack for SNS topic
+        run: |-
+          aws cloudformation delete-stack --stack-name $STACK_NAME
+        env:
+          STACK_NAME: ${{ steps.set-name.outputs.sns-name }}
+
+      - id: remove-template-rds
+        name: Remove CloudFormation stack for RDS
+        run: |-
+          aws cloudformation delete-stack --stack-name $STACK_NAME
+        env:
+          STACK_NAME: ${{ steps.set-name.outputs.rds-name }}
+
+      - id: remove-template-userpool-client
+        name: Remove CloudFormation stack for Cognito userpool clients
+        run: |-
+          aws cloudformation delete-stack --stack-name $STACK_NAME
+        env:
+          STACK_NAME: ${{ steps.set-name.outputs.userpoolclient-name }}
+
+      - id: remove-template-batch-job-definition
+        name: Remove CloudFormation stack for Batch job definition
+        run: |-
+          aws cloudformation delete-stack --stack-name $STACK_NAME
+        env:
+          STACK_NAME: ${{ steps.set-name.outputs.batch-job-definition-name }}
+
+      - id: delete-staging-manifest
+        name: Remove manifest files from releases
+        uses: kafkasl/delete_from_another_repo@0.0.1
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+        with:
+          path: ./staging/${{ github.event.inputs.sandbox-id }}.yaml
+          destination_repo: ${{ github.repository_owner }}/releases
+          user_email: ci@biomage.net
+          user_name: 'Biomage CI/CD'

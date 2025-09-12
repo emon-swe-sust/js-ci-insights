@@ -1,0 +1,52 @@
+name: Tester
+
+on: [push, pull_request]
+
+jobs:
+  tester:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: ["20", "22", "24"]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v5
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Cache NPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-npm-cache
+          restore-keys: ${{ runner.os }}-npm-cache
+      - name: Determine unrs-resolver binary version
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            "Linux")
+                echo "PLATFORM=linux-x64-gnu" >> "$GITHUB_ENV" ;;
+            "Windows")
+                echo "PLATFORM=win32-x64-msvc" >> "$GITHUB_ENV" ;;
+            "macOS")
+                echo "PLATFORM=darwin-arm64" >> "$GITHUB_ENV" ;;
+          esac
+      - name: Install Dependencies
+        shell: bash
+        run: |
+          npm install
+          npm install --include=optional --force @mongodb-js/zstd
+          npm install "@unrs/resolver-binding-$PLATFORM"
+      - name: Test
+        run: npm run test
+        env:
+          CI: true
+      - name: Upload coverage report to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22'
+        uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

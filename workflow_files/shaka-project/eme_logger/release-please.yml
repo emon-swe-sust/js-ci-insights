@@ -1,0 +1,37 @@
+on:
+  push:
+    branches:
+      - main
+
+name: release-please
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          # Use a special shaka-bot access token for releases.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          # See also settings in these files:
+          manifest-file: .release-please-manifest.json
+          config-file: .release-please-config.json
+
+      # If we did create a release, we should attach the extension's zip file
+      # to it.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.after }}
+          persist-credentials: false
+        if: ${{ steps.release.outputs.release_created }}
+
+      - run: npm run build
+        if: ${{ steps.release.outputs.release_created }}
+
+      - name: Attach files to release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          gh release upload --clobber "${{ steps.release.outputs.tag_name }}" eme_logger-*.zip
+        if: ${{ steps.release.outputs.release_created }}

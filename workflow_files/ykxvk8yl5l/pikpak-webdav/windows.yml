@@ -1,0 +1,77 @@
+name: Release For Windows
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release'
+        required: true
+        default: 'v0.0.3'
+        
+jobs:
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: x86
+            target: i686-pc-windows-msvc
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        if: matrix.platform.arch != 'arm64'
+        with:
+          python-version: 3.9
+          architecture: ${{ matrix.platform.arch }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build wheels
+        if: matrix.platform.arch != 'arm64'
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --strip
+      - name: Build wheels
+        if: matrix.platform.arch == 'arm64'
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --strip --no-default-features --features atomic64,native-tls
+          sccache: 'true'
+      # - name: Install built wheel
+      #   run: |
+      #     pip install pikpak-webdav --no-index --find-links dist --force-reinstall
+      #     pikpak-webdav --help
+      - name: Upload wheels
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheels
+          path: dist
+          if-no-files-found: error
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: windows-${{ matrix.platform.arch }}-bin
+          path: target/${{ matrix.platform.target }}/release/pikpak-webdav.exe
+          if-no-files-found: error
+      # - name: Get tag
+      #   if: "startsWith(github.ref, 'refs/tags/')"
+      #   id: tag
+      #   uses: dawidd6/action-get-tag@v1
+      - name: Archive binary
+        run: |
+          cd target/${{ matrix.platform.target }}/release
+          7z a pikpak-webdav.zip pikpak-webdav.exe
+          cd -
+      - name: Upload binary to GitHub Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          asset_name: pikpak-webdav-${{ github.event.inputs.tag }}.windows-${{ matrix.platform.arch }}.zip
+          file: target/${{ matrix.platform.target }}/release/pikpak-webdav.zip
+          overwrite: true
+          tag: "refs/tags/${{ github.event.inputs.tag }}"

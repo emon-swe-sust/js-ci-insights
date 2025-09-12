@@ -1,0 +1,58 @@
+name: Update to new airac cycle
+
+# Run at 0905Z every day to check if the FAA just activated a new AIRAC which happens at 0901Z
+on:
+  workflow_dispatch:
+  schedule:
+    -  cron: '05 09 * * 4'
+#on: [workflow_dispatch]
+
+jobs:
+  check_cycle:
+    runs-on: ubuntu-latest
+    name: Check for new airac
+    outputs:
+      should_run: ${{ steps.should_run.outputs.should_run }}
+    env:
+      ACTIONS_RUNNER_DEBUG: true
+      ACTIONS_STEP_DEBUG: true
+    steps:
+      - id: should_run
+        continue-on-error: true
+        name: check for new airac
+        run: DATE="$(date +"%y%m%d")"; echo "Today is $DATE"; curl --fail -I -s "https://aeronav.faa.gov/Upload_313-d/cifp/CIFP_${DATE}.zip" > /dev/null || echo "should_run=true" >> $GITHUB_OUTPUT
+
+  run:
+    needs: check_cycle
+    if: ${{ needs.check_cycle.outputs.should_run != 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_RUNNER_DEBUG: true
+      ACTIONS_STEP_DEBUG: true
+    steps:
+      - name: checkout project
+        uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 12
+
+      - name: get new cifp
+        run: wget "https://aeronav.faa.gov/Upload_313-d/cifp/CIFP_$(date +"%y%m%d").zip" && unzip -o "CIFP_$(date +"%y%m%d").zip" FAACIFP18 -d current_cifp
+
+      - name: get apt.dat
+        run: wget "https://gitlab.com/flightgear/fgdata/-/raw/release/2020.3/Airports/apt.dat.gz" && gunzip -f apt.dat.gz
+
+      - name: run index
+        run: node index.js
+
+      - name: Set commit name variable
+        run: |
+          echo "COMMIT_TITLE=AUTOMATIC: Update to $(date +"%y%m%d") cycle" >> $GITHUB_ENV
+
+      - name: commit files
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          create_branch: false
+          commit_message: ${{ env.COMMIT_TITLE }}

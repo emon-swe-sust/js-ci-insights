@@ -1,0 +1,42 @@
+name: UIKit Flutter Example Firebase Hosting Deploy
+
+# TODO(dt-iohk): the job is not maintained, disabled automatic deployment in favor of manual one
+on: workflow_dispatch
+  # push:
+  #   branches: "main"
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-uikit-example:
+    name: Deploy UIKit example on Firebase Hosting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Forge
+        uses: input-output-hk/catalyst-forge/actions/install@ci/v1.10.0
+        with:
+          enable_caching: "true"
+          version: v0.21.0
+      - name: Setup CI
+        uses: input-output-hk/catalyst-forge/actions/setup@ci/v1.10.0
+      - name: Build Flutter Web
+        uses: input-output-hk/catalyst-forge/actions/run@ci/v1.10.0
+        if: always()
+        continue-on-error: true
+        with:
+          command: run
+          args: ./catalyst_voices/utilities/uikit_example+local-build-web
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          firebaseServiceAccount: "${{ secrets.UIKIT_FIREBASE_SERVICE_ACCOUNT }}"
+          projectId: "${{ secrets.UIKIT_FIREBASE_PROJECT_ID }}"
+          channelId: live
+          entryPoint: catalyst_voices/utilities/uikit_example

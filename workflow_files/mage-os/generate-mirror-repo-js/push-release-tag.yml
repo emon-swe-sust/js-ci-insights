@@ -1,0 +1,49 @@
+name: "[workflow call] Publish Mage-OS release tag to git repositories"
+
+on:
+  workflow_call:
+    inputs:
+      mageos_release:
+        description: 'The Mage-OS Release Tag (e.g. 1.0.0)'
+        required: true
+        type: string
+
+    secrets:
+      MAGE_OS_CI_TOKEN:
+        description: "GitHub PAT for pushing the tag to remote repositories"
+        required: true
+
+env:
+  mageos_release: ${{ inputs.mageos_release }}
+  github_pat: ${{ secrets.MAGE_OS_CI_TOKEN }}
+
+# For each repo working copy, do
+#   Transform the origin remote
+#     from https://github.com/mage-os/mageos-magento2.git
+#     to   https://your_username:$GITHUB_TOKEN@github.com/mage-os/mageos-magento2.git
+#   Push the new git tag
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: "Push git tags from repo working copies"
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-build-working-copies-${{ env.mageos_release }}
+      - run: tar -xf release-build-working-copies-${{ env.mageos_release }}.tar
+        name: "Untar working copies"
+      - run: git config --global user.email "info@mage-os.org" && git config --global user.name "Mage-OS CI"
+        name: "Configure git identity"
+      - run: |
+          for working_copy in $(ls -d repositories/*/.git); do
+            cd $(dirname $working_copy)
+            if git remote -v | grep -qE 'https://github.com/mage-os/'; then
+              echo Processing repository $(basename $(pwd))
+              ORIG=$(git remote -v | grep push | awk '{print $2}')
+              NEW=${ORIG/https:\/\/github.com/https:\/\/mage-os-ci:${{ env.github_pat }}@github.com}
+              git push $NEW "${{ env.mageos_release }}"
+            fi
+            cd -
+          done
+        name: "Push ${{ inputs.mageos_release }} to each origin for all repositories"

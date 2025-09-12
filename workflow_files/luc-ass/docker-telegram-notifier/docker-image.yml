@@ -1,0 +1,59 @@
+name: docker-build
+
+on:
+  release:
+    types: [published] 
+    tags:
+      - 'v*'
+  #push:
+  #  branches:
+  #    - telegraf-v4
+
+  schedule:
+      - cron: "0 17 * * 4"
+
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - 
+        name: Checkout
+        uses: actions/checkout@v5.0.0
+      -
+        name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images:
+            lorcas/docker-telegram-notifier
+          # Modified tags configuration to handle beta versions
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}},enable=${{ !contains(github.ref, '-beta') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref, '-beta') }}
+            type=semver,pattern={{major}},enable=${{ !contains(github.ref, '-beta') }}
+            # Add specific handling for beta versions
+            type=match,pattern=v\d+\.\d+\.\d+-beta\.\d+,group=0
+      -
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - 
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - 
+        name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - 
+        name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

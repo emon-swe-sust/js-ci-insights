@@ -1,0 +1,28 @@
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+*'
+
+name: Make Release
+
+jobs:
+  make_release:
+    name: Make Release
+    runs-on: windows-latest
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Stellaru ${{ github.ref }}
+          draft: true
+          prerelease: false
+      - name: Dispatch Builds
+        uses: peter-evans/repository-dispatch@v1.0.0
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          event-type: builds
+          client-payload: '{"release_url": "${{ steps.create_release.outputs.upload_url }}"}'

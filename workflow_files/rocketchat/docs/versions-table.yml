@@ -1,0 +1,37 @@
+name: Update Versions Table
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [new_release]
+
+jobs:
+  update-versions:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: main
+
+    - name: Setup NodeJS
+      id: node-version
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+
+    - name: Update versions table
+      run: |
+        cd .scripts
+        npm i
+        cd ..
+        node .scripts/table-version.mjs
+
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v5
+      with:
+        # base: main
+        commit-message: Update resources/rocket.chats-support-structure/enterprise-support-and-version-durability/README.md
+        branch: update-versions-table
+        title: 'Update versions table'
+        delete-branch: true

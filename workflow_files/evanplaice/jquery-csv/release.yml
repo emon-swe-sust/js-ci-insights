@@ -1,0 +1,16 @@
+name: Release
+
+on:
+  push:
+    tags:
+    - v*
+
+jobs:
+  ci:
+    uses: evanplaice/jquery-csv/.github/workflows/verify.yml@main
+
+  cd:
+    needs: ci
+    uses: evanplaice/jquery-csv/.github/workflows/npm.yml@main
+    secrets: inherit
+

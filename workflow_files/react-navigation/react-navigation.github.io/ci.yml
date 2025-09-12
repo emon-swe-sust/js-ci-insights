@@ -1,0 +1,21 @@
+name: CI
+
+on: [pull_request]
+
+jobs:
+  deploy:
+    name: Build pages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Lint markdown
+        run: yarn markdownlint-cli2
+
+      - name: Build pages
+        run: yarn build

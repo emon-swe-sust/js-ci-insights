@@ -1,0 +1,63 @@
+name: Build and deploy node site to GitHub Pages
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  github-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # Updated to v4
+
+      - name: Cache node modules
+        uses: actions/cache@v4 # Updated to v4
+        continue-on-error: true
+        env:
+          cache-name: cache-node-modules
+        with:
+          # npm cache files are stored in `~/.npm` on Linux/macOS
+          path: ~/.npm
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+            ${{ runner.os }}-build-
+            ${{ runner.os }}-
+
+      - name: Install dependencies
+        uses: actions/setup-node@v4 # Updated to v4
+        with:
+          node-version: '18' # It's good practice to specify a node version, e.g., '18' or 'lts/*'
+      - run: |
+          cd ${{ github.workspace }}
+          npm install
+          npm run build
+
+      - name: Move files
+        run: |
+          cd ${{ github.workspace }}
+          # Ensure 'dist' directory exists before moving, or handle cases where it might not
+          # This command moves index.html from dist/assets to dist/
+          mv dist/assets/index.html dist/
+          # Create markdown directory in dist
+          mkdir -p dist/markdown
+          # Copy markdown files to dist/markdown
+          cp -r src/markdown/*.md dist/markdown/
+          # Copy media files if they exist
+          if [ -d "src/markdown/media" ]; then
+            mkdir -p dist/markdown/media
+            cp -r src/markdown/media/* dist/markdown/media/
+          fi
+          # Remove node_modules to keep the artifact clean if it's not needed for deployment
+          rm -rf node_modules
+          # Copy index.html to 404.html to handle SPA routing on GitHub Pages
+          cp dist/index.html dist/404.html
+
+      - name: Invoke Deployment
+        uses: JamesIves/github-pages-deploy-action@4.1.4 # This action version seems stable
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: gh-pages
+          FOLDER: dist

@@ -1,0 +1,46 @@
+name: Deploy static content to Pages
+run-name: minify and deploy pages
+
+on:
+    # runs on pushes that target the main branch and update the changelog
+    push:
+        branches:
+            - main
+        paths:
+            - 'data/changelog.json'
+    # can also run manually from the Actions tab
+    workflow_dispatch:
+
+# sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+    contents: read
+    pages: write
+    id-token: write
+
+# only allows one concurrent deployment
+concurrency:
+    group: "pages"
+    cancel-in-progress: true
+
+jobs:
+    # single deploy job since we're just deploying
+    deploy:
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        runs-on: ubuntu-latest
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v3
+          - name: Minify HTML/JS/CSS
+            uses: dra1ex/minify-action@v1.0.3
+          - name: Setup Pages
+            uses: actions/configure-pages@v3
+          - name: Upload artifact
+            uses: actions/upload-pages-artifact@v3.0.1
+            with:
+                # upload entire repository
+                path: '.'
+          - name: Deploy to GitHub Pages
+            id: deployment
+            uses: actions/deploy-pages@v4.0.5

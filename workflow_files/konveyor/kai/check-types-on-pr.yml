@@ -1,0 +1,44 @@
+name: Check Types on PR
+
+on: [pull_request]
+
+jobs:
+  test-code-on-pr:
+    name: Check Types on PR Runner
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.12"]
+        architecture: ["x64"]
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./kai_mcp_solution_server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: ${{ matrix.architecture }}
+        
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+      
+      - name: Install dependencies
+        run: uv sync
+      
+      - name: Set up prerequisites
+        run: |
+          git config --global user.email "tester@example.com"
+          git config --global user.name "Tester"
+        
+      - name: Check types with mypy
+        run: ./run_mypy.sh

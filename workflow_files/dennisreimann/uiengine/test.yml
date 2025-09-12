@@ -1,0 +1,33 @@
+name: Test
+
+on:
+  # Run the build for pushes and pull requests targeting master
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Install
+      run: yarn
+    - name: Lint
+      run: yarn run lint
+    - name: Build
+      run: yarn run build
+    - name: Unit Tests
+      run: yarn run coverage
+    - name: Acceptance Tests
+      run: yarn run test-acceptance:ci
+    - name: Coveralls
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}

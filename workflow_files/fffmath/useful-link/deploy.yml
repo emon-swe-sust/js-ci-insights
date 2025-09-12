@@ -1,0 +1,43 @@
+name: Deploy to gh-pages
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Clear gh-pages branch
+      run: |
+        git config --local user.email "ysfeng2023@163.com"
+        git config --local user.name "fffmath"
+        git checkout -b gh-pages
+        git rm -r *
+        git commit -m "Clean gh-pages branch"
+        git push origin gh-pages --force
+        git checkout master
+
+    - name: Setup Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Generate HTML
+      run: python generate.py
+
+    - name: Add and commit changes
+      run: |
+        git add css js webfonts img index.html README.md vercel.json
+        git commit -m "Generate and update HTML files"
+
+    - name: Push changes to gh-pages branch
+      run: git push origin HEAD:gh-pages --force

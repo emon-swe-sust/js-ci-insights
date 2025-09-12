@@ -1,0 +1,69 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  smoke-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+          node-version: 22
+
+    - name: Run Smoke Tests
+      run: |
+        npm ci
+        npm run test:smoke
+
+  unit-tests:
+    needs: smoke-tests # to avoid writing over each others output
+    strategy:
+      matrix:
+        version: [22, 18]
+        platform: [ macos-latest, ubuntu-latest, windows-latest ]
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+          node-version: ${{ matrix.version }}
+
+    - name: Run Unit Tests
+      run: |
+        npm ci
+        npm run test:unit
+
+  integration-tests:
+    needs: smoke-tests
+    strategy:
+      matrix:
+        version: [22, 18]
+        platform: [ macos-latest, ubuntu-latest, windows-latest ]
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+          node-version: ${{ matrix.version }}
+
+    - name: Install @sap/cds globally
+      run: npm install -g @sap/cds
+
+    - name: Run Integration Tests
+      run: |
+        npm ci
+        npm run test:integration

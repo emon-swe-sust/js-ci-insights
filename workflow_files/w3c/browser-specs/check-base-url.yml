@@ -1,0 +1,34 @@
+name: Check base URL
+
+on:
+  schedule:
+    - cron: '30 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  find-specs:
+    name: Check base URL
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Setup node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+
+    - name: Setup environment
+      run: npm ci
+
+    - name: Check base URL
+      run: node src/check-base-url.js # sets check_list env variable
+
+    - name: Report any mismatch in an issue
+      uses: JasonEtco/create-an-issue@v2
+      if: ${{ env.check_list }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        filename: .github/incorrect-base-url.md

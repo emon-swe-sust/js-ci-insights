@@ -1,0 +1,51 @@
+name: Benchmark
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - corn: '0 4 * * *'
+  # push:
+  #   branches:
+  #     - main
+jobs:
+  Benchmark:
+    runs-on: ubuntu-latest
+    environment: Benchmark
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v3
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build source
+        run: pnpm run build
+        continue-on-error: true
+
+      - name: Run benchmark
+        run: pnpm run bench

@@ -1,0 +1,193 @@
+---
+
+name: build-one
+on:
+  workflow_call:
+    inputs:
+      folder:
+        required: true
+        type: string
+      tag:
+        required: true
+        type: string
+      parent:
+        required: false
+        type: string
+        default: ''
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+      GCR_JSON_KEY:
+        required: false
+
+env:
+  IMAGE_REPOSITORY: alpine-chrome
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx with docker driver
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_REPOSITORY }}
+          tags: type=raw,value=${{ inputs.tag }}
+          labels: |
+            org.opencontainers.image.documentation=https://github.com/Zenika/alpine-chrome/blob/master/README
+            org.opencontainers.image.vendor=Zenika
+
+      - name: Download parent image artifact
+        if: ${{ inputs.parent != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.IMAGE_REPOSITORY }}-${{ inputs.parent }}
+
+      - name: Load parent image artifact
+        if: ${{ inputs.parent != '' }}
+        run: |
+          docker image load --input ${{ env.IMAGE_REPOSITORY }}-${{ inputs.parent }}.tar.gz
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.folder }}
+          load: true
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: zenika/${{ env.IMAGE_REPOSITORY }}:${{ inputs.tag }}
+
+      - name: Test
+        env:
+          IMAGE_NAME: zenika/${{ env.IMAGE_REPOSITORY }}:${{ inputs.tag }}
+        run: |
+          ${{ inputs.folder }}/test.sh
+
+      - name: Export image artifact
+        run: |
+          docker image save zenika/${{ env.IMAGE_REPOSITORY }}:${{ inputs.tag }} | gzip > ${{ env.IMAGE_REPOSITORY }}-${{ inputs.tag }}.tar.gz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMAGE_REPOSITORY }}-${{ inputs.tag }}
+          path: ${{ env.IMAGE_REPOSITORY }}-${{ inputs.tag }}.tar.gz
+          retention-days: 1
+
+      - name: Compute versioned tag
+        id: tag
+        env:
+          IMAGE_NAME: zenika/${{ env.IMAGE_REPOSITORY }}:${{ inputs.tag }}
+          CHROMIUM_VERSION_REGEXP: 'Chromium ([0-9]+)\.'
+          CHROMEDRIVER_VERSION_REGEXP: 'ChromeDriver ([0-9]+)\.'
+        run: |
+          CURRENT_CHROMIUM_VERSION=$(docker container run --rm --entrypoint '' ${IMAGE_NAME} chromium-browser --version)
+          if [[ ${CURRENT_CHROMIUM_VERSION} =~ ${CHROMIUM_VERSION_REGEXP} ]]; then
+            echo "ℹ Successfully extracted Chromium major version of ${BASH_REMATCH[1]} from '${CURRENT_CHROMIUM_VERSION}'"
+          else
+            echo "❌ Cannot extract Chromium major version from '${CURRENT_CHROMIUM_VERSION}'" >&2
+            exit 1
+          fi
+          CHROMIUM_VERSION=${BASH_REMATCH[1]}
+          TAG=${CHROMIUM_VERSION}
+          if [[ '${{ inputs.folder }}' != '.' ]]; then
+            TAG=${TAG}-${{ inputs.tag }}
+          fi
+          if [[ '${{ inputs.folder }}' == 'with-chromedriver' ]]; then
+            CURRENT_CHROMEDRIVER_VERSION=$(docker container run --rm --entrypoint "" ${IMAGE_NAME} chromedriver --version)
+            if [[ ${CURRENT_CHROMEDRIVER_VERSION} =~ ${CHROMEDRIVER_VERSION_REGEXP} ]]; then
+              CHROMEDRIVER_MAJOR_VERSION=${BASH_REMATCH[1]}
+            fi
+            if [ "${CHROMIUM_VERSION}" != "${CHROMEDRIVER_MAJOR_VERSION}" ]; then
+                echo "Skipping image pushing because of incompatible chromium (${CHROMIUM_VERSION}) and chromedriver (${CHROMEDRIVER_MAJOR_VERSION}) versions" >&2
+                exit 1
+            fi
+          elif [[ '${{ inputs.folder }}' == 'with-selenoid' ]]; then
+            CURRENT_SELENOID_VERSION=$(docker container run --rm --entrypoint "" ${IMAGE_NAME} selenoid -version)
+            TAG=${TAG}-${CURRENT_SELENOID_VERSION:14:4}
+          fi
+          echo "value=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Login to DockerHub
+        if: ${{ github.ref == 'refs/heads/master' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GitHub Container registry
+        if: ${{ github.ref == 'refs/heads/master' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to US GAR
+        if: ${{ github.ref == 'refs/heads/master' }}
+        uses: docker/login-action@v3
+        with:
+          registry: us-docker.pkg.dev
+          username: _json_key_base64
+          password: ${{ secrets.GAR_JSON_KEY }}
+
+      - name: Login to Europe GAR
+        if: ${{ github.ref == 'refs/heads/master' }}
+        uses: docker/login-action@v3
+        with:
+          registry: europe-docker.pkg.dev
+          username: _json_key_base64
+          password: ${{ secrets.GAR_JSON_KEY }}
+
+      - name: Login to Asia GAR
+        if: ${{ github.ref == 'refs/heads/master' }}
+        uses: docker/login-action@v3
+        with:
+          registry: asia-docker.pkg.dev
+          username: _json_key_base64
+          password: ${{ secrets.GAR_JSON_KEY }}
+
+      - name: Set up Docker Buildx with docker-container driver
+        if: ${{ github.ref == 'refs/heads/master' }}
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: Build and push
+        if: ${{ github.ref == 'refs/heads/master' }}
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_REPOSITORY }}:${{ inputs.tag }}
+          IMAGE_VERSIONED_NAME: ${{ env.IMAGE_REPOSITORY }}:${{ steps.tag.outputs.value }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.folder }}
+          platforms: linux/amd64,linux/arm64
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            zenika/${{ env.IMAGE_NAME }}
+            zenika/${{ env.IMAGE_VERSIONED_NAME }}
+            ghcr.io/zenika/${{ env.IMAGE_NAME }}
+            ghcr.io/zenika/${{ env.IMAGE_VERSIONED_NAME }}
+            us-docker.pkg.dev/zenika-hub/gcr.io/${{ env.IMAGE_NAME }}
+            us-docker.pkg.dev/zenika-hub/gcr.io/${{ env.IMAGE_VERSIONED_NAME }}
+            us-docker.pkg.dev/zenika-hub/us.gcr.io/${{ env.IMAGE_NAME }}
+            us-docker.pkg.dev/zenika-hub/us.gcr.io/${{ env.IMAGE_VERSIONED_NAME }}
+            europe-docker.pkg.dev/zenika-hub/eu.gcr.io/${{ env.IMAGE_NAME }}
+            europe-docker.pkg.dev/zenika-hub/eu.gcr.io/${{ env.IMAGE_VERSIONED_NAME }}
+            asia-docker.pkg.dev/zenika-hub/asia.gcr.io/${{ env.IMAGE_NAME }}
+            asia-docker.pkg.dev/zenika-hub/asia.gcr.io/${{ env.IMAGE_VERSIONED_NAME }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha

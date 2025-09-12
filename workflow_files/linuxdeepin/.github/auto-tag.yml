@@ -1,0 +1,198 @@
+name: auto tag
+
+on:
+  workflow_call:
+    secrets:
+      APP_ID:
+        required: true
+      APP_PRIVATE_KEY:
+        required: true
+      TRANSIFEX_API_TOKEN:
+        required: true
+
+env:
+  APP_ID: ${{ secrets.APP_ID }}
+  APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+  TRANSIFEX_API_TOKEN: ${{ secrets.TRANSIFEX_API_TOKEN }}
+
+jobs:
+  auto_tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: get changelog version
+        id: get-version
+        run: |
+          echo "TAG=$(LC_ALL=C dpkg-parsechangelog -S Version)" >> $GITHUB_OUTPUT
+          echo "DISTRIBUTION=$(LC_ALL=C dpkg-parsechangelog -S Distribution)" >> $GITHUB_OUTPUT
+
+      - name: check epoch
+        id: get-tag
+        shell: python
+        run: |
+          import os
+          tag = "${{ steps.get-version.outputs.TAG }}"
+          if tag.__contains__(":"):
+              tag = tag.split(":")[1]
+          if tag.__contains__("-"):
+              tag = tag.split("-")[0]
+          output_file = os.environ.get("GITHUB_OUTPUT")
+          with open(output_file, "a") as output:
+              output.write("TAG=" + tag + "\n")
+
+      - name: check tag exists
+        id: test-tag-exists
+        run: |
+          git fetch --tags
+          echo "EXISTS=$(if [ $(git tag -l ${{ steps.get-tag.outputs.TAG }}) ]; then echo yes; else echo no; fi)" >> $GITHUB_OUTPUT
+
+      - name: create comment
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const BOT_NAME = "TAG Bot"
+            const COMMENT_HEAD = "**" + BOT_NAME + "**\n\n"
+            const COMMENT_BODY = "TAG: ${{ steps.get-tag.outputs.TAG }}\nEXISTED: ${{ steps.test-tag-exists.outputs.EXISTS }}\nDISTRIBUTION: ${{ steps.get-version.outputs.DISTRIBUTION }}"
+            const response = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            })
+
+            const reg = new RegExp("\\*+" + BOT_NAME + "\\*+")
+            tagBotComment= response.data.find(comment => comment.body.match(reg))
+            if (tagBotComment) {
+              await github.rest.issues.updateComment({
+                  comment_id: tagBotComment.id,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: COMMENT_HEAD + COMMENT_BODY
+              })
+
+            } else {
+              await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: COMMENT_HEAD + COMMENT_BODY
+              })
+            }
+
+            if ("${{ steps.test-tag-exists.outputs.EXISTS }}" === "yes" && "${{ steps.get-version.outputs.DISTRIBUTION }}" !== "UNRELEASED"){
+              core.setFailed("Tag: ${{ steps.get-tag.outputs.TAG }} exists!")
+            }
+
+      - name: install depends for load scripts
+        if: github.event.pull_request.merged
+        run: |
+          npm install @octokit/rest@19.0.13
+          npm install @octokit/auth-app@6.1.1
+
+      - name: Get token using github-script
+        id: get-token
+        if: github.event.pull_request.merged
+        uses: actions/github-script@v6
+        with:
+          script: |
+            global["fetch"] = fetch
+            const { Octokit } = require("@octokit/rest");
+            const { createAppAuth } = require("@octokit/auth-app");
+            const appOctokit = new Octokit({
+              authStrategy: createAppAuth,
+              auth: {
+                appId: process.env.APP_ID,
+                privateKey: process.env.APP_PRIVATE_KEY,
+              }
+            });
+            const app_installation = await appOctokit.rest.apps.getRepoInstallation({
+              owner: context.payload.organization.login,
+              repo: context.payload.repository.name
+            });
+            const { token } = await appOctokit.auth({
+              type: "installation",
+              installationId: app_installation.data.id
+            });
+            core.setOutput('app_token', token)
+
+      - name: get email
+        if: github.event.pull_request.merged
+        id: get-email
+        uses: evvanErb/get-github-email-by-username-action@v2.0
+        with:
+          github-username: '${{ github.event.pull_request.user.login }}'
+          token: '${{ steps.get-token.outputs.app_token }}'
+
+      - name: Create tag
+        if: github.event.pull_request.merged
+        uses: actions/github-script@v5
+        with:
+          github-token: ${{ steps.get-token.outputs.app_token }}
+          script: |
+            const distribution = "${{ steps.get-version.outputs.DISTRIBUTION }}"
+            if (distribution === "UNRELEASED") {
+              core.info("UNRELEASED will not create tag")
+              return
+            }
+            const { data } = await github.rest.git.createTag({
+              repo: context.repo.repo,
+              owner: context.repo.owner,
+              message: "Release " + context.repo.repo + " ${{ steps.get-tag.outputs.TAG }}\n",
+              type: 'commit',
+              object: context.sha,
+              tag: "${{ steps.get-tag.outputs.TAG }}",
+              tagger: {
+                name: "${{ github.event.pull_request.user.login }}",
+                email: "${{ steps.get-email.outputs.email }}",
+                date: (() => {
+                  const date = new Date();
+                  return date.toISOString();
+                })(),
+              },
+            })
+
+            const res = await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{ steps.get-tag.outputs.TAG }}',
+              sha: data.sha
+            })
+
+            // Create a release for tag
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: '${{ steps.get-tag.outputs.TAG }}',
+            })
+
+            // Add a reminder for needed rebase to PR in open state
+            const BOT_NAME = "TAG Bot"
+            const COMMENT_HEAD = "**" + BOT_NAME + "**\n\n"
+            const COMMENT_BODY = "New tag: ${{ steps.get-tag.outputs.TAG }}\nDISTRIBUTION: ${{ steps.get-version.outputs.DISTRIBUTION }}\nSuggest: synchronizing this PR through rebase #" + context.issue.number
+            for await (const prsResp of github.paginate.iterator(
+              github.rest.pulls.list,
+              {
+                repo: context.repo.repo,
+                owner: context.repo.owner,
+                state: 'open',
+                per_page: 100,
+              }
+            )) {
+              if ("${{ steps.get-version.outputs.DISTRIBUTION }}" === "unstable" || "${{ steps.get-version.outputs.DISTRIBUTION }}" === "stable") {
+                for (var i = 0; i < prsResp.data.length; i++) {
+                  let pr = prsResp.data[i]
+                  // Only reminder same base branch's pr
+                  if ("${{ github.base_ref }}" === pr.base.ref) {
+                    await github.rest.issues.createComment({
+                      issue_number: pr.number,
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      body: COMMENT_HEAD + COMMENT_BODY
+                    })
+                  }
+                }
+              }
+            }

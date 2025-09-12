@@ -1,0 +1,78 @@
+name: Scrape
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *" # daily
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    name: Official timetable
+    env:
+      TIMETABLE_PREFIX: https://timetabling.anu.edu.au/sws
+    strategy:
+      fail-fast: false # continue scraping even if a session fails
+      max-parallel: 1 # conservative ratelimit to avoid serverside crashes (since the script doesn't have backoff/retry)
+      matrix:
+        year: [2025]
+        session: ['1 S1', '2 S2', '3 X1', '4 X2', '5 X3', '6 X4']
+
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - uses: actions/setup-python@v6.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install pipenv
+        run: python -m pip install pipenv
+
+      - name: Install dependencies
+        working-directory: scraper
+        run: python -m pipenv install --system
+
+      - name: Run scraper script
+        working-directory: scraper
+        env:
+          TIMETABLE_PREFIX: ${{ env.TIMETABLE_PREFIX }}
+          YEAR: ${{ matrix.year }}
+          SESSION: ${{ matrix.session }}
+        # eg http://timetabling.anu.edu.au/sws2022/ 1 S1
+        run: python3 ./scraper.py $TIMETABLE_PREFIX$YEAR/ $SESSION
+
+      - name: Compare existing and new data
+        id: compare
+        continue-on-error: true
+        working-directory: scraper
+        env:
+          YEAR: ${{ matrix.year }}
+          SESSION: ${{ matrix.session }}
+        # inline bash string manipulation to get string after first space
+        # gets the session string (S1),  eg timetable_2022_S1.json
+        run: cmp timetable.json ../public/timetable_data/${YEAR}/${SESSION#* }.json
+
+      - name: Commit to repo if data has changed
+        if: ${{ steps.compare.outcome == 'failure' }}
+        env:
+          YEAR: ${{ matrix.year }}
+          SESSION: ${{ matrix.session }}
+          GH_USER: pl4nty
+          GH_PAT: ${{ secrets.GH_PAT }}
+        # inline bash string manipulation to get string after first space
+        # gets the session string (S1),  eg timetable_2022_S1.json
+        run: |
+          git config user.name github-actions
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git config pull.rebase true
+          git remote set-url origin https://pl4nty:$GH_PAT@github.com/$GITHUB_REPOSITORY.git
+          git pull origin
+          cd scraper
+          test -e ./timetable.json || exit 0
+          test -d ../public/timetable_data/${YEAR} || mkdir ../public/timetable_data/${YEAR}
+          mv -f ./timetable.json ../public/timetable_data/${YEAR}/${SESSION#* }.json
+          mv -f ./timetable.min.json ../public/timetable_data/${YEAR}/${SESSION#* }.min.json
+          sed -Ei 's/^( +Course data updated at )[0-9]{1,2}:[0-9]{2} [ap]m, [0-9]{1,2} [A-Za-z]{3} [0-9]+ \([A-Z]+\)(\. \{)/\1'"$(date +'%-I:%M %P, %-d %b %Y (%Z)')"'\2/' ../src/App.js
+          git add --all
+          git commit -m "chore(data): add new timetable data"
+          git push origin

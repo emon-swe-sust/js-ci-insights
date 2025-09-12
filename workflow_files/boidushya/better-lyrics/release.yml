@@ -1,0 +1,140 @@
+name: Release & Publish
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      RELEASE_EXISTS: ${{ steps.release_exists.outputs.RELEASE_EXISTS }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: "Install and setup jq"
+        uses: dcarbone/install-jq-action@v2
+
+      - name: Read version from manifest.json
+        id: read_version
+        run: |
+          VERSION=$(jq -r '.version' manifest.json)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "TAG=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if release exists
+        id: release_exists
+        run: |
+          TAG_NAME="${{ steps.read_version.outputs.tag }}"
+          API_URL="${{ github.api_url }}/repos/${{ github.repository }}/releases/tags/${TAG_NAME}"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$API_URL")
+          if [[ $RESPONSE -eq 200 ]]; then
+            echo "RELEASE_EXISTS=true" >> $GITHUB_OUTPUT
+            echo "Release exists, skipping build and publish steps"
+          else
+            echo "RELEASE_EXISTS=false" >> $GITHUB_OUTPUT
+            echo "Release does not exist, continuing with build and publish steps"
+          fi
+
+      - name: Run build script
+        if: steps.release_exists.outputs.RELEASE_EXISTS == 'false'
+        run: |
+          npm install -g postcss postcss-cli autoprefixer cssnano
+          bash scripts/build.sh
+        shell: bash
+
+      - name: Upload artifact
+        if: steps.release_exists.outputs.RELEASE_EXISTS == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: better-lyrics
+          path: dist/
+
+      - name: Create GitHub Release
+        if: steps.release_exists.outputs.RELEASE_EXISTS == 'false'
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "dist/better-lyrics-chrome.zip,dist/better-lyrics-edge.zip,dist/better-lyrics-firefox.zip"
+          tag: ${{ steps.read_version.outputs.tag }}
+          generateReleaseNotes: true
+          skipIfReleaseExists: true
+
+  publish-chrome:
+    name: Publish to Chrome Web Store
+    runs-on: ubuntu-latest
+    needs: build
+    if: needs.build.outputs.RELEASE_EXISTS == 'false'
+    env:
+      EXTENSION_ID: effdbpeggelllpfkjppbokhmmiinhlmg
+      CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: better-lyrics
+          path: dist/
+
+      - name: Publish to Chrome Web Store
+        run: |
+          bash scripts/publish-chrome.sh
+
+  publish-firefox:
+    name: Publish to Firefox Add-ons
+    runs-on: ubuntu-latest
+    needs: build
+    if: needs.build.outputs.RELEASE_EXISTS == 'false'
+    env:
+      FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_CLIENT_ID }}
+      FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_CLIENT_SECRET }}
+      FIREFOX_EXTENSION_ID: betterlyrics@boidu.dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: better-lyrics
+          path: dist/
+
+      - name: Create zip file of source code
+        run: |
+          zip -r dist/better-lyrics-src.zip . -x "*www*" "*api*"
+
+      - name: Publish to Firefox
+        run: |
+          bash scripts/publish-firefox.sh
+
+  publish-edge:
+    name: Publish to Edge Add-ons
+    runs-on: ubuntu-latest
+    needs: build
+    if: needs.build.outputs.RELEASE_EXISTS == 'false'
+    env:
+      CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+      API_KEY: ${{ secrets.EDGE_API_KEY }}
+      PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: better-lyrics
+          path: dist/
+
+      - name: Publish to Edge
+        run: |
+          bash scripts/publish-edge.sh

@@ -1,0 +1,19 @@
+name: '[backend] Docker build Valkey (local)'
+
+on:
+  pull_request:
+    paths:
+      - 'install/local/valkey/*'
+      - '.github/workflows/docker-build-valkey.local.yaml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build image
+        run: cd install/local/valkey && docker build .
+        env:
+          DOCKER_BUILDKIT: 1

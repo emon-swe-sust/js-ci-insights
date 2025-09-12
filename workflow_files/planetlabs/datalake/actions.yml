@@ -1,0 +1,34 @@
+name: Run tests
+on: [push, pull_request]
+
+jobs:
+  test-client:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        python: [3.8, 3.9, "3.10", 3.12]
+        extras: ["test", "test,queuable,sentry"]
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v2.2.2
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Check out repository code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Test
+        working-directory: ./client
+        run: |
+          pip install -e .[${{ matrix.extras }}]
+          py.test
+  test-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Test
+        run: |
+          make test-ingester test-api

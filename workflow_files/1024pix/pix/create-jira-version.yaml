@@ -1,0 +1,24 @@
+name: Create Jira Version
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  create-jira-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create version in Jira
+        run: |
+          AUTH_HEADER=$(echo -n "${{ secrets.JIRA_USER_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" | base64)
+          curl -X POST \
+            -H "Authorization: Basic $AUTH_HEADER" \
+            -H "Content-Type: application/json" \
+            --url "${{ secrets.JIRA_BASE_URL }}/rest/api/3/version" \
+            -d "{
+              \"name\": \"${{ github.event.release.tag_name }}\",
+              \"project\": \"${{ secrets.JIRA_PROJECT_KEY }}\",
+              \"startDate\": \"$(date +%Y-%m-%d)\",
+              \"released\": false
+            }"

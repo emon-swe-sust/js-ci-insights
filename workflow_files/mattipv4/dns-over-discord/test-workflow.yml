@@ -1,0 +1,31 @@
+name: Test Latest Commit
+
+on:
+  push:
+    branches-ignore:
+      - staging
+      - production
+  pull_request:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_OPTIONS: --unhandled-rejections=strict
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Tests
+        run: npm test

@@ -1,0 +1,61 @@
+name: 'Build'
+on:
+  push:
+    branches:
+    - 'main'
+  pull_request:
+  workflow_dispatch:
+
+concurrency: 
+  group: browserstack-test
+jobs:
+  build-and-test:
+    name: 'Build & Test'
+    runs-on: ubuntu-latest
+    steps:
+      - name: check out
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: setup node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      # https://github.com/Automattic/node-canvas/wiki/Installation:-Arch-based-distributions
+      - run: |
+          sudo apt-get update
+          sudo apt-get install build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - run: go install ./scripts/...
+
+      - run: core-web-browserstack
+        env:
+          BROWSERSTACK_USERNAME:  ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY:  ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+
+  validate-pages-worker:
+    name: Validate Pages Worker
+    runs-on: ubuntu-latest
+    steps:
+    - name: check out
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 1
+
+    - name: validate
+      uses: cloudflare/wrangler-action@2.0.0
+      with:
+        apiToken: ${{ secrets.CF_API_TOKEN }}
+        wranglerVersion: '1.13.0'
+        workingDirectory: 'packages/pages-worker'
+        command: build

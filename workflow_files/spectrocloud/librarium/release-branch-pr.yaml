@@ -1,0 +1,92 @@
+# This workflow is trigged when a PR is opened, synchronized, reopened, or ready for review, and the branch name matches the pattern docs-rel-[0-9]-[0-9], docs-rel-[0-9]-[0-9]-[0-9] or docs-rel-[0-9]-[0-9]-[a-z].
+# In simple terms, this workflow targers a release preview branch.
+# Workflow attempts to build the site and configure Netlify to allow for preview builds. By default, Netlify does not create preview builds for pull requests that are not targeting the main branch.
+# The workflow uses the Netlify API to add the branch to the branch deploy list of branches that Netlify will build previews for.
+# The first commit to the branch will update the Netlify configuration. Subsequent commits will trigger a Netlify build preview.
+# Once the branch is merged, the Netlify configuration is removed through the clean-up-report.yaml workflow.
+# The workflow also posts a comment to the PR with the branch name that was added to the Netlify configuration.
+
+
+name: Release Branch PRs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - "docs-rel-[0-9]-[0-9]"
+      - "docs-rel-[0-9]-[0-9]-[0-9]"
+      - "docs-rel-[0-9]-[0-9]-[a-z]"
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+  NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+  FULLSTORY_ORGID: ${{ secrets.FULLSTORY_ORGID }}
+  ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+  ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+  ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
+  ALGOLIA_INDEX_NAME: ${{ secrets.ALGOLIA_INDEX_NAME }}
+  GITHUB_BRANCH: ${{ github.ref_name }} 
+  PALETTE_API_KEY: ${{ secrets.PALETTE_API_KEY }}
+  DISABLE_PACKS_INTEGRATIONS: ${{ secrets.DISABLE_PACKS_INTEGRATIONS }}
+  DISABLE_SECURITY_INTEGRATIONS: ${{ secrets.DISABLE_SECURITY_INTEGRATIONS }}
+  SHOW_LAST_UPDATE_TIME: ${{ secrets.SHOW_LAST_UPDATE_TIME }}
+  DSO_AUTH_TOKEN: ${{ secrets.DSO_AUTH_TOKEN }}
+
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Check out repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js environment
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+        cache: "npm"
+
+    - name: Determine branch name
+      id: extract_branch
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "GITHUB_BRANCH=${{ github.head_ref }}" >> $GITHUB_ENV
+        else
+          echo "GITHUB_BRANCH=${{ github.ref_name }}" >> $GITHUB_ENV
+        fi
+
+    - run: npm ci
+
+    - name: Update Netlify for Collab Drawer
+      run: cd scripts && ./netlify_add_branch.sh
+
+    - name: Post Netlify progress
+      uses: mshick/add-pr-comment@v2
+      with:
+        message: |
+            🤖 Netlify configured to enable preview build for branch:  ${{env.GITHUB_BRANCH}} . Subsequent commits will automatically trigger a Netlify build preview.
+        refresh-message-position: false
+
+    - name: Build
+      run: |
+        touch .env
+        make build-ci
+      
+    - name: Build with cached packs
+      if: ${{ env.BUILD_EXIT_CODE == '5' }}
+      uses: ./.github/actions/build-cached-packs
+      with:
+        gh-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build with cached CVEs
+      if: ${{ env.BUILD_EXIT_CODE == '7' }}
+      uses: ./.github/actions/build-cached-cves
+      with:
+        gh-token: ${{ secrets.GITHUB_TOKEN }}

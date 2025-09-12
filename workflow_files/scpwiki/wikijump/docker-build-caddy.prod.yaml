@@ -1,0 +1,19 @@
+name: '[backend] Docker build Caddy (prod)'
+
+on:
+  pull_request:
+    paths:
+      - 'install/prod/caddy/*'
+      - '.github/workflows/docker-build-caddy.prod.yaml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build image
+        run: docker build -f install/prod/caddy/Dockerfile .
+        env:
+          DOCKER_BUILDKIT: 1

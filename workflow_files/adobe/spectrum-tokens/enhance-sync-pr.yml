@@ -1,0 +1,112 @@
+name: Enhance Sync PR
+
+on:
+  pull_request:
+    types: [opened]
+    branches:
+      - main
+
+jobs:
+  enhance-sync-pr:
+    # Only run on PRs created by the sync process
+    if: >
+      contains(github.event.pull_request.title, 'feat: updates from spectrum-tokens-studio-data') &&
+      github.event.pull_request.user.login == 'mrcjhicks'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract source PR information
+        id: source-info
+        uses: ./.github/actions/extract-source-pr-info
+        with:
+          pr-body: ${{ github.event.pull_request.body }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update PR title and description
+        if: steps.source-info.outputs.source-pr-title != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sourcePrTitle = '${{ steps.source-info.outputs.source-pr-title }}';
+            const sourcePrNumber = '${{ steps.source-info.outputs.source-pr-number }}';
+            const sourcePrUrl = '${{ steps.source-info.outputs.source-pr-url }}';
+            const actionsRunUrl = '${{ steps.source-info.outputs.actions-run-url }}';
+
+            // Create enhanced title
+            const newTitle = `feat: ${sourcePrTitle}`;
+
+            // Create enhanced description
+            const newBody = `## Token Updates from Spectrum Tokens Studio Data\n\n` +
+              `**Source PR**: [#${sourcePrNumber} ${sourcePrTitle}](${sourcePrUrl})\n\n` +
+              `**Automated sync via**: [GitHub Actions Run](${actionsRunUrl})\n\n` +
+              `---\n\n` +
+              `${context.payload.pull_request.body || ''}`;
+
+            // Update the PR
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              title: newTitle,
+              body: newBody
+            });
+
+            console.log(`Updated PR title to: ${newTitle}`);
+
+      - name: Generate token diff report
+        id: token-diff
+        uses: ./.github/actions/generate-diff
+        with:
+          tool: diff-generator
+          base-ref: ${{ github.base_ref }}
+          head-ref: ${{ github.head_ref }}
+          repository: ${{ github.repository }}
+          format: markdown
+          output-file: /tmp/token-diff.md
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create changeset if needed
+        if: steps.source-info.outputs.source-pr-title != ''
+        run: |
+          # Create a changeset file
+          CHANGESET_ID=$(openssl rand -hex 6)
+          CHANGESET_FILE=".changeset/${CHANGESET_ID}.md"
+
+          SOURCE_TITLE="${{ steps.source-info.outputs.source-pr-title }}"
+          SOURCE_PR_NUMBER="${{ steps.source-info.outputs.source-pr-number }}"
+          SOURCE_PR_URL="${{ steps.source-info.outputs.source-pr-url }}"
+          SOURCE_AUTHOR="${{ steps.source-info.outputs.source-pr-author }}"
+          SOURCE_AUTHOR_NAME="${{ steps.source-info.outputs.source-pr-author-name }}"
+          SOURCE_AUTHOR_EMAIL="${{ steps.source-info.outputs.source-pr-author-email }}"
+
+          # Start building the changeset content
+          cat > "$CHANGESET_FILE" << EOF
+          ---
+          "@adobe/spectrum-tokens": patch
+          ---
+
+          ${SOURCE_TITLE}
+
+          Source: [spectrum-tokens-studio-data#${SOURCE_PR_NUMBER}](${SOURCE_PR_URL})
+          Author: @${SOURCE_AUTHOR}
+          EOF
+
+          # Add token diff if generated successfully
+          if [ "${{ steps.token-diff.outputs.diff-generated }}" = "true" ]; then
+            echo "" >> "$CHANGESET_FILE"
+            echo "## Token Changes" >> "$CHANGESET_FILE"
+            echo "" >> "$CHANGESET_FILE"
+            echo '${{ steps.token-diff.outputs.diff-content }}' >> "$CHANGESET_FILE"
+          fi
+
+          # Commit the changeset with original author attribution
+          git config --local user.email "$SOURCE_AUTHOR_EMAIL"
+          git config --local user.name "$SOURCE_AUTHOR_NAME"
+          git add "$CHANGESET_FILE"
+          git commit -m "chore: add changeset for ${SOURCE_TITLE}" -m "Co-authored-by: ${SOURCE_AUTHOR_NAME} <${SOURCE_AUTHOR_EMAIL}>"
+          git push

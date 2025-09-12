@@ -1,1 +1,0 @@
-Crusader has pre-built binaries for a number of operating systems. Download the appropriate binary below for your OS.

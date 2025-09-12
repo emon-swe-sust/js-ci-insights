@@ -1,0 +1,141 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Build
+on:
+  schedule:
+  - cron: '0 0 * * *'
+  push:
+    branches:
+    - main
+  pull_request:
+env:
+  BINARYEN_TOOLS: wasm-shell wasm-opt wasm-metadce wasm2js wasm-as wasm-dis wasm-ctor-eval wasm-reduce wasm-merge
+jobs:
+  build:
+    name: "Build with Emsdk:${{ matrix.emsdk }}"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || !contains(github.event.head_commit.message, '[ci skip]')
+    env:
+      MAKE_FLAGS: "-j2"
+      CMAKE_EXE_LINKER_FLAGS: "-sMAXIMUM_MEMORY=4294967296 -sSINGLE_FILE"
+    strategy:
+      matrix:
+        emsdk: [ "tot", "latest" ]
+      fail-fast: false
+    steps:
+    - uses: actions/setup-node@v2
+      with:
+        node-version: '20'
+    - name: "Set up Emsdk"
+      run: |
+        mkdir $HOME/emsdk
+        git clone --depth 1 https://github.com/emscripten-core/emsdk.git $HOME/emsdk
+        $HOME/emsdk/emsdk update-tags
+        $HOME/emsdk/emsdk install ${{ matrix.emsdk }}
+        $HOME/emsdk/emsdk activate ${{ matrix.emsdk }}
+        echo "$HOME/emsdk" >> $GITHUB_PATH
+    - name: "Set up CMake"
+      run: |
+        mkdir $HOME/cmake
+        wget -qO- https://github.com/Kitware/CMake/releases/download/v3.21.4/cmake-3.21.4-Linux-x86_64.tar.gz | tar -xzC $HOME/cmake --strip-components 1
+        echo "$HOME/cmake/bin" >> $GITHUB_PATH
+    - name: "Check out repository"
+      uses: actions/checkout@v1
+      with:
+        submodules: false
+    - name: "Set up repository"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git remote set-url origin "https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        git fetch origin
+        if [ -z "$GITHUB_HEAD_REF" ]; then
+          # If not a PR, undo detached head
+          git checkout "${GITHUB_REF:11}"
+        fi
+        git submodule update --init --remote --merge --recursive
+        cd ./binaryen
+        git log -n1
+        cd ..
+    - name: "Determine version"
+      run: |
+        npm install
+        VERSION=`node scripts/version`
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        if [[ $VERSION != *nightly* ]]; then
+          echo "Building release v$VERSION ...";
+          TAG=`node scripts/version tag`
+          echo "Resetting to $TAG ..."
+          cd ./binaryen
+          git reset --hard "$TAG"
+          git clean -f
+          git log -n1
+          cd ..
+          echo "RELEASE=1" >> $GITHUB_ENV
+        else
+          echo "Building nightly v$VERSION ...";
+          echo "RELEASE=" >> $GITHUB_ENV
+        fi
+    - name: "Build binaryen.js"
+      run: |
+        mkdir ./binaryen/build
+        cd ./binaryen/build
+        source $HOME/emsdk/emsdk_env.sh
+        emcc --version
+        emcmake cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS="$CMAKE_EXE_LINKER_FLAGS" -DENABLE_WERROR=OFF
+        emmake make $MAKE_FLAGS binaryen_wasm
+        cd ../..
+        npm run bundle
+    - name: "Test binaryen.js"
+      run: |
+        node ./tests/sanity
+    - name: "Build tools"
+      run: |
+        mkdir -p ./bin
+        cd ./binaryen/build
+        source $HOME/emsdk/emsdk_env.sh
+        emcc --version
+        for tool in ${{ env.BINARYEN_TOOLS }}; do
+          emmake make $MAKE_FLAGS "$tool"
+          echo '#!/usr/bin/env node' > "../../bin/$tool"
+          cat "./bin/$tool.js" >> "../../bin/$tool"
+        done
+        cd ../..
+        chmod +x ./bin/*
+    - name: "Test tools"
+      run: |
+        for tool in ${{ env.BINARYEN_TOOLS }}; do
+          "./bin/$tool" --help
+        done
+    - name: "Push changes to GitHub"
+      if: github.event_name == 'schedule' && matrix.emsdk == 'tot'
+      run: |
+        git add ./binaryen ./index.js ./bin/*
+        npm version $VERSION --no-git-tag-version --force
+        if [ $RELEASE ]; then
+          echo "Committing release ("$VERSION") ..."
+          git add ./package.json ./package-lock.json
+          git commit -m "Release v$VERSION"
+        else
+          echo "Committing nightly ("$VERSION") ..."
+          git commit -m "Nightly v$VERSION [ci skip]"
+        fi
+        git push -u origin main
+        echo "Creating tag v$VERSION ..."
+        git tag "v$VERSION"
+        git push -u origin "v$VERSION"
+    - name: "Publish to npm"
+      if: github.event_name == 'schedule' && matrix.emsdk == 'tot'
+      env:
+        NPM_REGISTRY: "registry.npmjs.org"
+        NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      run: |
+        npm config set "//${NPM_REGISTRY}/:_authToken=${NPM_AUTH_TOKEN}"
+        if [ $RELEASE ]; then
+          echo "Publishing release ..."
+          npm publish
+        else
+          echo "Publishing nightly ..."
+          npm publish --tag nightly
+        fi

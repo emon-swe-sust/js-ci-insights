@@ -1,0 +1,242 @@
+name: E2E Tests
+
+on:
+  push:
+    # Don't run for irrelevant changes.
+    paths-ignore:
+      - 'docs/**'
+      - '.storybook/**'
+      - '.wordpress-org/**'
+      - '__mocks__/**'
+      - '__static__/**'
+      - 'tests/**'
+      - '**.md'
+      - '**.yml'
+      - '**.neon.dist'
+      - '**.xml.dist'
+      - 'readme.txt'
+      - '.editorconfig'
+      - '.eslint*'
+      - '.markdownlint*'
+      - '.phpstorm.meta.php'
+      - '.prettier*'
+      - '.stylelint*'
+      - '.github/workflows/**'
+      - '!.github/workflows/tests-e2e.yml'
+    branches:
+      - main
+      - release/*
+  pull_request:
+    # Don't run for irrelevant changes.
+    paths-ignore:
+      - 'docs/**'
+      - '.storybook/**'
+      - '.wordpress-org/**'
+      - '__mocks__/**'
+      - '__static__/**'
+      - 'tests/**'
+      - '**.md'
+      - '**.yml'
+      - '**.neon.dist'
+      - '**.xml.dist'
+      - 'readme.txt'
+      - '.editorconfig'
+      - '.eslint*'
+      - '.markdownlint*'
+      - '.phpstorm.meta.php'
+      - '.prettier*'
+      - '.stylelint*'
+      - '.github/workflows/**'
+      - '!.github/workflows/tests-e2e.yml'
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+# Cancels all previous workflow runs for pull requests that have not completed.
+concurrency:
+  # The concurrency group contains the workflow name and the (target) branch name.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911
+        with:
+          egress-policy: audit # TODO: change to 'egress-policy: block' after couple of runs
+
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@ec406be512d7077f68eed36e63f4d91bc006edc4
+        with:
+          php-version: latest
+          coverage: none
+          tools: composer
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+
+      - name: Install PHP dependencies
+        uses: ramsey/composer-install@3cf229dc2919194e9e36783941438d17239e8520
+        with:
+          composer-options: '--prefer-dist --no-progress --no-interaction'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: latest
+
+      - name: Build plugin
+        run: bun run build:js
+        env:
+          # TODO: remove eventually
+          DISABLE_PREVENT: true
+          DISABLE_QUICK_TIPS: true
+
+      - name: Bundle plugin
+        run: bun run workflow:build-plugin
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: web-stories
+          path: build/web-stories
+
+  e2e:
+    name: '${{ matrix.browser }} - WP ${{ matrix.wp }} (${{ matrix.shard }})'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.experimental == true }}
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        # TODO: add back Firefox once support is more mature.
+        browser: ['chrome']
+        wp: ['6.6']
+        snapshots: [false]
+        experimental: [false]
+        # We want to split up the tests into 2 parts running in parallel.
+        shard: ['1/2', '2/2']
+        include:
+          - browser: 'chrome'
+            wp: 'latest'
+            snapshots: true
+            shard: '1/2'
+          - browser: 'chrome'
+            wp: 'latest'
+            snapshots: true
+            shard: '2/2'
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911
+        with:
+          disable-file-monitoring: true
+          egress-policy: audit
+          allowed-endpoints: >
+            github.com:443
+            objects.githubusercontent.com:443
+            packagist.org:443
+            registry.npmjs.org:443
+            storage.googleapis.com:443
+            docker.io:443
+            registry-1.docker.io:443
+            auth.docker.io:443
+            34.104.35.123:443
+
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+      - name: Download bundle
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: web-stories
+
+      # See https://github.com/puppeteer/puppeteer/blob/main/docs/troubleshooting.md#chrome-headless-doesnt-launch-on-unix
+      - name: Install libgbm1
+        run: sudo apt-get install libgbm1
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_PRODUCT: ${{ matrix.browser }}
+
+      - name: Start Docker environment
+        run: npm run env:start
+        env:
+          COMPOSE_INTERACTIVE_NO_CLI: true
+          WP_VERSION: ${{ matrix.wp }}
+
+      # See https://issues.chromium.org/issues/373753919
+      # and https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md
+      - name: Disable AppArmor
+        run: echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+
+      - name: Get Chromium executable path
+        id: chromium_path
+        run: |
+          CHROMIUM=$(node -p "const puppeteer = require('puppeteer'); puppeteer.executablePath();")
+          echo "chromium_path=${CHROMIUM}" >> $GITHUB_ENV
+        if: ( matrix.snapshots ) && ( github.event.pull_request.draft == false )
+
+      - name: Download AMP validator JS
+        id: amp_validator
+        run: |
+          cd $RUNNER_TEMP && curl -O -f -s -S https://cdn.ampproject.org/v0/validator_wasm.js
+          AMP_VALIDATOR_FILE="${RUNNER_TEMP}/validator_wasm.js"
+          echo "validator_file=$AMP_VALIDATOR_FILE" >> $GITHUB_ENV
+
+      - name: Run E2E tests
+        run: npm run test:e2e -- --shard=$SHARD
+        env:
+          WP_VERSION: ${{ matrix.wp }}
+          SHARD: ${{ matrix.shard }}
+          AMP_VALIDATOR_FILE: ${{ env.validator_file }}
+
+      - name: Stop Docker environment
+        run: npm run env:stop
+        if: always()
+        env:
+          COMPOSE_INTERACTIVE_NO_CLI: true
+
+      - name: Get artifact name
+        if: always()
+        run: |
+          ARTIFACT_NAME=${ARTIFACT_NAME//\//-}
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+        env:
+          ARTIFACT_NAME: failures-artifacts-${{ matrix.wp }}-${{ matrix.shard }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: build/e2e-artifacts
+          if-no-files-found: ignore

@@ -1,0 +1,22 @@
+name: Recent Activity
+
+on:
+    workflow_dispatch: {}
+
+    schedule:
+        - cron: "0 12 * * *"
+
+jobs:
+    build:
+        name: Update README
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Update Recent Activity
+              uses: Readme-Workflows/recent-activity@v2.4.1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  CONFIG_FILE: "recent-activity.yml"

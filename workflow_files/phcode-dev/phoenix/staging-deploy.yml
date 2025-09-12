@@ -1,0 +1,28 @@
+name: Deploy Notification To staging.phcode.dev
+
+on:
+  push:
+    branches: [ staging ]
+
+jobs:
+  build-tasks:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - name: Npm Install
+        run: |
+          npm ci
+      - name: Verifying release artifact build
+        run: |
+          npm run release:staging
+      - name: Deploy Notification To staging.phcode.dev repository
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.PAT_PHOENIX_BOT_PUBLIC_REPO_ACCESS }}
+          repository: phcode-dev/staging.phcode.dev
+          event-type: deploy-staging
+          client-payload: '{"source":"${{github.repositoryUrl}}", "workflow":"${{github.workflow}}", "run_id":"${{github.run_id}}", "run_number":"${{github.run_number}}", "ref": "${{ github.ref }}", "sha": "${{ github.sha }}"}'

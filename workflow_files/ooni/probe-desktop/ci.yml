@@ -1,0 +1,61 @@
+name: CI
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-18.04] # macOS-latest is disabled because of timeout issues
+        node-version: [16.x]
+
+    steps:
+      - uses: actions/checkout@v2
+      # import simone's signing key
+      - run: curl -sSL https://github.com/bassosimone.gpg | gpg --import -
+      # import tor's signing key
+      - run: curl -sSL https://openpgpkey.torproject.org/.well-known/openpgpkey/torproject.org/hu/kounek7zrdx745qydx6p59t9mqjpuhdf | gpg --import -
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "::set-output name=dir::$(yarn cache dir)"
+
+      - uses: actions/cache@v1
+        id: yarn-cache # use this to check for `cache-hit` (`steps.yarn-cache.outputs.cache-hit != 'true'`)
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      - name: Build
+        run: yarn build
+
+      - name: Unit Tests
+        run: yarn test:unit
+
+      - name: Integration Tests
+        uses: GabrielBB/xvfb-action@v1.0
+        with:
+          run: yarn test:e2e
+        env:
+          LANG: en # By default LANG seems to be set to "C" which isn't handled
+
+      - name: Upload screenshots as workflow artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: E2E-Screenshots
+          path: test/screenshots/**/*.png

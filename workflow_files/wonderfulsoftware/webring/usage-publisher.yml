@@ -1,0 +1,31 @@
+name: Publish stats
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 1/8 * * *"
+  push:
+    branches:
+      - main
+jobs:
+  update:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
+        with:
+          repository: "wonderfulsoftware/webring-usage-stats"
+          ssh-key: ${{ secrets.WEBRING_USAGE_STATS_DEPLOY_KEY }}
+          path: tmp/webring-usage-stats
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 22.x
+      - run: yarn
+      - run: node automation/usage-publisher/download-data-from-amplitude
+        env:
+          ENCRYPTION_SECRET: ${{ secrets.ENCRYPTION_SECRET }}
+      - run: node automation/usage-publisher
+      - run: cd tmp/webring-usage-stats && git add -A && (git commit -m "$(cat ../webring-usage-stats-commit-message)" || true) && git push
+        env:
+          GIT_COMMITTER_NAME: dtinth-bot
+          GIT_AUTHOR_NAME: dtinth-bot
+          EMAIL: dtinth-bot@users.noreply.github.com

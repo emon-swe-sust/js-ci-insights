@@ -1,0 +1,65 @@
+name: Submit agama-installer
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths:
+      # run only when a live ISO source is changed
+      - live/**
+
+  # allow running manually
+  workflow_dispatch:
+
+jobs:
+  update_obs_package:
+    # do not run in forks which do not set the OBS_PROJECTS variable,
+    # or the mapping for the current branch is missing
+    if: vars.OBS_PROJECTS && fromJson(vars.OBS_PROJECTS)[github.ref_name] && vars.OBS_USER
+
+    runs-on: ubuntu-latest
+
+    container:
+      image: registry.opensuse.org/opensuse/tumbleweed:latest
+
+    steps:
+      - name: Configure and refresh repositories
+        # disable unused repositories to have a faster refresh
+        run: zypper modifyrepo -d repo-non-oss repo-openh264 repo-update && zypper ref
+
+      - name: Install tools
+        run: zypper --non-interactive install --no-recommends
+             findutils git make osc obs-service-format_spec_file
+
+      - name: Git Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure git
+        run:  git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Configure osc
+        run: .github/workflows/configure_osc.sh
+        env:
+          OBS_USER:     ${{ vars.OBS_USER }}
+          OBS_PASSWORD: ${{ secrets.OBS_PASSWORD }}
+
+      - name: Checkout ${{ fromJson(vars.OBS_PROJECTS)[github.ref_name] }} agama-installer
+        run: osc co -o dist ${{ fromJson(vars.OBS_PROJECTS)[github.ref_name] }} agama-installer
+        working-directory: ./live
+
+      - name: Build sources
+        run: make clean && make
+        working-directory: ./live
+
+      - name: Update OBS files
+        run: osc addremove
+        working-directory: ./live/dist
+
+      - name: Check status
+        run: osc diff && osc status
+        working-directory: ./live/dist
+
+      - name: Commit agama-installer to ${{ fromJson(vars.OBS_PROJECTS)[github.ref_name] }}
+        run: osc commit -m "Updated to Agama $GITHUB_SHA"
+        working-directory: ./live/dist

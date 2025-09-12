@@ -1,0 +1,206 @@
+name: "Release CN version"
+
+on:
+  push:
+    tags:
+      - v1*
+
+jobs:
+  envs:
+    name: envs
+    runs-on: ubuntu-22.04
+    steps:
+      # Git checkout
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      # Generate variables like:
+      #   SRS_DROPLET_EIP=1.2.3.4
+      - name: Build droplet variables
+        run: |
+          SRS_DROPLET_EIP=$(dig +short n2.ossrs.net)
+          echo "SRS_DROPLET_EIP=$SRS_DROPLET_EIP" >> $GITHUB_ENV
+      # The github.ref is, for example, refs/tags/v1.0.52
+      # Generate variables like:
+      #   SRS_TAG=v1.0.52
+      #   SRS_MAJOR=1
+      # @see https://docs.github.com/en/actions/reference/workflow-commands-for-github-actions#setting-an-environment-variable
+      - name: Generate varaiables
+        run: |
+          SRS_TAG=$(echo ${{ github.ref }}| awk -F '/' '{print $3}')
+          echo "SRS_TAG=$SRS_TAG" >> $GITHUB_ENV
+          SRS_MAJOR=$(echo $SRS_TAG| cut -c 2)
+          echo "SRS_MAJOR=$SRS_MAJOR" >> $GITHUB_ENV
+    outputs:
+      SRS_DROPLET_EIP: ${{ env.SRS_DROPLET_EIP }}
+      SRS_TAG: ${{ env.SRS_TAG }}
+      SRS_MAJOR: ${{ env.SRS_MAJOR }}
+
+  docker0:
+    name: docker0
+    runs-on: ubuntu-22.04
+    needs:
+      - envs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Build SRS docker image
+        run: |
+          echo "Build build/zh-cn"
+          docker run --rm -v $(pwd):/git -w /git ossrs/node:18 bash auto/build-cn-stage0.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zh-cn
+          path: build/zh-cn.tar
+
+  docker1:
+    name: docker1
+    runs-on: ubuntu-22.04
+    needs:
+      - envs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Build SRS docker image
+        run: |
+          echo "Build build/en-us"
+          docker run --rm -v $(pwd):/git -w /git ossrs/node:18 bash auto/build-cn-stage1.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: en-us
+          path: build/en-us.tar
+
+  docker:
+    name: docker
+    runs-on: ubuntu-22.04
+    needs:
+      - envs
+      - docker0
+      - docker1
+    steps:
+      - name: Covert output to env
+        run: |
+          echo "SRS_TAG=${{ needs.envs.outputs.SRS_TAG }}" >> $GITHUB_ENV
+          echo "SRS_MAJOR=${{ needs.envs.outputs.SRS_MAJOR }}" >> $GITHUB_ENV
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: zh-cn
+          path: build
+      - uses: actions/download-artifact@v4
+        with:
+          name: en-us
+          path: build
+      - name: Login docker hub
+        uses: docker/login-action@v1
+        with:
+          username: "${{ secrets.DOCKER_USERNAME }}"
+          password: "${{ secrets.DOCKER_PASSWORD }}"
+      - name: Push to docker hub
+        run: |
+          echo "Release ossrs/docs:cn-$SRS_TAG"
+          docker build --tag ossrs/docs:cn-$SRS_TAG -f Dockerfile.cn.dist .
+          docker tag ossrs/docs:cn-$SRS_TAG ossrs/docs:cn-$SRS_MAJOR
+          docker push --all-tags ossrs/docs
+
+  aliyun:
+    name: aliyun-hub
+    runs-on: ubuntu-22.04
+    needs:
+      - envs
+      - docker0
+      - docker1
+    steps:
+      - name: Covert output to env
+        run: |
+          echo "SRS_TAG=${{ needs.envs.outputs.SRS_TAG }}" >> $GITHUB_ENV
+          echo "SRS_MAJOR=${{ needs.envs.outputs.SRS_MAJOR }}" >> $GITHUB_ENV
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: zh-cn
+          path: build
+      - uses: actions/download-artifact@v4
+        with:
+          name: en-us
+          path: build
+      - name: Login docker hub
+        uses: docker/login-action@v1
+        with:
+          registry: registry.cn-hangzhou.aliyuncs.com
+          username: "${{ secrets.ACR_USERNAME }}"
+          password: "${{ secrets.ACR_PASSWORD }}"
+      - name: Push to aliyun hub
+        run: |
+          echo "Release registry.cn-hangzhou.aliyuncs.com/ossrs/docs:cn-$SRS_TAG"
+          docker build --tag ossrs/docs:cn-$SRS_TAG -f Dockerfile.cn.dist .
+          docker tag ossrs/docs:cn-$SRS_TAG registry.cn-hangzhou.aliyuncs.com/ossrs/docs:cn-$SRS_TAG
+          docker tag ossrs/docs:cn-$SRS_TAG registry.cn-hangzhou.aliyuncs.com/ossrs/docs:cn-$SRS_MAJOR
+          docker push --all-tags registry.cn-hangzhou.aliyuncs.com/ossrs/docs
+
+  deploy:
+    name: deploy
+    runs-on: ubuntu-22.04
+    needs:
+      - envs
+      - aliyun
+    steps:
+      - name: Covert output to env
+        run: |
+          echo "SRS_TAG=${{ needs.envs.outputs.SRS_TAG }}" >> $GITHUB_ENV
+          echo "SRS_MAJOR=${{ needs.envs.outputs.SRS_MAJOR }}" >> $GITHUB_ENV
+          echo "SRS_DROPLET_EIP=${{ needs.envs.outputs.SRS_DROPLET_EIP }}" >> $GITHUB_ENV
+      # Execute command in a ssh, because ufw limit the rate.
+      - name: Restart the containers
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.SRS_DROPLET_EIP }}
+          username: root
+          key: ${{ secrets.DIGITALOCEAN_SSHKEY }}
+          port: 22
+          envs: SRS_TAG,SRS_MAJOR
+          timeout: 60s
+          command_timeout: 30m
+          script: |
+            #
+            export SRS_DROPLET_PIP=$(ifconfig eth0 |grep 'inet ' |awk '{print $2}')
+            echo "SRS_DROPLET_PIP=$SRS_DROPLET_PIP"
+            #
+            ufw allow 20080
+            ufw allow 8107
+            #
+            # Restart HTTPX
+            cat << END > /root/restart_docs-httpx.sh
+              # See https://github.com/ossrs/srs-docs
+              docker rm -f docs-httpx || sleep 1
+              docker run -d -it --restart always \\
+                --log-driver=json-file --log-opt=max-size=500m --log-opt=max-file=3 \\
+                --name docs-httpx -p 20080:80 registry.cn-hangzhou.aliyuncs.com/ossrs/httpx:1 \\
+                ./bin/httpx-static -http 80 \\
+                  -proxy http://$SRS_DROPLET_PIP:8107/lts/
+            END
+            bash /root/restart_docs-httpx.sh
+            #
+            # Restart SRS docs
+            cat << END > /root/restart_docs-docs.sh
+              # See https://github.com/ossrs/srs-docs
+              docker pull registry.cn-hangzhou.aliyuncs.com/ossrs/docs:cn-$SRS_MAJOR
+              docker rm -f docs-docs || sleep 1
+              docker run -d -it --restart always --privileged --name docs-docs -p 8107:80 \\
+                --log-driver=json-file --log-opt=max-size=500m --log-opt=max-file=3 \\
+                registry.cn-hangzhou.aliyuncs.com/ossrs/docs:cn-$SRS_MAJOR
+            END
+            bash /root/restart_docs-docs.sh
+            #
+            # Cleanup old docker images.
+            for image in $(docker images |grep '<none>' |awk '{print $3}'); do
+              docker rmi -f $image
+              echo "Remove image $image, r0=$?"
+            done
+      - uses: geekyeggo/delete-artifact@v5
+        with:
+          name: |
+            en-us
+            zh-cn
+

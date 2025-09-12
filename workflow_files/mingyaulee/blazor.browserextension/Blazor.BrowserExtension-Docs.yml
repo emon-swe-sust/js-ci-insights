@@ -1,0 +1,58 @@
+name: Deploy documentation to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ docs/** ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 9.0.x
+    - name: Restore dependencies
+      run: dotnet restore docs
+    - name: Build
+      run: dotnet build docs --no-restore --configuration Release -p:OutDir=$PWD/docs/bin/BuildOutput
+    - name: Publish
+      run: dotnet publish docs --no-restore --no-build --configuration Release -p:PublishDir=$PWD/PublishOutput
+    - name: Create runtimeconfig.json
+      run: |
+           cat <<EOF > $PWD/docs/bin/BuildOutput/Docs.runtimeconfig.json
+           {
+             "runtimeOptions": {
+               "tfm": "net9.0",
+               "framework": {
+                 "name": "Microsoft.AspNetCore.App",
+                 "version": "9.0.0"
+               },
+               "rollForwardOnNoCandidateFx": 2
+             }
+           }
+           EOF
+    - name: After Publish
+      run: dotnet docs/bin/BuildOutput/Docs.dll --after-publish $PWD/PublishOutput/wwwroot
+    - name: Configure GitHub Pages
+      uses: actions/configure-pages@v5
+    - name: Upload GitHub Pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: PublishOutput/wwwroot
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4

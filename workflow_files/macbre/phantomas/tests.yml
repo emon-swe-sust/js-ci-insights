@@ -1,0 +1,101 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Node.js CI
+
+on:
+  push:
+    branches: [ devel ]
+  pull_request:
+
+jobs:
+  test:
+    # https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+    #
+    # Use Ubuntu 22.04 to simplify running Chrome in a sandbox
+    # https://chromium.googlesource.com/chromium/src/+/main/docs/linux/suid_sandbox_development.md
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # https://github.com/nodejs/release#release-schedule
+        # https://github.com/actions/setup-node#supported-version-syntax
+        node-version:
+        - "lts/*"
+        - "latest"
+
+    services:
+      # https://github.com/postmanlabs/httpbin
+      # https://httpbin.org/
+      httpbin:
+        image: kennethreitz/httpbin
+        ports:
+          - "5555:80"
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        cache: npm
+        node-version: ${{ matrix.node-version }}
+
+    - name: Log the Node.js version used
+      run: echo "::notice::Using Node.js $( node -v)"
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install mkcert and generate trusted development certificates
+      run: |
+        sudo apt update -y && sudo apt install -y libnss3-tools
+        curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64"
+        chmod +x mkcert-v*-linux-amd64
+        sudo cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert
+
+        mkcert -version
+
+        # https://github.com/FiloSottile/mkcert/issues/219
+        mkdir -p $HOME/.pki/nssdb
+        certutil -d sql:$HOME/.pki/nssdb -N --empty-password
+        mkcert -install
+
+        ./test/ssl-certificate/generate.sh
+
+    - name: Start the test server
+      run: ./test/server-start.sh
+
+    - name: Run example script
+      env:
+        DEBUG: "phantomas:browser"
+      run: node examples/index.js https://gf.dev/http3-test
+
+    - name: Run tests
+      run: |
+        set -o pipefail
+        npm test 2>&1 | tee /tmp/npm-test.log
+
+    - name: Code coverage to be improved
+      run: |
+        cat /tmp/npm-test.log | grep '|' | head -n4
+        cat /tmp/npm-test.log | grep '|' | grep -v '100 |      100 |     100 |     10' | grep '\.js'
+
+    # https://github.com/marketplace/actions/coveralls-github-action
+    # upload coverage report for just one of Node.js version matrix runs
+    - name: Upload coverage report to Coveralls
+      if: matrix.node-version == '16.x'
+      uses: coverallsapp/github-action@v2.3.6
+      continue-on-error: true
+      with:
+        github-token: ${{ github.token }}
+
+    - name: Check that bin/phantomas.js works
+      run: |
+        set -x
+        ./bin/phantomas.js http://127.0.0.1:8888/ --pretty | grep "generator" -A4
+        ./bin/phantomas.js https://127.0.0.1:9000/ --ignore-ssl-errors --pretty | grep "generator" -A4
+
+#     - name: Check that bin/phantomas.js handles errors correctly
+#       run: ./bin/phantomas.js http://127.0.0.1:1234/ 2>&1 | grep "net::ERR_CONNECTION_REFUSED at http://127.0.0.1:1234"

@@ -1,0 +1,53 @@
+# A simple GitHub Actions workflow for deploying static content to GitHub Pages
+name: Deploy static content to Pages
+
+on:
+  # This workflow is triggered on pushes to the 'master' branch
+  push:
+    branches: ["master"]
+
+  # This workflow can also be manually triggered from the GitHub Actions tab
+  workflow_dispatch:
+
+# Set permissions for the GITHUB_TOKEN to enable deployment to GitHub Pages
+permissions:
+  contents: read # Permission to read repository contents
+  pages: write # Permission to write (deploy) to GitHub Pages
+  id-token: write # Permission to write ID tokens
+
+# Manage concurrency to ensure only one deployment happens at a time
+concurrency:
+  group: "pages" # All jobs in this workflow belong to the 'pages' concurrency group
+  cancel-in-progress: false # Do not cancel in-progress deployments, even if new ones are queued
+
+jobs:
+  # Define a single job named 'deploy' for deployment
+  deploy:
+    environment:
+      name: github-pages # Name of the environment to use
+      url: ${{ steps.deployment.outputs.page_url }} # URL of the deployed page, obtained from the deployment step
+    runs-on: ubuntu-latest # Run this job on the latest Ubuntu runner
+
+    steps:
+      - name: Checkout # Step to checkout the repository code
+        uses: actions/checkout@v3 # Use the checkout action
+
+      - name: Setup Node.js environment # Step to set up Node.js
+        uses: actions/setup-node@v4.4.0 # Use the setup-node action
+        with:
+          node-version: 18.x # Specify the Node.js version to use
+
+      - name: Build index # Step to run a build script
+        run: node index.js # Run 'node index.js' command
+
+      - name: Setup Pages # Step to setup GitHub Pages
+        uses: actions/configure-pages@v3 # Use the configure-pages action
+
+      - name: Upload artifact # Step to upload the build artifact
+        uses: actions/upload-pages-artifact@v3 # Use the upload-pages-artifact action
+        with:
+          path: "." # Upload the entire repository content
+
+      - name: Deploy to GitHub Pages # Step to deploy to GitHub Pages
+        id: deployment # Set an ID for this step to reference it later
+        uses: actions/deploy-pages@v4 # Use the deploy-pages action

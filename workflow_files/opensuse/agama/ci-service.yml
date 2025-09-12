@@ -1,0 +1,161 @@
+name: CI - Service
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths:
+      # NOTE: GitHub Actions do not allow using YAML references, the same path
+      # list is used below for the pull request event. Keep both lists in sync!!
+
+      # this file as well
+      - .github/workflows/ci-service.yml
+      # any change in the service subfolder
+      - service/**
+      # except Markdown documentation
+      - "!service/**.md"
+      # except the packaging
+      - "!service/package/**"
+      # except the DBus configuration
+      - "!service/share/**"
+
+  pull_request:
+    paths:
+      # NOTE: GitHub Actions do not allow using YAML references, the same path
+      # list is used above for the push event. Keep both lists in sync!!
+
+      # this file as well
+      - .github/workflows/ci-service.yml
+      # any change in the service subfolder
+      - service/**
+      # except Markdown documentation
+      - "!service/**.md"
+      # except the packaging
+      - "!service/package/**"
+      # except the DBus configuration
+      - "!service/share/**"
+
+  # allow running manually
+  workflow_dispatch:
+
+jobs:
+  ruby_tests:
+    # the default timeout is 6 hours, that's too much if the job gets stuck
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    env:
+      COVERAGE: 1
+
+    defaults:
+      run:
+        working-directory: ./service
+
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [ "tumbleweed" ]
+
+    container:
+      image: registry.opensuse.org/yast/head/containers_${{matrix.distro}}/yast-ruby
+
+    steps:
+
+    - name: Git Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure git
+      run:  git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+    - name: Configure and refresh repositories
+      # disable unused repositories to have faster refresh
+      run: zypper modifyrepo -d repo-non-oss repo-openh264 repo-update && zypper ref
+
+    - name: Install Ruby development files
+      run: zypper --non-interactive install
+        gcc
+        gcc-c++
+        make
+        openssl-devel
+        ruby-devel
+        augeas-devel
+
+    - name: Install required packages
+      run: |
+        RUBY_VERSION=$(ruby -e "puts RbConfig::CONFIG['ruby_version']")
+        zypper --non-interactive install \
+        suseconnect-ruby-bindings \
+        autoyast2-installation \
+        yast2 \
+        yast2-bootloader \
+        yast2-country \
+        yast2-devtools \
+        yast2-hardware-detection \
+        yast2-installation \
+        yast2-iscsi-client \
+        yast2-network \
+        yast2-proxy \
+        yast2-storage-ng \
+        yast2-users \
+        python3-jsonschema \
+        gettext-tools \
+        "rubygem(ruby:$RUBY_VERSION:yast-rake)" \
+        "rubygem(ruby:$RUBY_VERSION:gettext)" \
+        which
+
+    - name: Install RubyGems dependencies
+      run: bundle config set --local with 'development' && bundle install
+
+    - name: Check collecting translatable strings
+      run: |
+        rake pot
+        msgfmt --statistics ../agama.pot
+
+    - name: Run the tests and generate coverage report
+      run: bundle exec rspec
+
+    - name: Upload coverage result
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage_service
+        if-no-files-found: error
+        path: service/coverage/lcov.info
+
+  # The coveralls action for some unknown reason gets stuck when running inside
+  # a container. As a workaround save the coverage data and send it in a
+  # separate job running directly in the Ubuntu host, that works fine.
+  # See https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/storing-and-sharing-data-from-a-workflow#passing-data-between-jobs-in-a-workflow
+  coveralls:
+    # the default timeout is 6 hours, this should take just few seconds
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    needs: ruby_tests
+    defaults:
+      run:
+        working-directory: ./service
+
+    steps:
+    - name: Git Checkout
+      uses: actions/checkout@v4
+
+    - name: Download coverage result
+      uses: actions/download-artifact@v4
+      with:
+        name: coverage_service
+
+    # send the code coverage for the Ruby part to the coveralls.io
+    - name: Coveralls GitHub Action
+      uses: coverallsapp/github-action@v2
+      with:
+        base-path: ./service
+        flag-name: service
+        parallel: true
+
+    # close the code coverage and inherit the previous coverage for the Web and
+    # Rust parts (it needs a separate step, the "carryforward" flag can be used
+    # only with the "parallel-finished: true" option)
+    - name: Coveralls Finished
+      uses: coverallsapp/github-action@v2
+      with:
+        parallel-finished: true
+        carryforward: "rust,service,web"

@@ -1,0 +1,104 @@
+name: e2e Manual Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      ARGS:
+        description: 'ARGS'
+        required: true
+        default: '-rlgoDzvc -i --delete --chmod=ugo+rwX --progress'
+      EXCLUDE:
+        description: 'EXCLUDE'
+        required: true
+        default: 'skip_dir/, /node_modules/'
+      SSH_CMD_ARGS:
+        description: 'SSH_CMD_ARGS'
+        required: true
+        default: '-o StrictHostKeyChecking=no, -o UserKnownHostsFile=/dev/null'
+
+
+env:
+  TEST_HOST_DOCKER: ./test
+  TEST_USER: test
+
+jobs:
+  e2e-manual:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+#         ----------------------------------------------------------------
+#         START E2E Test Specific - steps
+#         ----------------------------------------------------------------
+
+      - name: E2E Test Specific - Clean up old test files
+        run: |
+          docker stop ssh-host-container || true && docker rm ssh-host-container || true
+
+      - name: E2E Test Specific - Create ssh keys
+        run: |
+          echo $HOME
+          ls -la $HOME
+          ssh-keygen -m PEM -t rsa -b 4096 -f "$HOME/.ssh/id_rsa" -N ""
+          eval `ssh-agent -s`
+          ssh-add "$HOME/.ssh/id_rsa"
+          ssh-add -l
+          echo "SSH_PRIVATE_KEY<<EOF" >> $GITHUB_ENV
+          cat $HOME/.ssh/id_rsa >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: E2E Test Specific - Build Host Server Image
+        working-directory: ${{ env.TEST_HOST_DOCKER }}
+        run: |
+          docker build \
+            -t ssh-host-image . \
+            --build-arg SSH_PUB_KEY="$(cat $HOME/.ssh/id_rsa.pub)"
+          docker run -d -p 8822:22 --name=ssh-host-container ssh-host-image
+          docker exec ssh-host-container sh -c "hostname --ip-address" > ip.txt
+          echo "REMOTE_HOST<<EOF" >> $GITHUB_ENV
+          cat ip.txt >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+        shell: bash
+
+      - name: E2E Test Specific - Create project file
+        run: |
+          mkdir test_project2 && cd "$_"
+          truncate -s 5MB info2.txt
+          cd ../
+          mkdir test_project && cd "$_"
+          touch index.html
+          date +"%Y-%m-%d %H:%M:%S,%3N" >> index.html
+          truncate -s 50MB image.svg
+          truncate -s 5MB info.txt
+          truncate -s 500MB big_file.txt
+          mkdir skip_dir && cd "$_"
+          truncate -s 5MB text_in_skip_dir.txt
+          cd ../
+          cat index.html
+          echo "test_project:" && ls -lR
+          echo "skip_dir:" && ls -lR skip_dir
+
+#         ----------------------------------------------------------------
+#         END E2E Test Specific - steps
+#         ----------------------------------------------------------------
+
+      - name: e2e Test ssh-deploy action
+        uses: easingthemes/ssh-deploy@main
+        env:
+          # ENV Vars created in previous steps:
+          # SSH_PRIVATE_KEY: $EXAMPLE_SSH_PRIVATE_KEY
+          # REMOTE_HOST: $EXAMPLE_REMOTE_HOST
+          REMOTE_USER: ${{ env.TEST_USER }}
+          ARGS: ${{ github.event.inputs.ARGS }}
+          SSH_CMD_ARGS: ${{ github.event.inputs.SSH_CMD_ARGS }}
+          SOURCE: test_project/ test_project2/
+          TARGET: /var/www/html/
+          EXCLUDE: ${{ github.event.inputs.EXCLUDE }}
+          SCRIPT_BEFORE: |
+            whoami
+            ls -lR /var/www/html/
+          SCRIPT_AFTER: |
+            ls -lR /var/www/html/
+            echo $RSYNC_STDOUT

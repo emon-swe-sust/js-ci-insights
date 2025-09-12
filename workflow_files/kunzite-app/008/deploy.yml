@@ -1,0 +1,28 @@
+name: deploy
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Upload agent008.ai
+        timeout-minutes: 15
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download --repo kunzite-app/008 --pattern '008-desktop*' --dir bin
+
+          ls bin
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${{ secrets.SITE_PORT }} ${{ secrets.SITE_HOST }} >> ~/.ssh/known_hosts
+
+          echo "${{ secrets.SITE_SSH_KEY }}" > private.key 
+          chmod 600 private.key
+
+          scp -P ${{ secrets.SITE_PORT }} -i private.key -r bin ${{ secrets.SITE_USER }}@${{ secrets.SITE_HOST }}:~/public

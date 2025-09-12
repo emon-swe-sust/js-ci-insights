@@ -1,0 +1,37 @@
+name: tests
+
+on:
+  push:
+    branches: [ master, renovate/** ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    name: Tests
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [ 18, 20 ]
+    steps:
+      - name: Checkout Source code
+        uses: actions/checkout@v5
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: '**/node_modules'
+          key: ${{ runner.os }}-${{ matrix.node-version }}-modules-${{ hashFiles('**/yarn.lock') }}
+
+      - name: Install
+        run: yarn
+
+      - name: Test
+        run: yarn test

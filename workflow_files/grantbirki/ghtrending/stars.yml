@@ -1,0 +1,26 @@
+name: stars
+on:
+  schedule:
+    - cron: "10,25 * * * *"
+  workflow_dispatch:
+
+jobs:
+  stars:
+    runs-on: ubuntu-latest
+    environment: crons
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: install dependencies
+        run: pip install -r requirements.txt
+
+      - name: stars cron
+        run: python lib/crons/stars_cron.py
+        env:
+          ENV: production
+          AZURE_ACCESS_KEY: ${{ secrets.AZURE_ACCESS_KEY }}

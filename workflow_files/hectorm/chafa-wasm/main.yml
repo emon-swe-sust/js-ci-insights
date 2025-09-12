@@ -1,0 +1,242 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: "Main"
+
+on:
+  push:
+    tags: ["*"]
+    branches: ["*"]
+  pull_request:
+    branches: ["*"]
+  schedule:
+    - cron: "25 12 * * 3"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    name: "Build"
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: "read"
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8"
+      - name: "Expose GitHub Actions variables"
+        uses: "actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea"
+        with:
+          script: |
+            for (const [k, v] of Object.entries(process.env)) {
+              if (k.startsWith("ACTIONS_")) core.exportVariable(k, v);
+            }
+      - name: "Set up Docker Buildx"
+        uses: "docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435"
+      - name: "Use Node.js lts/*"
+        uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+      - name: "Install dependencies"
+        run: "npm ci"
+      - name: "Build module"
+        run: "npm run build:wasm:docker -- --pull --cache-from type=gha --cache-to type=gha,mode=max"
+      - name: "Build types"
+        run: "npm run build:types"
+      - name: "Build docs"
+        run: "npm run docs"
+      - name: "Build demo"
+        run: |
+          cp -a ./dist/chafa.* ./demo/js/
+          sed -ri 's|"[^"]+/(chafa\.js)"|"./\1"|' ./demo/js/worker.js
+          find ./demo/ -type f -not -perm 0644 -exec chmod 0644 '{}' '+'
+          find ./demo/ -type d -not -perm 0755 -exec chmod 0755 '{}' '+'
+      - name: "Lint"
+        run: "npm run lint"
+      - name: "Upload module artifact"
+        uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+        with:
+          name: "dist"
+          path: "./dist/"
+          retention-days: 1
+      - name: "Upload demo artifact"
+        if: "startsWith(github.ref, 'refs/tags/v')"
+        uses: "actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b"
+        with:
+          path: "./demo/"
+          retention-days: 1
+
+  test-node:
+    name: "Test on Node.js ${{ matrix.node_version }} on ${{ matrix.os }}"
+    needs: ["build"]
+    runs-on: "${{ matrix.os }}"
+    permissions:
+      contents: "read"
+    strategy:
+      fail-fast: false
+      matrix:
+        node_version: ["lts/-1", "lts/*", "current"]
+        os: ["ubuntu-latest", "windows-latest", "macos-latest"]
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8"
+      - name: "Download module artifact"
+        uses: "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
+        with:
+          name: "dist"
+          path: "./dist/"
+      - name: "Use Node.js ${{ matrix.node_version }}"
+        uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+        with:
+          node-version: "${{ matrix.node_version }}"
+          cache: "npm"
+      - name: "Install dependencies"
+        run: "npm ci"
+      - name: "Test"
+        run: "npm run test:node"
+
+  test-deno:
+    name: "Test on Deno ${{ matrix.deno_version }} on ${{ matrix.os }}"
+    needs: ["build"]
+    runs-on: "${{ matrix.os }}"
+    permissions:
+      contents: "read"
+    strategy:
+      fail-fast: false
+      matrix:
+        deno_version: ["vx.x.x"]
+        os: ["ubuntu-latest", "windows-latest", "macos-latest"]
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8"
+      - name: "Download module artifact"
+        uses: "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
+        with:
+          name: "dist"
+          path: "./dist/"
+      - name: "Use Deno ${{ matrix.deno_version }}"
+        uses: "denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb"
+        with:
+          deno-version: "${{ matrix.deno_version }}"
+      - name: "Use Node.js lts/*"
+        uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+      - name: "Install dependencies"
+        run: "npm ci"
+      - name: "Test"
+        run: "npm run test:deno"
+
+  test-bun:
+    name: "Test on Bun ${{ matrix.bun_version }} on ${{ matrix.os }}"
+    needs: ["build"]
+    runs-on: "${{ matrix.os }}"
+    permissions:
+      contents: "read"
+    strategy:
+      fail-fast: false
+      matrix:
+        bun_version: ["latest"]
+        os: ["ubuntu-latest", "windows-latest", "macos-latest"]
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8"
+      - name: "Download module artifact"
+        uses: "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
+        with:
+          name: "dist"
+          path: "./dist/"
+      - name: "Use Bun ${{ matrix.bun_version }}"
+        uses: "oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76"
+        with:
+          bun-version: "${{ matrix.bun_version }}"
+      - name: "Install dependencies"
+        run: "bun install --frozen-lockfile"
+      - name: "Test"
+        run: "bun run test:bun"
+
+  test-browser:
+    name: "Test on ${{ matrix.browser }} browser on ${{ matrix.os }}"
+    needs: ["build"]
+    runs-on: "${{ matrix.os }}"
+    permissions:
+      contents: "read"
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: ["chromium", "firefox", "webkit"]
+        os: ["ubuntu-latest"]
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8"
+      - name: "Download module artifact"
+        uses: "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
+        with:
+          name: "dist"
+          path: "./dist/"
+      - name: "Use Node.js lts/*"
+        uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+      - name: "Install dependencies"
+        run: 'npm ci && npx playwright install --with-deps "${{ matrix.browser }}"'
+      - name: "Test"
+        run: 'npm run test:browser:"${{ matrix.browser }}"'
+
+  publish-npm:
+    name: "Publish npm package"
+    if: "startsWith(github.ref, 'refs/tags/v')"
+    needs: ["test-node", "test-deno", "test-bun", "test-browser"]
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8"
+      - name: "Download module artifact"
+        uses: "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0"
+        with:
+          name: "dist"
+          path: "./dist/"
+      - name: "Use Node.js lts/*"
+        uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+        with:
+          node-version: "lts/*"
+          registry-url: "https://registry.npmjs.org"
+      - name: "Publish"
+        env:
+          NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}"
+        run: |
+          PKG_NAME="$(jq -r '.name' ./package.json)"; PKG_VERSION="$(jq -r '.version' ./package.json)"
+          if [ "$(npm view "${PKG_NAME:?}" versions --json | jq -r --arg v "${PKG_VERSION:?}" 'index($v)')" = 'null' ]; then
+            npm publish --provenance --access public
+          fi
+
+  publish-github-release:
+    name: "Publish GitHub release"
+    if: "startsWith(github.ref, 'refs/tags/v')"
+    needs: ["test-node", "test-deno", "test-bun", "test-browser"]
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: "write"
+    steps:
+      - name: "Publish"
+        uses: "hectorm/ghaction-release@066200d04c3549852afa243d631ea3dc93390f68"
+
+  publish-github-pages:
+    name: "Publish GitHub Pages"
+    if: "startsWith(github.ref, 'refs/tags/v')"
+    needs: ["build", "test-node", "test-deno", "test-bun", "test-browser"]
+    runs-on: "ubuntu-latest"
+    permissions:
+      id-token: "write"
+      pages: "write"
+    environment:
+      name: "github-pages"
+      url: "${{ steps.deployment.outputs.page_url }}"
+    steps:
+      - name: "Publish"
+        id: "deployment"
+        uses: "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e"

@@ -1,0 +1,17 @@
+name: release-published
+
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+
+jobs:
+  update-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update tabmixplus-docs
+        env:
+          GH_TOKEN: ${{ secrets.TABMIXPLUS_DOCS_TOKEN }}
+        run: |
+          gh workflow run --repo onemen/tabmixplus-docs --ref main deploy.yml

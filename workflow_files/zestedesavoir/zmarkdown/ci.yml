@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master, next]
+  pull_request:
+    branches: [master, next]
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  lint:
+    name: Check linting problems
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install local dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+  unit-testing:
+    name: Run unit testing
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x, 24.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install global dependencies
+        run: npm install -g pm2
+
+      - name: Install local dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Update coverage report
+        uses: coverallsapp/github-action@master
+        if: matrix.node-version == env.NODE_VERSION
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

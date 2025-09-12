@@ -1,0 +1,35 @@
+name: Delete PR folder in gh-pages
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+  checks: write
+  pages: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout demo branch
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 #v5.0.0
+        with:
+          path: demo
+          ref: gh-pages
+
+      - name: Delete PR folder
+        run: |
+          rm -rf ./demo/${{ github.event.number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit demo for gh-pages
+        uses: actions-js/push@5a7cbd780d82c0c937b5977586e641b2fd94acc5 #v1.5
+        with:
+          directory: "./demo"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          message: "doc: cleanup demo"
+          branch: gh-pages

@@ -1,0 +1,85 @@
+name: Build
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "*" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+env:
+  EM_VERSION: 4.0.13
+  EM_CACHE_FOLDER: 'emsdk-cache'
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Setup cache
+        id: cache-system-libraries
+        uses: actions/cache@v3
+        with:
+          path: ${{env.EM_CACHE_FOLDER}}
+          key: ${{env.EM_VERSION}}-${{runner.os}}
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{env.EM_VERSION}}
+          actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
+      - name: Build hb.wasm
+        run: ./build.sh
+      - name: Build hb-subset.wasm
+        run: ./build-subset.sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+      - name: NPM install
+        run: npm install
+      - name: Run tests
+        run: npm test
+      - name: Test hb.wasm
+        run: node examples/hbjs.example.node.js
+      - name: Test hb-subset.wasm
+        run: node examples/hb-subset.example.node.js
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: |
+            hb.js
+            hb.wasm
+            hb-subset.wasm
+          if-no-files-found: error
+
+  release:
+    name: Create and populate release
+    needs: build
+    runs-on: ubuntu-latest
+    if: contains(github.ref, 'refs/tags/')
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm
+      - name: Check for release
+        id: create_release
+        run: |
+          if ! gh release view ${{ github.ref_name }}; then
+            gh release create ${{ github.ref_name }} --title ${{ github.ref_name }} --generate-notes
+          fi
+      - name: Populate release
+        run: |
+          gh release upload ${{ github.ref_name }} hb.js hb.wasm hb-subset.wasm --clobber

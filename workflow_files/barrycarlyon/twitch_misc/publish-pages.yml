@@ -1,0 +1,65 @@
+name: Deploy statics
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v3 # If you're using actions/checkout@v2 you must set persist-credentials to false in most cases for the deployment to work correctly.
+        with:
+          persist-credentials: false
+
+      - name: Deploy Index 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: gh-pages
+          folder: github
+
+      - name: Deploy Implicit Auth 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: gh-pages
+          folder: authentication/implicit_auth
+          target-folder: authentication/implicit_auth
+          clean: true
+
+      - name: Deploy Electron Auth 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: gh-pages
+          folder: authentication/electron/webpage
+          target-folder: authentication/electron/webpage
+          clean: true
+
+      - name: Deploy Examples 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: gh-pages
+          folder: examples
+          target-folder: examples
+          clean: true
+
+      - name: Deploy Player 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: gh-pages
+          folder: player/html
+          target-folder: player/html
+          clean: true
+
+      - name: Deploy EventSub WebSockets 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: gh-pages
+          folder: eventsub/websockets/web
+          target-folder: eventsub/websockets/web
+          clean: true

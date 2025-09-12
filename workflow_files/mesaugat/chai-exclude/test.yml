@@ -1,0 +1,30 @@
+name: test
+permissions:
+  contents: read
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['20', '22', 'latest']
+    name: Node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'yarn'
+      - run: yarn
+      - run: yarn test

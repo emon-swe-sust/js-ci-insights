@@ -1,0 +1,57 @@
+name: Windows tests
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+    - name: Install Browsertime
+      run: npm ci
+    - name: Install dependencies
+      run: |
+        choco install ffmpeg 
+        choco outdated
+        choco install python
+        choco install microsoft-edge
+        choco install googlechrome
+        choco install firefox
+        python -m pip install --upgrade --user pip
+        python -m pip install --upgrade --user setuptools
+        python -m pip install --user pyssim OpenCV-Python Numpy
+        python -m pip --version
+        python -m pip show Pillow
+        python -m pip show pyssim
+      shell: cmd
+    - name: Start local HTTP server
+      run: (npm run start-server&)
+    - name: Run Edge test
+      run: node bin/browsertime.js -b edge -n 1 --screenshot https://www.sitespeed.io/
+      shell: cmd
+    - name: Run Edge test with video
+      run: node bin/browsertime.js -b edge -n 1 --screenshot --video --visualMetrics --viewPort 1000x600 https://www.sitespeed.io/
+      shell: cmd
+    - name: Run Chrome test
+      run: node bin/browsertime.js -b chrome -n 1 https://www.sitespeed.io/
+      shell: cmd
+    - name: Run Chrome with config file
+      run: node bin/browsertime.js -b chrome https://www.sitespeed.io/ --config test/data/exampleConfig.json 
+      shell: cmd
+    - name: Run Chrome test for multi pages
+      run: node bin/browsertime.js -b chrome -n 1 test/data/navigationscript/simple.cjs
+      shell: cmd
+    - name: Run Firefox test
+      run: node bin/browsertime.js -b firefox -n 1 https://www.sitespeed.io/ --skipHar
+      shell: cmd
+    - name: Run Firefox test with MOZ log
+      run: node bin/browsertime.js -b firefox -n 1 https://www.sitespeed.io/ --skipHar --firefox.collectMozLog
+      shell: cmd

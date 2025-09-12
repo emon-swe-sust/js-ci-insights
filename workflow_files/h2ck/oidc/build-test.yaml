@@ -1,0 +1,137 @@
+# This workflow is based on the nextcloud organization template repository
+#
+# https://github.com/nextcloud/.github
+# https://docs.github.com/en/actions/learn-github-actions/sharing-workflows-with-your-organization
+
+name: Build app
+
+on:
+  push:
+    branches:
+      - "*"
+  pull_request:
+    branches:
+      - "*"
+  workflow_dispatch:
+    branches:
+      - "*"
+
+env:
+  PHP_VERSION: 8.4
+
+jobs:
+  build_test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check actor permission
+        if: github.actor != 'dependabot[bot]'
+        uses: skjnldsv/check-actor-permission@v2
+        with:
+          require: read
+
+      - name: Set app env
+        run: |
+          # Split and keep last
+          echo "APP_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+          #echo "APP_VERSION=${GITHUB_REF##*/}" >> $GITHUB_ENV
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          path: ${{ env.APP_NAME }}
+
+      - name: Get appinfo data
+        id: appinfo
+        uses: mavrosxristoforos/get-xml-info@1.1.1
+        with:
+          xml-file: ${{ env.APP_NAME }}/appinfo/info.xml
+          xpath: "//info//dependencies//nextcloud/@max-version"
+
+      - name: Read package.json node and npm engines version
+        uses: skjnldsv/read-package-engines-version-actions@v2
+        id: versions
+        # Continue if no package.json
+        continue-on-error: true
+        with:
+          path: ${{ env.APP_NAME }}
+          fallbackNode: "^16"
+          fallbackNpm: "^8"
+
+      - name: Set up node ${{ steps.versions.outputs.nodeVersion }}
+        # Skip if no package.json
+        if: ${{ steps.versions.outputs.nodeVersion }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ steps.versions.outputs.nodeVersion }}
+
+      - name: Set up npm ${{ steps.versions.outputs.npmVersion }}
+        # Skip if no package.json
+        if: ${{ steps.versions.outputs.npmVersion }}
+        run: npm i -g npm@"${{ steps.versions.outputs.npmVersion }}"
+
+      - name: Set up php ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          coverage: none
+
+      - name: Check composer.json
+        id: check_composer
+        uses: andstor/file-existence-action@v2
+        with:
+          files: "${{ env.APP_NAME }}/composer.json"
+
+      - name: Install composer dependencies
+        if: steps.check_composer.outputs.files_exists == 'true'
+        run: |
+          cd ${{ env.APP_NAME }}
+          composer install
+
+      - name: Build ${{ env.APP_NAME }}
+        # Skip if no package.json
+        if: ${{ steps.versions.outputs.nodeVersion }}
+        run: |
+          cd ${{ env.APP_NAME }}
+          npm ci
+          npm run build
+
+      - name: Checkout server ${{ steps.appinfo.outputs.info }}
+        continue-on-error: true
+        id: server-checkout
+        run: |
+          NCVERSION=${{ steps.appinfo.outputs.info }}
+          wget --quiet https://download.nextcloud.com/server/releases/latest.zip
+          unzip latest.zip
+
+      - name: Checkout server master fallback
+        uses: actions/checkout@v3
+        if: ${{ steps.server-checkout.outcome != 'success' }}
+        with:
+          repository: nextcloud/server
+          path: nextcloud
+
+      - name: Test and Package ${{ env.APP_NAME }} ${{ env.APP_VERSION }}
+        run: |
+          mv -v ${{ env.APP_NAME }} nextcloud/apps/
+          cd nextcloud
+          php occ maintenance:install --admin-user admin --admin-pass admin
+          php occ app:enable ${{ env.APP_NAME }}
+          cd apps/${{ env.APP_NAME }}
+          make build-test
+
+      - name: Sign app
+        if: github.actor == 'H2CK'
+        run: |
+          # Setting up keys
+          echo "${{ secrets.APP_PRIVATE_KEY }}" > ${{ env.APP_NAME }}.key
+          wget --quiet "https://github.com/nextcloud/app-certificate-requests/raw/master/${{ env.APP_NAME }}/${{ env.APP_NAME }}.crt"
+          # Signing
+          php nextcloud/occ integrity:sign-app --privateKey=../${{ env.APP_NAME }}.key --certificate=../${{ env.APP_NAME }}.crt --path=apps/${{ env.APP_NAME }}/build/artifacts/${{ env.APP_NAME }}
+          # Building archive
+          cd nextcloud/apps/${{ env.APP_NAME }}/build/artifacts
+          tar -zcvf ${{ env.APP_NAME }}.tar.gz ${{ env.APP_NAME }}
+          cd ../../../../../
+          openssl dgst -sha512 -sign ${{ env.APP_NAME }}.key nextcloud/apps/${{ env.APP_NAME }}/build/artifacts/${{ env.APP_NAME }}.tar.gz | openssl base64 -A > signature.sha
+          rm -f ${{ env.APP_NAME }}.key
+          rm -f ${{ env.APP_NAME }}.crt

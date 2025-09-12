@@ -1,0 +1,27 @@
+name: Create a release on tag
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  release:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Node.js 20
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: "**/package.json"
+
+      - name: Create release
+        run: |
+          npm install
+          npx compas create-release --github-token ${{ secrets.COMPAS_GITHUB_TOKEN }}

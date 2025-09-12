@@ -1,0 +1,56 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  pre_job:
+    name: Check duplicate
+    runs-on: ubuntu-latest
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+    steps:
+      - id: skip_check
+        uses: fkirc/skip-duplicate-actions@master
+        with:
+          cancel_others: true
+          concurrent_skipping: same_content
+          do_not_skip: '["pull_request", "schedule", "workflow_dispatch"]'
+
+  build:
+    name: Test
+    needs: pre_job
+    if: ${{ needs.pre_job.outputs.should_skip != 'true' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    steps:
+      - run: git config --global core.autocrlf input
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - run: pnpm install
+      - run: pnpm run lint
+      - run: pnpm run flow
+      - run: pnpm run test --coverage
+      - run: pnpm run build
+      - run: pnpm esdoc
+
+      - name: BundleWatch
+        env:
+          BUNDLEWATCH_GITHUB_TOKEN: ${{ secrets.BUNDLEWATCH_GITHUB_TOKEN }}
+          CI_BRANCH_BASE: main
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: pnpm bundlewatch
+
+      - name: Coveralls
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+        if: ${{ matrix.os == 'ubuntu-latest' && github.ref == 'refs/heads/main' }}
+        run: pnpm run coveralls
+        shell: bash

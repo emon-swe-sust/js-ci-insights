@@ -1,0 +1,65 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: null
+  workflow_dispatch: null
+
+jobs:
+  tests:
+    name: deploy
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f # v3.2.0
+        with:
+          python-version: 3.8
+          channels: conda-forge
+          channel-priority: strict
+          show-channel-urls: true
+          miniforge-version: latest
+          activate-environment: conda-forge-docs
+          environment-file: .ci_scripts/environment.yml
+
+      - name: build
+        shell: bash -l {0}
+        run: |
+          source ./.ci_scripts/update_docs
+        env:
+          GHREF: ${{ github.ref }}
+          GHREPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: deploy
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./build
+          user_name: conda-forge-admin
+          user_email: pelson.pub+conda-forge@gmail.com
+
+      - name: Link Checker
+        uses: lycheeverse/lychee-action@7cd0af4c74a61395d455af97419279d86aafaede # v2.0.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: >
+            --no-progress
+            --timeout 60
+            --base "$(pwd)/build"
+            --accept 100..399,401,403,429
+            --exclude '.*/status/migration/.*'
+            --exclude 'https://polys.me/?$'
+            --exclude 'https://conda-metadata-app.streamlit.app/?$'
+            --exclude 'https://kb43fqob7u-dsn.algolia.net/'
+            --exclude 'https://ss64.com/nt/syntax.html'
+            --exclude 'https://www.mesa3d.org/'
+            --exclude '.*/404.html/'
+            --exclude '.*,.*'
+            --exclude-path './build/community/minutes/'
+            --remap "https://conda-forge.org/(.*) file://$(pwd)/build/\$1"
+            './build/**/*.html'
+            '*.md'

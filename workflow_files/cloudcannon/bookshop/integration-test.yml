@@ -1,0 +1,95 @@
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  HUGO_VERSION: 0.118.2
+
+jobs:
+  integration-test:
+    runs-on: ${{ matrix.os }}
+
+    env:
+      cwd: ./javascript-modules
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            hugo_target: linux-amd64
+            hugo_extension: "tar.gz"
+          - os: windows-latest
+            hugo_target: windows-amd64
+            hugo_extension: "zip"
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install hugo
+        uses: supplypike/setup-bin@v1
+        with:
+          uri: "https://github.com/gohugoio/hugo/releases/download/v${{env.HUGO_VERSION}}/hugo_extended_${{env.HUGO_VERSION}}_${{matrix.hugo_target}}.${{matrix.hugo_extension}}"
+          name: "hugo"
+          version: ${{env.HUGO_VERSION}}
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v2
+        with:
+          node-version: 20.x
+
+      - name: Ubuntu AppArmor fix
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        # Ubuntu >= 23 has AppArmor enabled by default, which breaks Puppeteer.
+        # See https://github.com/puppeteer/puppeteer/issues/12818 "No usable sandbox!"
+        # this is taken from the solution used in Puppeteer's own CI: https://github.com/puppeteer/puppeteer/pull/13196
+        # The alternative is to pin Ubuntu 22 or to use aa-exec to disable AppArmor for commands that need Puppeteer.
+        # This is also suggested by Chromium https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md
+        run: |
+          echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+        shell: bash
+      # TODO: Remove when possible (https://github.com/actions/setup-node/issues/515)
+      - name: Windows Node fix
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          $WhereNode = Get-Command node | Select-Object -ExpandProperty Definition
+          $NodeDirPath = Split-Path $WhereNode -Parent
+          cd $NodeDirPath
+          npm install npm@10.7.0
+      - name: Use Ruby 2.7.x
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 2.7
+      - name: Use Go 1.21.x
+        uses: actions/setup-go@v2
+        with:
+          go-version: "^1.21.1"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - run: pnpm install --frozen-lockfile
+        working-directory: ${{ env.cwd }}
+      - name: Build Hugo wasm module
+        run: go build -tags nodeploy -o hugo_renderer.wasm
+        working-directory: ${{ env.cwd }}/engines/hugo-engine/full-hugo-renderer
+        env:
+          GOOS: js
+          GOARCH: wasm
+      - name: Gzip Hugo wasm module
+        run: gzip --keep hugo_renderer.wasm
+        working-directory: ${{ env.cwd }}/engines/hugo-engine/full-hugo-renderer
+      - run: npx toolproof -c 4 --retry-count 2
+        working-directory: ${{ env.cwd }}/toolproof-tests
+
+      - name: Upload failure screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: failure-screenshots
+          path: ${{ env.cwd }}/toolproof-tests/_failure-screenshots
+          if-no-files-found: ignore

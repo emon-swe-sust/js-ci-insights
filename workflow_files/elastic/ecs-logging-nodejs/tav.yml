@@ -1,0 +1,31 @@
+## TAV (test-all-versions) tests to test with multiple versions of deps.
+name: tav
+
+on:
+  workflow_dispatch: ~
+  schedule:
+    # Weekly on Monday, 16:00 UTC, so hopefully near my PST morning.
+    - cron: '0 16 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  tav:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [10, 12, 14, 16, 18, 20, 22]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Update npm to at least v7 for workspaces support
+        if: ${{ matrix.node-version < 16 }} # node@16 comes with npm@8, node@14 with npm@6
+        run: npm install -g npm@7 # npm@7 supports node >=10
+      - name: Install dependencies
+        run: utils/run-install.sh
+      - name: TAV Node.js v${{ matrix.node-version }}
+        run: npm --workspaces run --if-present tav

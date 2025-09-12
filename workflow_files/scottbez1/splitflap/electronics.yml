@@ -1,0 +1,559 @@
+name: Export Electronics
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  export-electronics-classic:
+    name: Export Electronics (Sensor)
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up outputs directory
+        run: mkdir -p electronics/build/outputs
+
+      - name: Install dependencies
+        run: ./electronics/scripts/dependencies.sh
+
+# Sensor board:
+      - name: Export sensor schematic
+        run: |
+          ./electronics/scripts/export_schematic.py electronics/sensor/sensor.sch
+          cp electronics/build/sensor.pdf electronics/build/outputs/sensor-schematic.pdf
+          cp electronics/build/sensor.png electronics/build/outputs/sensor-schematic.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export sensor PCB fabrication files
+        run: |
+          ./electronics/scripts/export_jlcpcb.py electronics/sensor/sensor.kicad_pcb
+          cp -r electronics/build/sensor-jlc electronics/build/outputs/sensor-jlc
+
+      - name: Export sensor PCB overview PDF
+        run: |
+          ./electronics/scripts/generate_pdf.py electronics/sensor/sensor.kicad_pcb
+          cp electronics/build/sensor-pcb-packet.pdf electronics/build/outputs/sensor-pcb-packet.pdf
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Panelize sensor PCB
+        run: |
+          kikit panelize -p electronics/scripts/config/kikit_panelize_sensor.json electronics/sensor/sensor.kicad_pcb electronics/build/panelized_sensor.kicad_pcb
+
+      - name: Export panelized sensor PCB SVG
+        run: |
+          ./electronics/scripts/generate_svg.py electronics/build/panelized_sensor.kicad_pcb
+          cp electronics/build/panelized_sensor_merged.png electronics/build/outputs/sensor-panelized-pcb-raster.png
+          ./scripts/annotate_image.sh electronics/build/outputs/sensor-panelized-pcb-raster.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export panelized sensor PCB fabrication files
+        run: |
+          ./electronics/scripts/export_jlcpcb.py electronics/build/panelized_sensor.kicad_pcb
+          cp -r electronics/build/panelized_sensor-jlc electronics/build/outputs/sensor-panelized-jlc
+
+      - name: Export panelized sensor PCB overview PDF
+        run: |
+          ./electronics/scripts/generate_pdf.py electronics/build/panelized_sensor.kicad_pcb
+          cp electronics/build/panelized_sensor-pcb-packet.pdf electronics/build/outputs/sensor-panelized-pcb-packet.pdf
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electronics-classic
+          path: |
+            electronics/build
+
+      - name: Configure AWS Credentials
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Sync artifacts to S3
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        run: |
+          aws s3 sync electronics/build/outputs s3://splitflap-artifacts/${GITHUB_REF#refs/heads/}/electronics-classic --delete --acl public-read --cache-control max-age=0,no-cache
+
+
+  export-electronics-chainlink:
+    name: Export Electronics (Chainlink Driver)
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up outputs directory
+        run: mkdir -p electronics/build/outputs
+
+      - name: Install dependencies
+        run: ./electronics/scripts/dependencies.sh
+
+# Chainlink Driver:
+      - name: Export chainlinkDriver schematic
+        run: |
+          ./electronics/scripts/export_schematic.py electronics/chainlinkDriver/chainlinkDriver.sch
+          cp electronics/build/chainlinkDriver.pdf electronics/build/outputs/chainlinkDriver-schematic.pdf
+          cp electronics/build/chainlinkDriver.png electronics/build/outputs/chainlinkDriver-schematic.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Render chainlinkDriver PCB 3D
+        run: |
+          ./electronics/scripts/export_3d.py electronics/chainlinkDriver/chainlinkDriver.kicad_pcb --width 2000 --height 800 transform z+ z+ z+ z+ z+ z+ z+ z+ mr rx+ rx+ ry- ry- rz-
+          cp electronics/build/chainlinkDriver-3d.png electronics/build/outputs/chainlinkDriver-3d.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkDriver-3d.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export chainlinkDriver JLCPCB fabrication files
+        run: |
+          ./electronics/scripts/export_jlcpcb.py electronics/chainlinkDriver/chainlinkDriver.kicad_pcb --assembly-schematic electronics/chainlinkDriver/chainlinkDriver.sch --alt-fields LCSC_ALT_ULN2003A
+          cp -r electronics/build/chainlinkDriver-jlc electronics/build/outputs
+
+      - name: Export chainlinkDriver PCB overview PDF
+        run: |
+          ./electronics/scripts/generate_pdf.py electronics/chainlinkDriver/chainlinkDriver.kicad_pcb
+          cp electronics/build/chainlinkDriver-pcb-packet.pdf electronics/build/outputs/chainlinkDriver-pcb-packet.pdf
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export chainlinkDriver PCB SVG
+        run: |
+          ./electronics/scripts/generate_svg.py electronics/chainlinkDriver/chainlinkDriver.kicad_pcb
+          cp electronics/build/chainlinkDriver_merged.png electronics/build/outputs/chainlinkDriver-pcb-raster.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkDriver-pcb-raster.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      # Note: These kibot scripts are run last because they mess with file permissions which breaks other scripts, not sure why
+      - name: Export BOM [chainlinkDriver]
+        uses: INTI-CMNB/KiBot@c723b51327c2d9b7863672698ae5fd3da58b386e
+        with:
+          config: electronics/chainlinkDriver/chainlinkDriver.kibot.yml
+          dir: electronics/build
+          schema: 'electronics/chainlinkDriver/chainlinkDriver.sch'
+          board: 'electronics/chainlinkDriver/chainlinkDriver.kicad_pcb'
+
+      - name: Copy BOM outputs
+        run: cp -r electronics/build/bom electronics/build/outputs
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electronics-chainlink
+          path: |
+            electronics/build
+
+      - name: Configure AWS Credentials
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Sync artifacts to S3
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        run: |
+          aws s3 sync electronics/build/outputs s3://splitflap-artifacts/${GITHUB_REF#refs/heads/}/electronics-chainlink --delete --acl public-read --cache-control max-age=0,no-cache
+
+
+
+
+  export-electronics-chainlink-tester:
+    name: Export Electronics (Chainlink Driver Tester)
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up outputs directory
+        run: mkdir -p electronics/build/outputs
+
+      - name: Install dependencies
+        run: ./electronics/scripts/dependencies.sh
+
+# Chainlink Driver Tester:
+      - name: Export schematic [chainlinkDriverTester]
+        run: |
+          ./electronics/scripts/export_schematic.py electronics/chainlinkDriverTester/chainlinkDriverTester.sch
+          cp electronics/build/chainlinkDriverTester.pdf electronics/build/outputs/chainlinkDriverTester-schematic.pdf
+          cp electronics/build/chainlinkDriverTester.png electronics/build/outputs/chainlinkDriverTester-schematic.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Render PCB 3D [chainlinkDriverTester]
+        run: |
+          ./electronics/scripts/export_3d.py electronics/chainlinkDriverTester/chainlinkDriverTester.kicad_pcb --width 1600 --height 1100 transform z+ z+ z+ z+ z+ mu mr mr rx+ rx+ ry- ry- rz-
+          cp electronics/build/chainlinkDriverTester-3d.png electronics/build/outputs/chainlinkDriverTester-3d.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkDriverTester-3d.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export JLCPCB fabrication files [chainlinkDriverTester]
+        run: |
+          ./electronics/scripts/export_jlcpcb.py electronics/chainlinkDriverTester/chainlinkDriverTester.kicad_pcb
+          cp -r electronics/build/chainlinkDriverTester-jlc electronics/build/outputs
+
+      - name: Export PCB overview PDF [chainlinkDriverTester]
+        run: |
+          ./electronics/scripts/generate_pdf.py electronics/chainlinkDriverTester/chainlinkDriverTester.kicad_pcb
+          cp electronics/build/chainlinkDriverTester-pcb-packet.pdf electronics/build/outputs/chainlinkDriverTester-pcb-packet.pdf
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export PCB SVG [chainlinkDriverTester]
+        run: |
+          ./electronics/scripts/generate_svg.py electronics/chainlinkDriverTester/chainlinkDriverTester.kicad_pcb
+          cp electronics/build/chainlinkDriverTester_merged.png electronics/build/outputs/chainlinkDriverTester-pcb-raster.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkDriverTester-pcb-raster.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      # Note: These kibot scripts are run last because they mess with file permissions which breaks other scripts, not sure why
+      - name: Export BOM [chainlinkDriverTester]
+        uses: INTI-CMNB/KiBot@c723b51327c2d9b7863672698ae5fd3da58b386e
+        with:
+          config: electronics/chainlinkDriverTester/chainlinkDriverTester.kibot.yml
+          dir: electronics/build
+          schema: 'electronics/chainlinkDriverTester/chainlinkDriverTester.sch'
+          board: 'electronics/chainlinkDriverTester/chainlinkDriverTester.kicad_pcb'
+
+      - name: Copy BOM outputs
+        run: cp -r electronics/build/bom electronics/build/outputs
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electronics-chainlink-tester
+          path: |
+            electronics/build
+
+      - name: Configure AWS Credentials
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Sync artifacts to S3
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        run: |
+          aws s3 sync electronics/build/outputs s3://splitflap-artifacts/${GITHUB_REF#refs/heads/}/electronics-chainlink-tester --delete --acl public-read --cache-control max-age=0,no-cache
+
+
+  export-electronics-chainlink-base:
+    name: Export Electronics (Chainlink Base)
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up outputs directory
+        run: mkdir -p electronics/build/outputs
+
+      - name: Install dependencies
+        run: ./electronics/scripts/dependencies.sh
+
+# Chainlink Base:
+      - name: Export schematic [chainlinkBase]
+        run: |
+          ./electronics/scripts/export_schematic.py electronics/chainlinkBase/chainlinkBase.sch
+          cp electronics/build/chainlinkBase.pdf electronics/build/outputs/chainlinkBase-schematic.pdf
+          cp electronics/build/chainlinkBase-0.png electronics/build/outputs/chainlinkBase-schematic.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Render PCB 3D [chainlinkBase]
+        run: |
+          ./electronics/scripts/export_3d.py electronics/chainlinkBase/chainlinkBase.kicad_pcb --width 1000 --height 1500 transform z+ z+ mu rx+ rx+ ry- ry- rz-
+          cp electronics/build/chainlinkBase-3d.png electronics/build/outputs/chainlinkBase-3d.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkBase-3d.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export JLCPCB fabrication files [chainlinkBase]
+        run: |
+          ./electronics/scripts/export_jlcpcb.py electronics/chainlinkBase/chainlinkBase.kicad_pcb
+          cp -r electronics/build/chainlinkBase-jlc electronics/build/outputs
+
+      - name: Export PCB overview PDF [chainlinkBase]
+        run: |
+          ./electronics/scripts/generate_pdf.py electronics/chainlinkBase/chainlinkBase.kicad_pcb
+          cp electronics/build/chainlinkBase-pcb-packet.pdf electronics/build/outputs/chainlinkBase-pcb-packet.pdf
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export PCB SVG [chainlinkBase]
+        run: |
+          ./electronics/scripts/generate_svg.py electronics/chainlinkBase/chainlinkBase.kicad_pcb
+          cp electronics/build/chainlinkBase_merged.png electronics/build/outputs/chainlinkBase-pcb-raster.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkBase-pcb-raster.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      # Note: These kibot scripts are run last because they mess with file permissions which breaks other scripts, not sure why
+      - name: Export BOM [chainlinkBase]
+        uses: INTI-CMNB/KiBot@c723b51327c2d9b7863672698ae5fd3da58b386e
+        with:
+          config: electronics/chainlinkBase/chainlinkBase.kibot.yml
+          dir: electronics/build
+          schema: 'electronics/chainlinkBase/chainlinkBase.sch'
+          board: 'electronics/chainlinkBase/chainlinkBase.kicad_pcb'
+
+      - name: Copy BOM outputs
+        run: cp -r electronics/build/bom electronics/build/outputs
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electronics-chainlink-base
+          path: |
+            electronics/build
+
+      - name: Configure AWS Credentials
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Sync artifacts to S3
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        run: |
+          aws s3 sync electronics/build/outputs s3://splitflap-artifacts/${GITHUB_REF#refs/heads/}/electronics-chainlink-base --delete --acl public-read --cache-control max-age=0,no-cache
+
+
+  export-electronics-chainlink-buddy-t-display:
+    name: Export Electronics (Chainlink Buddy T-Display)
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up outputs directory
+        run: mkdir -p electronics/build/outputs
+
+      - name: Install dependencies
+        run: ./electronics/scripts/dependencies.sh
+
+      - name: Export schematic [chainlinkBuddyTDisplay]
+        run: |
+          ./electronics/scripts/export_schematic.py electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.sch
+          cp electronics/build/chainlinkBuddyTDisplay.pdf electronics/build/outputs/chainlinkBuddyTDisplay-schematic.pdf
+          cp electronics/build/chainlinkBuddyTDisplay.png electronics/build/outputs/chainlinkBuddyTDisplay-schematic.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Render PCB 3D [chainlinkBuddyTDisplay]
+        run: |
+          ./electronics/scripts/export_3d.py electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.kicad_pcb --width 1600 --height 1100 transform z+ z+ z+ z+ mr mr mr rx+ rx+ ry- ry- rz-
+          cp electronics/build/chainlinkBuddyTDisplay-3d.png electronics/build/outputs/chainlinkBuddyTDisplay-3d.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkBuddyTDisplay-3d.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export JLCPCB fabrication files [chainlinkBuddyTDisplay]
+        run: |
+          ./electronics/scripts/export_jlcpcb.py electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.kicad_pcb
+          cp -r electronics/build/chainlinkBuddyTDisplay-jlc electronics/build/outputs
+
+      - name: Export PCB overview PDF [chainlinkBuddyTDisplay]
+        run: |
+          ./electronics/scripts/generate_pdf.py electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.kicad_pcb
+          cp electronics/build/chainlinkBuddyTDisplay-pcb-packet.pdf electronics/build/outputs/chainlinkBuddyTDisplay-pcb-packet.pdf
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export PCB SVG [chainlinkBuddyTDisplay]
+        run: |
+          ./electronics/scripts/generate_svg.py electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.kicad_pcb
+          cp electronics/build/chainlinkBuddyTDisplay_merged.png electronics/build/outputs/chainlinkBuddyTDisplay-pcb-raster.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkBuddyTDisplay-pcb-raster.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Panelize
+        run: |
+          kikit panelize -p electronics/chainlinkBuddyTDisplay/kikit_panelize.json electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.kicad_pcb electronics/build/panelized_chainlinkBuddyTDisplay.kicad_pcb
+
+      - name: Export panelized PCB SVG
+        run: |
+          ./electronics/scripts/generate_svg.py electronics/build/panelized_chainlinkBuddyTDisplay.kicad_pcb
+          cp electronics/build/panelized_chainlinkBuddyTDisplay_merged.png electronics/build/outputs/chainlinkBuddyTDisplay-panelized-pcb-raster.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkBuddyTDisplay-panelized-pcb-raster.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export panelized PCB fabrication files
+        run: |
+          ./electronics/scripts/export_jlcpcb.py electronics/build/panelized_chainlinkBuddyTDisplay.kicad_pcb
+          cp -r electronics/build/panelized_chainlinkBuddyTDisplay-jlc electronics/build/outputs/chainlinkBuddyTDisplay-panelized-jlc
+
+      - name: Export panelized PCB overview PDF
+        run: |
+          ./electronics/scripts/generate_pdf.py electronics/build/panelized_chainlinkBuddyTDisplay.kicad_pcb
+          cp electronics/build/panelized_chainlinkBuddyTDisplay-pcb-packet.pdf electronics/build/outputs/chainlinkBuddyTDisplay-panelized-pcb-packet.pdf
+        env:
+          PYTHONUNBUFFERED: 1
+
+      # Note: These kibot scripts are run last because they mess with file permissions which breaks other scripts, not sure why
+      - name: Export BOM [chainlinkBuddyTDisplay]
+        uses: INTI-CMNB/KiBot@c723b51327c2d9b7863672698ae5fd3da58b386e
+        with:
+          config: electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.kibot.yml
+          dir: electronics/build
+          schema: 'electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.sch'
+          board: 'electronics/chainlinkBuddyTDisplay/chainlinkBuddyTDisplay.kicad_pcb'
+
+      - name: Copy BOM outputs
+        run: cp -r electronics/build/bom electronics/build/outputs
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electronics-chainlink-buddy-t-display
+          path: |
+            electronics/build
+
+      - name: Configure AWS Credentials
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Sync artifacts to S3
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        run: |
+          aws s3 sync electronics/build/outputs s3://splitflap-artifacts/${GITHUB_REF#refs/heads/}/electronics-chainlink-buddy-t-display --delete --acl public-read --cache-control max-age=0,no-cache
+
+
+  export-electronics-chainlink-buddy-breadboard:
+    name: Export Electronics (Chainlink Buddy Breadboard)
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up outputs directory
+        run: mkdir -p electronics/build/outputs
+
+      - name: Install dependencies
+        run: ./electronics/scripts/dependencies.sh
+
+      - name: Export schematic [chainlinkBuddyBreadboard]
+        run: |
+          ./electronics/scripts/export_schematic.py electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.sch
+          cp electronics/build/chainlinkBuddyBreadboard.pdf electronics/build/outputs/chainlinkBuddyBreadboard-schematic.pdf
+          cp electronics/build/chainlinkBuddyBreadboard.png electronics/build/outputs/chainlinkBuddyBreadboard-schematic.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Render PCB 3D [chainlinkBuddyBreadboard]
+        run: |
+          ./electronics/scripts/export_3d.py electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.kicad_pcb --width 1600 --height 1100 transform z+ z+ z+ z+ mu rx+ rx+ rx+ rx+ ry+ ry+ ry+ rz+ rz+
+          cp electronics/build/chainlinkBuddyBreadboard-3d.png electronics/build/outputs/chainlinkBuddyBreadboard-3d.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkBuddyBreadboard-3d.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export JLCPCB fabrication files [chainlinkBuddyBreadboard]
+        run: |
+          ./electronics/scripts/export_jlcpcb.py electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.kicad_pcb
+          cp -r electronics/build/chainlinkBuddyBreadboard-jlc electronics/build/outputs
+
+      - name: Export PCB overview PDF [chainlinkBuddyBreadboard]
+        run: |
+          ./electronics/scripts/generate_pdf.py electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.kicad_pcb
+          cp electronics/build/chainlinkBuddyBreadboard-pcb-packet.pdf electronics/build/outputs/chainlinkBuddyBreadboard-pcb-packet.pdf
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export PCB SVG [chainlinkBuddyBreadboard]
+        run: |
+          ./electronics/scripts/generate_svg.py electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.kicad_pcb
+          cp electronics/build/chainlinkBuddyBreadboard_merged.png electronics/build/outputs/chainlinkBuddyBreadboard-pcb-raster.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkBuddyBreadboard-pcb-raster.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Panelize
+        run: |
+          kikit panelize -p electronics/chainlinkBuddyBreadboard/kikit_panelize.json electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.kicad_pcb electronics/build/panelized_chainlinkBuddyBreadboard.kicad_pcb
+
+      - name: Export panelized PCB SVG
+        run: |
+          ./electronics/scripts/generate_svg.py electronics/build/panelized_chainlinkBuddyBreadboard.kicad_pcb
+          cp electronics/build/panelized_chainlinkBuddyBreadboard_merged.png electronics/build/outputs/chainlinkBuddyBreadboard-panelized-pcb-raster.png
+          ./scripts/annotate_image.sh electronics/build/outputs/chainlinkBuddyBreadboard-panelized-pcb-raster.png
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Export panelized PCB fabrication files
+        run: |
+          ./electronics/scripts/export_jlcpcb.py electronics/build/panelized_chainlinkBuddyBreadboard.kicad_pcb
+          cp -r electronics/build/panelized_chainlinkBuddyBreadboard-jlc electronics/build/outputs/chainlinkBuddyBreadboard-panelized-jlc
+
+      - name: Export panelized PCB overview PDF
+        run: |
+          ./electronics/scripts/generate_pdf.py electronics/build/panelized_chainlinkBuddyBreadboard.kicad_pcb
+          cp electronics/build/panelized_chainlinkBuddyBreadboard-pcb-packet.pdf electronics/build/outputs/chainlinkBuddyBreadboard-panelized-pcb-packet.pdf
+        env:
+          PYTHONUNBUFFERED: 1
+
+      # Note: These kibot scripts are run last because they mess with file permissions which breaks other scripts, not sure why
+      - name: Export BOM [chainlinkBuddyBreadboard]
+        uses: INTI-CMNB/KiBot@c723b51327c2d9b7863672698ae5fd3da58b386e
+        with:
+          config: electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.kibot.yml
+          dir: electronics/build
+          schema: 'electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.sch'
+          board: 'electronics/chainlinkBuddyBreadboard/chainlinkBuddyBreadboard.kicad_pcb'
+
+      - name: Copy BOM outputs
+        run: cp -r electronics/build/bom electronics/build/outputs
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electronics-chainlink-buddy-breadboard
+          path: |
+            electronics/build
+
+      - name: Configure AWS Credentials
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Sync artifacts to S3
+        if: github.event_name == 'push' && github.repository_owner == 'scottbez1'
+        run: |
+          aws s3 sync electronics/build/outputs s3://splitflap-artifacts/${GITHUB_REF#refs/heads/}/electronics-chainlink-buddy-breadboard --delete --acl public-read --cache-control max-age=0,no-cache

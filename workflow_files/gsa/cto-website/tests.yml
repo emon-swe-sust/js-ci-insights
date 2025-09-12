@@ -1,0 +1,66 @@
+name: Tests
+
+on: [pull_request]
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      hugo-version: ${{ steps.hugo-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read Hugo version
+        id: hugo-version
+        run: echo "version=$(cat .hugo-version | grep -Eo '[0-9.]+')" >> "$GITHUB_OUTPUT"
+
+  general_tests:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm install
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+          hugo-version: ${{ needs.setup.outputs.hugo-version }}
+          extended: true
+
+      - name: Run JavaScript linter
+        run: npm run test:eslint
+
+      - name: Run internal link checker
+        run: npm run test:links:internal
+
+  accessibility_tests:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm install
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+          hugo-version: ${{ needs.setup.outputs.hugo-version }}
+          extended: true
+
+      - name: Run accessibility tests
+        run: npm run test:a11y:local

@@ -1,0 +1,82 @@
+name: Publish to NPM
+
+on:
+  workflow_run:
+    workflows: ["Sync and Update"]
+    types:
+      - completed
+
+jobs:
+  publish_npm:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Verificar se há nova release
+      id: check_release
+      run: |
+        LATEST_RELEASE=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+        CURRENT_NPM_VERSION=$(npm view wwebjs-electron version)
+        RELEASE_VERSION=$(echo "$LATEST_RELEASE" | sed 's/^v//')
+        
+        echo "Release GitHub: $LATEST_RELEASE ($RELEASE_VERSION)"
+        echo "Versão NPM atual: $CURRENT_NPM_VERSION"
+        
+        if [ "$RELEASE_VERSION" != "$CURRENT_NPM_VERSION" ]; then
+          echo "Nova versão detectada para publicação"
+          echo "should_publish=true" >> $GITHUB_OUTPUT
+          echo "version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
+        else
+          echo "Versão já publicada no NPM"
+          echo "should_publish=false" >> $GITHUB_OUTPUT
+        fi
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Instalar dependências
+      if: steps.check_release.outputs.should_publish == 'true'
+      run: npm install
+
+    - name: Verificar permissões NPM
+      if: steps.check_release.outputs.should_publish == 'true'
+      run: |
+        echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+        echo "Verificando usuário logado..."
+        npm whoami
+        echo "Verificando informações do pacote..."
+        npm view wwebjs-electron maintainers --json || echo "Não foi possível obter maintainers"
+      env:
+        NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    - name: Publicar no NPM
+      if: steps.check_release.outputs.should_publish == 'true'
+      run: |
+        echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+        
+        echo "Tentando publicar versão ${{ steps.check_release.outputs.version }}..."
+        npm publish || {
+          echo "Falha na publicação. Tentando com --access public..."
+          npm publish --access public
+        }
+        
+        echo "✅ Pacote wwebjs-electron v${{ steps.check_release.outputs.version }} publicado no NPM com sucesso!"
+      env:
+        NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    - name: Notificar sucesso
+      if: steps.check_release.outputs.should_publish == 'true'
+      run: |
+        echo "🎉 Publicação concluída!"
+        echo "Versão: ${{ steps.check_release.outputs.version }}"
+        echo "NPM: https://www.npmjs.com/package/wwebjs-electron"

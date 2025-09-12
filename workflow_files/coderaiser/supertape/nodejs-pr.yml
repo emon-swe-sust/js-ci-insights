@@ -1,0 +1,48 @@
+name: Node PR CI
+on: pull_request
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NAME: supertape
+      FORCE_COLOR: 3
+    strategy:
+      matrix:
+        node-version:
+          - 20.x
+          - 22.x
+          - 24.x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install Redrun
+        run: bun i redrun -g --no-save
+      - name: Install
+        run: bun i --no-save
+      - name: Bootstrap
+        run: redrun bootstrap
+      - name: Lint
+        run: redrun lint
+      - name: Install Rust
+        run: rustup update
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Typos Install
+        run: cargo install typos-cli || echo 'already installed'
+      - name: Typos
+        run: typos
+      - name: Coverage
+        run: redrun coverage report
