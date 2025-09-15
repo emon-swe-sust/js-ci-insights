@@ -63,16 +63,15 @@ All required data files are included, no live API calls are needed to reproduce 
 
   - Repositories with executed workflows: 11,067.
   - Of these, **8,311** workflows were created by manual pull requests (not bots).
-  - Merged dataset with matrix counts retrieved from downloaded yml files stored at
-    `/files/merged_workflow_data_yml_files.csv`.
 
 ### 5. Fetch Job-Level Details
 
-- Using each `runner_id` from workflow, retrieve:
+- Using each `runner_id` from workflow data, retrieve:
 
-  - Job start and end times
-  - Operating system
-  - Number of steps per job
+  - Jobs details including
+    - start and end times
+    - Operating system
+    - Number of steps per job
 
 - **Total jobs retrieved:** 20,528.
 
@@ -93,7 +92,7 @@ All required data files are included, no live API calls are needed to reproduce 
 
 - Parse the downloaded YAML files to extract matrix configurations.
 - Matrix job counts generally match the number of jobs per workflow (except for conditional matrices).
-- **Workflow execution time** = earliest job start to latest job end within a workflow.
+- Workflow execution time = earliest job start to latest job end within a workflow.
 
   - Stored in `/files/final_workflow_data.csv`.
 
@@ -131,32 +130,32 @@ Below are the key visual insights derived from the cleaned datasets (`final_work
 ![Mean Job Duration by Operating System](figures/os_vs_jobDuration.png)
 
 - **Observation:**
-  - **Linux-based runners (Ubuntu variants)** are the most frequently used (e.g., `ubuntu-latest`, `ubuntu-20.04`) and show **lower average execution times** compared to Windows and macOS.
-  - **Windows runners** (e.g., `windows-2022`, `windows-2019`) exhibit **longer mean job durations**, often **2–3× higher** than Linux.
-  - The `ledger-live-linux-8CPU-32RAM` runner stands out with the **highest mean job duration**, though its usage count is very small.
+  - Linux-based runners (Ubuntu variants) are the most frequently used (e.g., `ubuntu-latest`, `ubuntu-20.04`) and show lower average execution times compared to Windows and macOS.
+  - Windows runners (e.g., `windows-2022`, `windows-2019`) exhibit longer mean job durations, often 2–3× higher than Linux.
+  - The `ledger-live-linux-8CPU-32RAM` runner stands out with the highest mean job duration, though its usage count is very small.
 
 ---
 
-### 2. Average Workflow Execution Time vs. Number of Jobs
-
-![Average Workflow Execution Time vs Number of Jobs](figures/jobs_vs_workflowDuration.png)
-
-- **Observation:**
-  - Workflows with **1 job** dominate the dataset (≈4,487), showing a median execution time of a few hundred seconds.
-  - As the number of jobs increases, the **average execution time generally grows**, with spikes at **5 jobs** and **18 jobs**, indicating that some workflows with more jobs take significantly longer to complete.
-  - Extremely high execution times for certain job counts suggest outliers where complex jobs or resource-heavy tasks increase duration.
-
----
-
-### 3. Job Duration by Number of Steps
+### 2. Job Duration by Number of Steps
 
 ![Job Duration by Number of Steps](figures/stpes_vs_jobDuration.png)
 
 - **Observation:**
   - Jobs with fewer steps (0–5) dominate the dataset (e.g., ≈4,109 jobs with 0 steps), showing relatively low median execution times, mostly under a few hundred seconds.
   - As the number of steps increases, the median execution time generally grows, with clear upward shifts around 10–20 steps.
-  - Spikes at higher step counts (e.g., 23, 25, 29 steps) indicate that some jobs with more steps take significantly longer to complete.
+  - Spikes at higher step counts (e.g., 23, 29 steps) indicate that some jobs with more steps take significantly longer to complete.
   - Extremely high execution times across many step counts suggest the presence of outliers, where certain steps involve complex or resource-heavy tasks that disproportionately increase duration.
+
+---
+
+### 3. Average Workflow Execution Time by Number of Jobs
+
+![Average Workflow Execution Time vs Number of Jobs](figures/jobs_vs_workflowDuration.png)
+
+- **Observation:**
+  - Workflows with 1 job dominate the dataset (≈4,487), showing a median execution time of a few hundred seconds.
+  - As the number of jobs increases, the average execution time generally grows, with spikes at 5 jobs and 18 jobs, indicating that some workflows with more jobs take significantly longer to complete.
+  - Extremely high execution times for certain job counts suggest outliers where complex jobs or resource-heavy tasks increase duration.
 
 ---
 
