@@ -1,7 +1,7 @@
 # JavaScript CI Activity Analysis
 
 This project analyzes the GitHub Actions (CI) activity of JavaScript repositories with more than 10 stars.  
-All required data files are included no live API calls are needed to reproduce the analysis.
+All required data files are included, no live API calls are needed to reproduce the analysis.
 
 ---
 
@@ -28,7 +28,7 @@ All required data files are included no live API calls are needed to reproduce t
 
 ### 1. Filter JavaScript Repositories
 
-- Download the [SEART GitHub searcher datadump (August 2024)](https://www.dropbox.com/scl/fo/lqvp1mhsg0ezp2sgs0xdk/h/20240801?dl=0&subfolder_nav_tracking=1).
+- Download the [SEART GitHub searcher datadump (August 2024)](https://www.dropbox.com/scl/fo/lqvp1mhsg0ezp2sgs0xdk/h?rlkey=j9joij3iqpy1zl5h061vdnlj6).
 - Execute:
 
   ```sql
@@ -40,7 +40,7 @@ All required data files are included no live API calls are needed to reproduce t
   ```
 
   - `94453096` is the language ID for **JavaScript**.
-  - Save the output to `/files/git_repo_filtered_js_commit_date.csv`.
+  - Saved the output to `/files/git_repo_filtered_js_commit_date.csv`.
     **Total entries:** 24,612.
 
 ### 2. Identify Repositories with Workflows
@@ -61,11 +61,10 @@ All required data files are included no live API calls are needed to reproduce t
 
 - Fetch latest workflow run metadata (workflow IDs, runner IDs, etc.) for all 12,210 repositories.
 
-  - **Repositories with executed workflows:** 11,067.
+  - Repositories with executed workflows: 11,067.
   - Of these, **8,311** workflows were created by manual pull requests (not bots).
   - Merged dataset with matrix counts retrieved from downloaded yml files stored at
     `/files/merged_workflow_data_yml_files.csv`.
-    → **Analysis is based on these 8,311 workflows.**
 
 ### 5. Fetch Job-Level Details
 
@@ -120,25 +119,14 @@ All required data files are included no live API calls are needed to reproduce t
 ## Notes
 
 - **No live API calls required.**
-  The notebook loads all data from files instead of hitting the GitHub API.
+  The notebook loads all data from files for further analysis instead of hitting the GitHub API again and again.
 - Run the Jupyter notebook to reproduce all analyses and visualizations.
 
 ## Visual Analysis
 
 Below are the key visual insights derived from the cleaned datasets (`final_workflow_data.csv` and `workflow_job_data.csv`).
 
-### 1. Average Workflow Execution Time vs. Number of Jobs
-
-![Average Workflow Execution Time vs Number of Jobs](figures/jobs_vs_workflowDuration.png)
-
-- **Observation:**
-  - Workflows with **1 job** dominate the dataset (≈4,487), showing a median execution time of a few hundred seconds.
-  - As the number of jobs increases, the **average execution time generally grows**, with spikes at **5 jobs** and **18 jobs**, indicating that some workflows with more jobs take significantly longer to complete.
-  - Extremely high execution times for certain job counts suggest outliers where complex jobs or resource-heavy tasks increase duration.
-
----
-
-### 2. Mean Job Duration by Operating System
+### 1. Mean Job Duration by Operating System
 
 ![Mean Job Duration by Operating System](figures/os_vs_jobDuration.png)
 
@@ -149,14 +137,26 @@ Below are the key visual insights derived from the cleaned datasets (`final_work
 
 ---
 
+### 2. Average Workflow Execution Time vs. Number of Jobs
+
+![Average Workflow Execution Time vs Number of Jobs](figures/jobs_vs_workflowDuration.png)
+
+- **Observation:**
+  - Workflows with **1 job** dominate the dataset (≈4,487), showing a median execution time of a few hundred seconds.
+  - As the number of jobs increases, the **average execution time generally grows**, with spikes at **5 jobs** and **18 jobs**, indicating that some workflows with more jobs take significantly longer to complete.
+  - Extremely high execution times for certain job counts suggest outliers where complex jobs or resource-heavy tasks increase duration.
+
+---
+
 ### 3. Job Duration by Number of Steps
 
 ![Job Duration by Number of Steps](figures/stpes_vs_jobDuration.png)
 
 - **Observation:**
-  - **Execution time scales with the number of steps** in a job—median duration rises steadily as step count increases.
-  - Jobs with fewer than ~10 steps typically finish in under a few minutes, while those with **30+ steps show a wide range**, with many taking **hours**.
-  - The **log-scaled y-axis** highlights significant variance and the presence of extreme outliers, where some jobs run far longer than the median.
+  - Jobs with fewer steps (0–5) dominate the dataset (e.g., ≈4,109 jobs with 0 steps), showing relatively low median execution times, mostly under a few hundred seconds.
+  - As the number of steps increases, the median execution time generally grows, with clear upward shifts around 10–20 steps.
+  - Spikes at higher step counts (e.g., 23, 25, 29 steps) indicate that some jobs with more steps take significantly longer to complete.
+  - Extremely high execution times across many step counts suggest the presence of outliers, where certain steps involve complex or resource-heavy tasks that disproportionately increase duration.
 
 ---
 
