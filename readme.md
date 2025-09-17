@@ -75,7 +75,7 @@ All required data files are included, no live API calls are needed to reproduce 
 
 - **Total jobs retrieved:** 20,528.
 
-### 6. Clean & Process Job Data
+### 6. Preprocessing steps
 
 - **Job data** (sourced from the GitHub API by querying jobs with their runner IDs)
 
