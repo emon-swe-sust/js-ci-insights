@@ -77,26 +77,23 @@ All required data files are included, no live API calls are needed to reproduce 
 
 ### 6. Clean & Process Job Data
 
-- Remove jobs that:
+- **Job data** (sourced from the GitHub API by querying jobs with their runner IDs)
 
-  - Were unsuccessful, or
-  - Had invalid timestamps.
+  - Removed entries where `runner_name` was empty (indicating jobs that were never executed, possibly skipped, unscheduled, or unassigned).
+  - Removed entries where the conclusion was not `"success"` to focus only on successful jobs.
+  - Removed entries with invalid or missing `started_at` or `completed_at` timestamps.
+  - Computed job execution time as `completed_at` – `started_at`.
+  - Extracted operating system information from the `labels`, which contains the runner environment details.
 
-- **Jobs remaining after cleaning:** 16,816.
+- **Workflow data** (sourced from the GitHub API by retrieving the latest workflow run per repository)
 
-  - Stored in `/files/workflow_job_data.csv`.
+  - Computed workflow `execution_time` as the difference between the earliest job `started_at` and the latest job `completed_at`.
+  - Removed workflows with execution times exceeding 5 hours (outliers due to waiting/manual approvals).
 
-- Compute execution time and record operating system.
+### 7. Limitations and challenges
 
-### 7. Extract Matrix Information
-
-- Parse the downloaded YAML files to extract matrix configurations.
-- Matrix job counts generally match the number of jobs per workflow (except for conditional matrices).
-- Workflow execution time = earliest job start to latest job end within a workflow.
-
-  - Stored in `/files/final_workflow_data.csv`.
-
-> `final_workflow_data.csv` and `workflow_job_data.csv` are used for all visual analyses.
+- The GitHub API had to be queried extensively at multiple stages (to collect repositories, workflows, jobs, and run metadata). This made the process time-intensive.
+- Some jobs had inconsistent or missing metadata, requiring additional filtering.
 
 ### 8. Perform Analysis
 
@@ -117,7 +114,7 @@ All required data files are included, no live API calls are needed to reproduce 
 
 ## Notes
 
-- **No live API calls required.**
+- No live API calls required.
   The notebook loads all data from files for further analysis instead of hitting the GitHub API again and again.
 - Run the Jupyter notebook to reproduce all analyses and visualizations.
 
@@ -165,10 +162,7 @@ Below are the key visual insights derived from the cleaned datasets (`final_work
   Workflows with more jobs or steps tend to run longer, although efficient parallelism can sometimes offset the increase.
 
 - **Operating System Impact:**  
-  Linux runners are both **more popular and faster**, suggesting they are generally more efficient for CI tasks compared to Windows or macOS.
-
-- **Outliers Matter:**  
-  A small subset of workflows and jobs shows disproportionately long execution times, which can heavily influence the averages.
+  Linux runners are both more popular and faster, suggesting they are generally more efficient for CI tasks compared to Windows or macOS.
 
 These insights can help optimize CI configurations by:
 

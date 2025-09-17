@@ -312,7 +312,6 @@ ravelloh/psgamespider,schedule,17665672019,1,1.0,4452.0
 nickdeis/eslint-plugin-no-secrets,push,13094942571,3,3.0,143.0
 atalent-labs/404-links,watch,16730969591,1,1.0,5.0
 hiddify/hiddifypanel,push,17666770893,2,2.0,51.0
-speakeasy-api/speakeasy,pull_request,17653009927,4,4.0,60724.0
 silinternational/serverless-mfa-api,push,17631213779,3,3.0,221.0
 runely/calendar-homey,pull_request,17466486920,2,2.0,20.0
 googleworkspace/node-samples,push,17659619748,2,1.0,4.0
@@ -1892,7 +1891,6 @@ hotcoding85/ckeditor5,schedule,13487369197,1,1.0,334.0
 arelle/ixbrl-viewer,push,17555264684,1,1.0,11.0
 huozhi/devjar,push,13488592892,2,1.0,14.0
 valentinh/jest-fail-on-console,push,11139982576,1,1.0,24.0
-zapier/zapier-platform,push,17654247729,18,18.0,70320.0
 mistic100/jquery-querybuilder,pull_request,12030769420,1,1.0,152.0
 scilifelab/genomics-status,push,17435227615,2,2.0,8.0
 hanover-computing/canonicize-url,pull_request,17610202557,1,1.0,60.0
@@ -2519,7 +2517,6 @@ tgxn/lemmy-explorer,schedule,17673956900,1,1.0,588.0
 75lb/command-line-usage,pull_request,14837792883,6,6.0,14.0
 75lb/handbrake-js,push,12205265198,7,7.0,54.0
 75lb/byte-size,push,12190257467,7,7.0,22.0
-openwisp/openwisp-wifi-login-pages,push,17476675942,2,2.0,71680.0
 openwisp/netjsongraph.js,pull_request,17658863893,3,1.0,55.0
 johnfactotum/foliate-js,schedule,17551758022,1,1.0,24.0
 tofrankie/blog,schedule,17662222111,1,1.0,14.0
@@ -4482,7 +4479,6 @@ cky-thinker/file-share,push,15804913460,3,3.0,366.0
 manuelvo/foundryvtt-socketlib,release,15364615109,1,1.0,7.0
 otto-torino/django-baton,push,15587652537,1,1.0,17.0
 fleetbase/navigator-app,push,17259813330,6,4.0,191.0
-fleetbase/fleetbase,push,17398408523,2,2.0,452827.0
 dontpanicdao/vue-stark-boil,schedule,17536843227,1,1.0,14.0
 temporalio/snipsync,push,17660905602,1,1.0,15.0
 cometvisu/cometvisu,pull_request,17518637576,6,5.0,593.0
@@ -5402,7 +5398,6 @@ tikmatrix/tiktok-matrix,push,17660760301,2,2.0,547.0
 nightwatchjs/nightwatch,workflow_run,15591775777,1,1.0,3.0
 nishantwrp/gsoc-organizations,push,17489642603,2,2.0,60.0
 retroreversing/retroreversing,push,17372215684,1,1.0,13.0
-karchinlab/open-cravat,push,17476589241,5,5.0,593300.0
 alephdata/aleph,pull_request,17600376595,2,1.0,39.0
 forzagreen/n2words,push,17346951771,1,1.0,31.0
 galaxyproteomics/tools-galaxyp,schedule,17536314913,4,28.0,4478.0
@@ -5806,7 +5801,6 @@ iobroker-community-adapters/iobroker.snmp,schedule,17581158670,1,1.0,66.0
 iobroker-community-adapters/iobroker.sony-bravia,push,16466367593,8,7.0,371.0
 iobroker-community-adapters/iobroker.proxmox,pull_request,17389443810,11,10.0,245.0
 iobroker-community-adapters/iobroker.owntracks,pull_request,17382773407,8,7.0,1133.0
-iobroker-community-adapters/iobroker.broadlink2,pull_request,14769928264,11,10.0,19497.0
 iobroker-community-adapters/iobroker.harmony,pull_request,17370688755,11,10.0,1090.0
 iobroker-community-adapters/iobroker.doorbird,pull_request,17370781013,11,10.0,327.0
 iobroker-community-adapters/iobroker.lgtv,schedule,17667777101,1,1.0,75.0
@@ -6062,7 +6056,6 @@ webpack-contrib/stylelint-webpack-plugin,push,17188313854,49,30.0,1099.0
 webpack-contrib/css-minimizer-webpack-plugin,push,17188346556,13,13.0,1023.0
 webpack-contrib/remark-loader,push,17188322007,13,13.0,732.0
 webpack-contrib/style-loader,push,17188315263,13,13.0,993.0
-webpack-contrib/mini-css-extract-plugin,pull_request,17117883028,43,21.0,283540.0
 webpack-contrib/source-map-loader,push,17330176813,13,13.0,119.0
 webpack-contrib/image-minimizer-webpack-plugin,pull_request,17117731288,1,1.0,8.0
 webpack-contrib/expose-loader,push,17188343588,13,13.0,857.0
