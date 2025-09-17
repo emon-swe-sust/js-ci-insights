@@ -150,9 +150,8 @@ Below are the key visual insights derived from the cleaned datasets (`final_work
 ![Average Workflow Execution Time vs Number of Jobs](figures/jobs_vs_workflowDuration.png)
 
 - **Observation:**
-  - Workflows with 1 job dominate the dataset (≈4,487), showing a median execution time of a few hundred seconds.
-  - As the number of jobs increases, the average execution time generally grows, with spikes at 5 jobs and 18 jobs, indicating that some workflows with more jobs take significantly longer to complete.
-  - Extremely high execution times for certain job counts suggest outliers where complex jobs or resource-heavy tasks increase duration.
+  - Workflows with 1 job dominate the dataset (≈4,487), showing an average execution time of just over 100 seconds.
+  - As the number of jobs increases, the average execution time rises overall, with noticeable spikes around 7, 10, 18, and 30 jobs, where workflows take substantially longer to finish.
 
 ---
 
